@@ -386,6 +386,14 @@ enum DragKind {
     },
     /// A 3D axes, with its view at the start of the drag.
     ThreeD { view: View3d },
+    /// A polar axes, with its centre, its angle and radius maps and the direction of angle 0 at the start of the
+    /// drag.
+    Polar {
+        centre: Point,
+        x: AxisMap,
+        y: AxisMap,
+        zero_deg: f64,
+    },
     /// A colourbar, with the limits of its scale at the start of the drag.
     Scale(ScaleTarget),
 }
@@ -636,7 +644,16 @@ impl FigureState {
                     changed_x || changed_y
                 })
             }
-            (AxesHitKind::ThreeD, Projection::ThreeD { view3d }) => {
+            (AxesHitKind::Polar { y, .. }, Projection::Polar { .. }) => {
+                // The radius is zoomed about its lower limit, which stays at the centre.
+                let y = current_map(&axes.y, y);
+                let limits = zoomed(&y, y.start, zoom_factor);
+                self.step(|state| state.set_scaled_limits(id, Dimension::Y, &y, limits))
+            }
+            (AxesHitKind::ThreeD, projection) if projection.is_3d() => {
+                let Some(view3d) = projection.view3d() else {
+                    return false;
+                };
                 let zoom = view3d.zoom * zoom_factor;
                 if !(zoom.is_finite() && zoom > 0.0) {
                     return false;
@@ -682,8 +699,17 @@ impl FigureState {
                     fixed_aspect: fixed_ratio(axes).is_some(),
                 }
             }
-            (AxesHitKind::ThreeD, Projection::ThreeD { view3d }) => {
-                DragKind::ThreeD { view: view3d }
+            (AxesHitKind::Polar { centre, x, y }, Projection::Polar { polar }) => DragKind::Polar {
+                centre: *centre,
+                x: current_map(&axes.x, x),
+                y: current_map(&axes.y, y),
+                zero_deg: polar.zero_deg,
+            },
+            (AxesHitKind::ThreeD, projection) if projection.is_3d() => {
+                let Some(view) = projection.view3d() else {
+                    return;
+                };
+                DragKind::ThreeD { view }
             }
             _ => return,
         };
@@ -768,9 +794,42 @@ impl FigureState {
                     ],
                 )
             }
-            // The Zoom tool only moves its rubber band while dragging, a 3D axes has no band, and a 2D axes has
-            // nothing to rotate.
-            (Tool::Zoom, _) | (Tool::Rotate, DragKind::TwoD { .. }) => false,
+            (
+                Tool::Pan,
+                DragKind::Polar {
+                    centre,
+                    y,
+                    zero_deg,
+                    ..
+                },
+            ) => {
+                // The angle grabbed under the pointer follows it round the centre, and the radius grabbed follows it
+                // along the spoke.
+                let polar = |p: Point| {
+                    let (dx, dy) = (p.x - centre.x, centre.y - p.y);
+                    (dy.atan2(dx), dx.hypot(dy))
+                };
+                let ((a0, r0), (a1, r1)) = (polar(drag.start), polar(at));
+                let turn = (a1 - a0 + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
+                    - std::f64::consts::PI;
+                let turned = if turn.abs() > 1e-12 && r0 > 0.0 && r1 > 0.0 {
+                    self.set_zero_deg(drag.axes, zero_deg + turn.to_degrees())
+                } else {
+                    self.set_zero_deg(drag.axes, *zero_deg)
+                };
+                // A pointer that stays on its circle, to within rounding, slides nothing.
+                let slid = if (r1 - r0).abs() > 1e-9 * r0.max(1.0) {
+                    self.set_scaled_limits(drag.axes, Dimension::Y, y, panned(y, r0, r1))
+                } else {
+                    self.restore_captured(drag.axes, Dimension::Y, y)
+                };
+                turned || slid
+            }
+            // The Zoom tool only moves its rubber band while dragging, a 3D axes has no band, a 2D axes has nothing
+            // to rotate, and a polar axes has neither a band nor a camera.
+            (Tool::Zoom, _)
+            | (Tool::Rotate, DragKind::TwoD { .. })
+            | (Tool::Rotate, DragKind::Polar { .. }) => false,
         }
     }
 
@@ -1000,7 +1059,7 @@ impl FigureState {
     ///
     /// The pixel comes from the hit map of the most recent compilation, which records the placement of every image
     /// drawn in a two-dimensional axes and finds the row and column of the artist's own array under a point through
-    /// its inverse; an image on the floor or a wall of a three-dimensional axes has no entry, so it has no datatip.
+    /// the map of figure space into its pixel space; an image on the floor or a wall of a three-dimensional axes has no entry, so it has no datatip.
     /// The value is read from that array at that row and column, in the units the array stores it in and whatever
     /// colour the pixel was painted: a pixel that a policy left transparent still reports what it holds. The
     /// coordinates are those of the centre of the pixel as the placement puts it — the index along an axis without
@@ -1030,7 +1089,7 @@ impl FigureState {
             column,
             x: pixel_centre(placement.columns, drawn.columns, column),
             y: pixel_centre(placement.rows, drawn.rows, row),
-            position: drawn.to_pixel.inverse()?.apply(centre),
+            position: drawn.to_pixel.from_pixel(centre)?,
             value,
         })
     }
@@ -1068,15 +1127,14 @@ impl FigureState {
         let array = &self.composed.data_array(cells.values)?.array;
         let value = pixel_value(array, kind, drawn.row, drawn.column)?;
         let centre = |(a, b): (f64, f64)| (a + b) / 2.0;
-        let r = drawn.rect;
         Some(CellDatatip {
             axes: drawn.axes,
             artist: drawn.artist,
             label: artist.label().map(|text| text.content.clone()),
             row: drawn.row,
             column: drawn.column,
-            position: Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0),
-            rect: r,
+            position: drawn.anchor,
+            rect: drawn.area.bounds(),
             column_edges: drawn.column_edges,
             row_edges: drawn.row_edges,
             value,
@@ -1135,14 +1193,13 @@ impl FigureState {
             axis(axes, bar.orientation.category_dimension()),
             drawn.position,
         );
-        let r = drawn.rect;
         Some(BarDatatip {
             axes: drawn.axes,
             artist: drawn.artist,
             label: artist.label().map(|text| text.content.clone()),
             index: drawn.index,
-            position: Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0),
-            rect: r,
+            position: drawn.anchor,
+            rect: drawn.area.bounds(),
             at: drawn.position,
             value: drawn.value,
             base: drawn.base,
@@ -1351,13 +1408,13 @@ impl FigureState {
         true
     }
 
-    /// Returns whether the displayed figure has at least one 3D axes.
+    /// Returns whether the displayed figure has at least one 3D axes: Cartesian, cylindrical or spherical.
     #[must_use]
     pub fn has_3d(&self) -> bool {
         self.composed
             .axes
             .iter()
-            .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }))
+            .any(|axes| axes.projection.is_3d())
     }
 
     /// Composes the displayed figure from the source and the overlay, discarding the entries that it cannot apply and
@@ -1433,10 +1490,27 @@ impl FigureState {
 
     /// Returns the 3D view of an axes of the displayed figure, or `None` when it is not a 3D axes.
     fn view(&self, id: NodeId) -> Option<View3d> {
-        match self.composed.axes(id)?.projection {
-            Projection::ThreeD { view3d } => Some(view3d),
-            Projection::TwoD => None,
+        self.composed.axes(id)?.projection.view3d()
+    }
+
+    /// Sets the direction of angle 0 of a polar axes, in degrees anticlockwise from east, unless it already points
+    /// there. Returns whether the figure changed.
+    fn set_zero_deg(&mut self, id: NodeId, zero_deg: f64) -> bool {
+        if !zero_deg.is_finite() {
+            return false;
         }
+        let transaction = Transaction {
+            edits: vec![Edit::Set {
+                node: id,
+                path: path(&["projection", "polar", "zero_deg"]),
+                value: Value::Double(zero_deg),
+            }],
+        };
+        let edit = &transaction.edits[0];
+        if !self.changes_the_figure(edit) {
+            return false;
+        }
+        self.record(&transaction)
     }
 
     /// Sets properties of the 3D view of an axes, each by name, such as `zoom` or `azimuth_deg`. Returns whether the

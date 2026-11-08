@@ -177,7 +177,7 @@ fn axes3_keeps_an_existing_view() {
         Projection::ThreeD { view3d } => {
             assert_eq!((view3d.azimuth_deg, view3d.elevation_deg), (45.0, 10.0));
         }
-        Projection::TwoD => panic!("expected a 3D axes"),
+        other => panic!("expected a 3D axes, found {other:?}"),
     }
 }
 

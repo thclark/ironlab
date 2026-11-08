@@ -67,6 +67,13 @@ proto_file! {
         enum Coords y_coords = 13;
         /// Whether the artist is clipped to the plot area.
         optional bool clip = 14;
+        /// The value of y down to which the area under the line is filled; absent for no
+        /// base.
+        optional double base = 15;
+        /// The colour of the area between the line and the base; absent means none.
+        message ColorSpec fill = 16;
+        /// The opacity of the fill, from 0 to 1; absent means 1.
+        optional double fill_opacity = 17;
     }
 
     /// How the values of one dimension of a series are placed in a 2D axes.

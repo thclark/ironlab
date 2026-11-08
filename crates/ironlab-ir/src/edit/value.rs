@@ -11,8 +11,9 @@ use crate::artist::{
     QuiverScale, StairsData, StepAt,
 };
 use crate::axes::{
-    Aspect, AspectAdjust, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
-    Projection, Scale, TickLabels, Ticks, TitleAlign, View3d,
+    AngleUnits, Aspect, AspectAdjust, Axis, AxisSide, ColormapName, InsideColorbar,
+    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
@@ -97,6 +98,16 @@ pub enum Value {
     Projection(Projection),
     /// The camera view of a three-dimensional axes.
     View3d(View3d),
+    /// The polar view of a polar or cylindrical axes.
+    PolarView(PolarView),
+    /// The spherical view of a spherical axes.
+    SphericalView(SphericalView),
+    /// The data units of an angle.
+    AngleUnits(AngleUnits),
+    /// How the polar angle of a spherical axes is measured.
+    PolarAngle(PolarAngle),
+    /// The side of the plot on which an axis is drawn.
+    AxisSide(AxisSide),
     /// A coordinate axis of an axes.
     Axis(Axis),
     /// The scale of a coordinate axis.
@@ -267,6 +278,16 @@ pub enum ValueType {
     Projection,
     /// See [`Value::View3d`].
     View3d,
+    /// See [`Value::PolarView`].
+    PolarView,
+    /// See [`Value::SphericalView`].
+    SphericalView,
+    /// See [`Value::AngleUnits`].
+    AngleUnits,
+    /// See [`Value::PolarAngle`].
+    PolarAngle,
+    /// See [`Value::AxisSide`].
+    AxisSide,
     /// See [`Value::Axis`].
     Axis,
     /// See [`Value::Scale`].
@@ -420,6 +441,11 @@ impl Value {
             Value::Cell(_) => ValueType::Cell,
             Value::Projection(_) => ValueType::Projection,
             Value::View3d(_) => ValueType::View3d,
+            Value::PolarView(_) => ValueType::PolarView,
+            Value::SphericalView(_) => ValueType::SphericalView,
+            Value::AngleUnits(_) => ValueType::AngleUnits,
+            Value::PolarAngle(_) => ValueType::PolarAngle,
+            Value::AxisSide(_) => ValueType::AxisSide,
             Value::Axis(_) => ValueType::Axis,
             Value::Scale(_) => ValueType::Scale,
             Value::Limits(_) => ValueType::Limits,

@@ -16,7 +16,7 @@ use ironlab_scene::Scene;
 use ironlab_scene::display::{Point, Rect, Rgba};
 
 use crate::common::{Fx, cell, compile_figure, out_of_range, rgb8, text, xy};
-use crate::probe::{Leaf, from_source, leaves, pixel, runs_with_text, text_bbox, union};
+use crate::probe::{ImageRect, Leaf, from_source, leaves, pixel, runs_with_text, text_bbox, union};
 
 const RED: Color = Color::rgb(1.0, 0.0, 0.0);
 const GREEN: Color = Color::rgb(0.0, 0.6, 0.0);
@@ -98,8 +98,8 @@ fn fill_under(leaves: &[Leaf], p: Point) -> Option<Rgba> {
                 return None;
             }
             let local = l.transform.inverse()?.apply(p);
-            let fx = (local.x - image.rect.x) / image.rect.width;
-            let fy = (local.y - image.rect.y) / image.rect.height;
+            let fx = (local.x - image.rect().x) / image.rect().width;
+            let fy = (local.y - image.rect().y) / image.rect().height;
             let column = ((fx * f64::from(image.width)).floor().max(0.0) as usize)
                 .min(image.width as usize - 1);
             let row = ((fy * f64::from(image.height)).floor().max(0.0) as usize)

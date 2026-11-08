@@ -1,12 +1,12 @@
 //! The axes handle and its plotting functions.
 
 use ironlab_ir::{
-    Artist, Aspect, AspectAdjust, Axes, Axis, Bar, CellGap, Cells, Color, ColorSpec, Contour,
-    ContourPlacement, Coords, DashStyle, Dimension, Image, InsideColorbar, InsideColorbarSide,
-    InsideLegend, IrError, Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder,
-    LegendLocation, Limits, MarkerShape, NdArray, NodeId, Orientation, Projection, Quiver,
-    ScalarImage, Scale, Series, Stairs, StairsData, StepAt, Surface, Text, TickLabels, Ticks,
-    TitleAlign, View3d,
+    Artist, Aspect, AspectAdjust, Axes, Axis, AxisSide, Bar, CellGap, Cells, Color, ColorSpec,
+    Contour, ContourPlacement, Coords, DashStyle, Dimension, Image, InsideColorbar,
+    InsideColorbarSide, InsideLegend, IrError, Legend, LegendEntries, LegendEntryColumns,
+    LegendEntryOrder, LegendLocation, Limits, MarkerShape, NdArray, NodeId, Orientation,
+    Projection, Quiver, ScalarImage, Scale, Series, Stairs, StairsData, StepAt, Surface, Text,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 
 use crate::artists::{
@@ -673,11 +673,13 @@ impl AxesMut<'_> {
     /// [`pixel_columns`](ImageMut::pixel_columns) and [`pixel_rows`](ImageMut::pixel_rows)
     /// place the pixel centres over other coordinates, and [`plane`](ImageMut::plane)
     /// puts the image on the floor or a wall of a three-dimensional axes. The axes is
-    /// left as it is: a two-dimensional axes stays two-dimensional. An axis of the
-    /// image's plane must not be logarithmic: a raster of evenly spaced pixels has no
-    /// placement on a logarithmic axis, so validation refuses the figure with an
-    /// `ImageOnLogAxis` error, and values sampled along such an axis are drawn with
-    /// [`surface`](AxesMut::surface) instead.
+    /// left as it is: a two-dimensional axes stays two-dimensional. On a logarithmic axis
+    /// of the image's plane each pixel is drawn between its pixel edges mapped through the
+    /// axis, so the pixels are of equal pitch in the data and of unequal widths on the
+    /// page. The edges must then be positive, because a logarithmic axis has no place for
+    /// zero or a negative coordinate: the default centres put the first edge at −0.5, so
+    /// place the pixels with `pixel_columns` or `pixel_rows`, or validation refuses the
+    /// figure with an `InvalidImagePlacement` error.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -1406,6 +1408,54 @@ impl AxesMut<'_> {
         self
     }
 
+    /// Puts the x axis on a side of the plot (matplotlib's `ax.xaxis.set_ticks_position`
+    /// with the matching label position, MATLAB's `ax.XAxisLocation`).
+    ///
+    /// The side moves the line, tick marks, tick labels and label of the axis together.
+    /// In a two-dimensional axes, [`AxisSide::Low`] (the default) draws x along the bottom
+    /// of the plot, [`AxisSide::High`] along the top, with the space for its labels
+    /// reserved there, and [`AxisSide::Centre`] across the middle, with its labels below the
+    /// line and no space reserved. With the box on, the frame keeps its tick marks on both
+    /// edges and only the labels move. In a three-dimensional axes, Low labels the box
+    /// edge lowest on the page, High the edge highest on the page, and Centre a line
+    /// through the centre of the floor; the edge is chosen again for every view. Polar,
+    /// spherical and cylindrical axes ignore the side of x, which
+    /// [`validate`](crate::Figure::validate) warns of.
+    ///
+    /// ```
+    /// use ironlab::prelude::*;
+    ///
+    /// let mut fig = Figure::new();
+    /// let mut ax = fig.axes(0, 0);
+    /// ax.plot(&[0.0, 1.0, 2.0], &[1.0, 3.0, 2.0]);
+    /// ax.xaxis_side(AxisSide::High).yaxis_side(AxisSide::High);
+    /// assert!(fig.validate().is_valid());
+    /// ```
+    pub fn xaxis_side(&mut self, side: AxisSide) -> &mut Self {
+        self.axes().x.side = side;
+        self
+    }
+
+    /// Puts the y axis on a side of the plot (MATLAB's `ax.YAxisLocation`); see
+    /// [`xaxis_side`](AxesMut::xaxis_side). In a two-dimensional axes, Low draws y along
+    /// the left of the plot, High along the right and Centre up the middle, with its
+    /// labels to the left of the line.
+    pub fn yaxis_side(&mut self, side: AxisSide) -> &mut Self {
+        self.axes().y.side = side;
+        self
+    }
+
+    /// Puts the z axis of a three-dimensional or cylindrical axes on a side of the plot;
+    /// see [`xaxis_side`](AxesMut::xaxis_side). In a three-dimensional axes, Low labels
+    /// the vertical box edge furthest left on the page, High the one furthest right, and
+    /// Centre a vertical line through the centre of the floor. In a cylindrical axes, Low
+    /// stands the z axis on the left wall of the cylinder, High on the right wall, and
+    /// Centre up the axis of the cylinder. Spherical axes ignore it.
+    pub fn zaxis_side(&mut self, side: AxisSide) -> &mut Self {
+        self.axes().z.side = side;
+        self
+    }
+
     /// Shows or hides grid lines along every axis (MATLAB's `grid on` and
     /// `grid off`).
     pub fn grid(&mut self, on: bool) -> &mut Self {
@@ -1591,20 +1641,14 @@ impl AxesMut<'_> {
     /// Sets the camera view of the axes by azimuth and elevation in degrees (MATLAB's
     /// `view`), converting the axes to three dimensions.
     ///
-    /// The zoom and pan of an existing three-dimensional view are kept.
+    /// The zoom and pan of an existing three-dimensional view are kept. A polar axes becomes
+    /// a cylindrical one with the same polar view.
     pub fn view(&mut self, azimuth_deg: f64, elevation_deg: f64) -> &mut Self {
-        let axes = self.axes();
-        let view3d = match axes.projection {
-            Projection::ThreeD { view3d } => view3d,
-            Projection::TwoD => View3d::default(),
-        };
-        axes.projection = Projection::ThreeD {
-            view3d: View3d {
-                azimuth_deg,
-                elevation_deg,
-                ..view3d
-            },
-        };
+        self.make_3d();
+        if let Some(view3d) = self.axes().projection.view3d_mut() {
+            view3d.azimuth_deg = azimuth_deg;
+            view3d.elevation_deg = elevation_deg;
+        }
         self
     }
 
@@ -1618,20 +1662,32 @@ impl AxesMut<'_> {
     // Helpers.
 
     /// Returns the axes in the figure IR.
-    fn axes(&mut self) -> &mut Axes {
+    pub(crate) fn axes(&mut self) -> &mut Axes {
         self.fig
             .axes_mut(self.id)
             .expect("an axes handle always refers to an axes of its figure")
     }
 
-    /// Converts a two-dimensional axes to three dimensions with the default view,
-    /// leaving a three-dimensional axes unchanged.
+    /// Converts a two-dimensional axes to three dimensions with the default view, a
+    /// polar axes becoming a cylindrical one with the same polar view, and leaves a
+    /// three-dimensional axes unchanged.
     pub(crate) fn make_3d(&mut self) {
         let axes = self.axes();
-        if axes.projection == Projection::TwoD {
-            axes.projection = Projection::ThreeD {
-                view3d: View3d::default(),
-            };
+        match axes.projection {
+            Projection::TwoD => {
+                axes.projection = Projection::ThreeD {
+                    view3d: View3d::default(),
+                };
+            }
+            Projection::Polar { polar } => {
+                axes.projection = Projection::Cylindrical {
+                    view3d: View3d::default(),
+                    polar,
+                };
+            }
+            Projection::ThreeD { .. }
+            | Projection::Cylindrical { .. }
+            | Projection::Spherical { .. } => {}
         }
     }
 

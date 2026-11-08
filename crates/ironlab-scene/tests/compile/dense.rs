@@ -262,9 +262,9 @@ fn inside_dense(items: &[Item], id: NodeId, dense: bool) -> bool {
     })
 }
 
-// WHY: an image is already a raster, so marking it dense would have the PDF exporter rasterise a raster and resample
-// the pixels the user supplied; the marking exists for vector geometry too dense to keep as paths, and it must not
-// spread to an image drawn beside such geometry in the same axes.
+// WHY: an image drawn as a rectangle is already a raster, so marking it dense would have the PDF exporter rasterise
+// a raster and resample the pixels the user supplied; the marking exists for vector geometry too dense to keep as
+// paths, and it must not spread to an image drawn beside such geometry in the same axes.
 #[test]
 fn an_image_is_never_marked_dense_even_beside_a_surface() {
     let mut fx = Fx::new();
@@ -298,5 +298,49 @@ fn an_image_is_never_marked_dense_even_beside_a_surface() {
         crate::probe::from_source(&crate::probe::leaves(&scene), image).len(),
         1,
         "the image is drawn as one leaf"
+    );
+}
+
+// WHY: an image on a logarithmic axis is drawn through a mesh, which the PDF exporter writes as one filled path per
+// pixel; a large one is exactly the vector geometry too dense to keep as paths, so it must be marked dense with its
+// pixel count (width · height, here 5 · 3 = 15, distinguishable from either dimension and from the lattice nodes),
+// so that the exporter's raster policy can decide to draw it as a raster. A rectangle image beside it stays outside
+// every dense group, because it is already a raster.
+#[test]
+fn an_image_drawn_through_a_mesh_is_marked_dense_with_its_pixel_count() {
+    let mut fx = Fx::new();
+    fx.fig.layout.cols = 2;
+    let log = fx.axes2d(0, 0);
+    let warped = fx.imagesc(
+        log,
+        vec![3, 5],
+        (0..15).map(|v| v as f64).collect::<Vec<_>>(),
+        xy(range(1.0, 5.0), range(0.0, 2.0)),
+        |_| {},
+    );
+    fx.ax(log).x.scale = ironlab_ir::Scale::Log;
+    let linear = fx.axes2d(0, 1);
+    let flat = fx.imagesc(
+        linear,
+        vec![3, 5],
+        (0..15).map(|v| v as f64).collect::<Vec<_>>(),
+        xy(range(1.0, 5.0), range(0.0, 2.0)),
+        |_| {},
+    );
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    assert_eq!(
+        dense_groups(&scene),
+        vec![(Some(warped), 15, 1)],
+        "one dense group holding the one mesh image item and counting its 15 pixels"
+    );
+    assert!(
+        inside_dense(&scene.display_list.items, warped, false),
+        "the mesh image lies inside its dense group"
+    );
+    assert!(
+        !inside_dense(&scene.display_list.items, flat, false),
+        "the rectangle image lies outside every dense group"
     );
 }

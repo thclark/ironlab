@@ -131,6 +131,7 @@ gallery!(
     coverage_matrix,
     cylinder_flow,
     sweep_spectrogram,
+    fft_spectrogram,
     piv_confidence,
     surf,
     mesh,
@@ -144,6 +145,20 @@ gallery!(
     subplots_linked,
     subplots_all_x,
     subplots_all_y,
+    polar_directivity,
+    polar_scatter,
+    polar_field,
+    polar_image,
+    radial_bars,
+    log_radius,
+    radar_chart,
+    polar_histogram,
+    wind_rose,
+    cylindrical_surface,
+    helix,
+    axis_sides,
+    antenna_balloon,
+    globe_image,
 );
 
 /// Returns the gallery entry with the given slug, if there is one.

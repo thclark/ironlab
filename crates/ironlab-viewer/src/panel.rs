@@ -35,8 +35,8 @@ use ironlab_ir::{
     Axis, CategoricalColorScale, Cell as IrCell, CellGap, Choice, Color, ColorScaleOutOfRange,
     ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement, IndexedColorScale,
     InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange, PanelLegend,
-    Parameter, PixelRange, PropertyPath, Text, TileLayout, TrackSize, Value, ValueType, View3d,
-    choices,
+    Parameter, PixelRange, PolarView, PropertyPath, SphericalView, Text, TileLayout, TrackSize,
+    Value, ValueType, View3d, choices,
 };
 
 use crate::widgets::{
@@ -904,6 +904,8 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Parameters => Some(Value::Parameters(BTreeMap::new())),
         ValueType::Cell => Some(Value::Cell(IrCell::default())),
         ValueType::View3d => Some(Value::View3d(View3d::default())),
+        ValueType::PolarView => Some(Value::PolarView(PolarView::default())),
+        ValueType::SphericalView => Some(Value::SphericalView(SphericalView::default())),
         ValueType::Axis => Some(Value::Axis(Axis::default())),
         ValueType::InsideLegend => Some(Value::InsideLegend(InsideLegend::default())),
         ValueType::LegendEntryLayout => {
@@ -937,6 +939,9 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Binning | ValueType::Binning2d => None,
         // Every remaining type has choices, and the first of them was returned above.
         ValueType::Projection
+        | ValueType::AngleUnits
+        | ValueType::PolarAngle
+        | ValueType::AxisSide
         | ValueType::Limits
         | ValueType::Ticks
         | ValueType::TickLabels

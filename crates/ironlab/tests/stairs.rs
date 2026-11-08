@@ -121,7 +121,7 @@ fn a_fill_without_a_base_is_reported_by_validate_rather_than_given_a_base() {
         .id();
     assert_eq!(stairs(&fig, id).base, None, "no base is invented");
     assert!(
-        has_error_at(&fig.validate(), IssueKind::StairsFillWithoutBase, id),
+        has_error_at(&fig.validate(), IssueKind::FillWithoutBase, id),
         "{:?}",
         fig.validate()
     );

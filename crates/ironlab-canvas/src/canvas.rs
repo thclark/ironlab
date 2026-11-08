@@ -2,8 +2,9 @@
 //!
 //! # Approach
 //!
-//! Every leaf of the display list is visited with [`DisplayList::visit_leaves_grouped`], which supplies the
-//! accumulated group transform, the effective clip rectangle in figure space and the enclosing depth group. Fills,
+//! Every leaf of the display list is visited with [`DisplayList::visit_leaves_sectored`], which supplies the
+//! accumulated group transform, the effective clip rectangle in figure space, the enclosing depth group and the
+//! enclosing sector clip. Fills,
 //! glyphs and images become triangles in figure points, with the group transform applied and nothing else; strokes
 //! become segments in the item space of their path, with the group transform carried in the draw's parameters. The
 //! mapping from figure points to the screen is a uniform of the painter, so that a list built once serves every
@@ -34,8 +35,13 @@
 //!   so that the texture is drawn unmodulated, and a [`TileKey`] naming the pixels the painter uploads. Every tile
 //!   edge is computed from its integer pixel coordinate through the same affine chain, so abutting tiles share
 //!   bit-equal edges and show no seam. A tile whose bounding box lies wholly outside the leaf's clip is not drawn.
+//!   An image drawn through an [`ImageMesh`] is tiled alike, but each tile is textured triangles rather than a
+//!   quad: the two triangles of every lattice cell, cut to the tile in pixel space and placed by their affine maps,
+//!   each vertex carrying the texture coordinate of its pixel-space position within the tile.
 //! - **Clips** are recorded, not applied: every draw of a clipped leaf carries the leaf's clip in figure points, and
-//!   the painter cuts the draw at the scissor rectangle of it. Nothing is clipped geometrically.
+//!   the painter cuts the draw at the scissor rectangle of it. A leaf beneath an [`ItemKind::SectorClip`] is visited
+//!   with [`DisplayList::visit_leaves_sectored`], and every draw of it carries the sector of the innermost such clip
+//!   in figure points as well, which the fragment shaders cut it to. Nothing is clipped geometrically.
 //! - **Colours** are straight alpha in the display list and are converted to premultiplied sRGB bytes as
 //!   [`ecolor::Color32::from_rgba_unmultiplied`] converts them.
 //! - **The background** of the list is not in the draw list: it is the colour of the page beneath every item, so
@@ -48,8 +54,9 @@
 //! and segment end: a [`Depth::Plane`] evaluated at the item-space position, or a [`Depth::Vertices`] carried
 //! through lyon as a custom attribute for fills and taken per endpoint for strokes (a point made by flattening a
 //! curve interpolates the curve's end depths by its share of the flattened length); an image tile's corners take
-//! its plane at their pixel-space positions. Depths are normalised to `[0, 1]` over the group, 0 the nearest. A
-//! path in a group without a usable depth, an image in a group without a plane, and a glyph run in a group are
+//! its plane at their pixel-space positions, and the vertices of a mesh image the depths of its nodes interpolated
+//! as its points are. Depths are normalised to `[0, 1]` over the group, 0 the nearest. A
+//! path in a group without a usable depth, an image in a group without a plane (or a mesh image without node depths), and a glyph run in a group are
 //! skipped. Outside every group the depth of an item is ignored and its vertices lie at `z = 0`; a stroke outside
 //! every group instead takes a depth of its own from its params, decreasing with every such stroke since the list
 //! or the last depth group began, which is how the painter keeps a stroke from blending with itself (see
@@ -63,8 +70,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use ironlab_scene::display::{
-    Depth, DisplayList, FillRule, GlyphsItem, ImageItem, ItemKind, LineCap, LineJoin, MarkersItem,
-    PathItem, PathSegment, Point, Rect, Rgba, Stroke, Transform,
+    Depth, DisplayList, FillRule, GlyphsItem, ImageGeometry, ImageItem, ImageMesh, ItemKind,
+    LineCap, LineJoin, MarkersItem, PathItem, PathSegment, Point, Rect, Rgba, Sector, Stroke,
+    Transform,
 };
 use ironlab_text::{FontId, TextEngine};
 use kurbo::PathEl;
@@ -159,9 +167,10 @@ pub fn tessellate(list: &DisplayList, text: &TextEngine, resolution: Resolution)
     }
     let max_tile_side = resolution.max_tile_side.min(MAX_TILE_SIDE);
     let mut tessellator = FillTessellator::new();
-    list.visit_leaves_grouped(|item, transform, clip, group| {
+    list.visit_leaves_sectored(|item, transform, clip, group, sector| {
         builder.enter(group);
-        let Some(context) = LeafContext::new(transform, scale, clip) else {
+        builder.sector = sector;
+        let Some(context) = LeafContext::new(transform, scale, clip, sector) else {
             return;
         };
         match &item.kind {
@@ -195,6 +204,7 @@ pub fn tessellate(list: &DisplayList, text: &TextEngine, resolution: Resolution)
             ItemKind::Glyphs(_)
             | ItemKind::Group { .. }
             | ItemKind::Dense { .. }
+            | ItemKind::SectorClip { .. }
             | ItemKind::Depth { .. } => {}
         }
     });
@@ -222,6 +232,8 @@ struct ListBuilder {
     group: Option<(u32, usize, usize, usize)>,
     /// The number of strokes drawn outside every group since the list or the last group began.
     flat_strokes: u32,
+    /// The sector clip of the leaf being built, which every draw of it carries.
+    sector: Option<Sector>,
 }
 
 impl ListBuilder {
@@ -343,6 +355,7 @@ impl ListBuilder {
             texture: None,
             depth_group: self.depth_group(),
             clip,
+            sector: self.sector,
             source,
             translucent,
         });
@@ -398,6 +411,7 @@ impl ListBuilder {
             texture,
             depth_group: self.depth_group(),
             clip,
+            sector: self.sector,
             source,
             translucent,
         });
@@ -442,6 +456,7 @@ impl ListBuilder {
             texture: None,
             depth_group: self.depth_group(),
             clip,
+            sector: self.sector,
             source,
             translucent,
         });
@@ -472,12 +487,19 @@ struct LeafContext {
     scale: f64,
     /// The clip rectangle in figure space.
     clip: Option<Rect>,
+    /// The bounds of the enclosing sector clip in figure space, which a polygon must overlap to show.
+    sector_bounds: Option<Rect>,
 }
 
 impl LeafContext {
-    /// Returns `None` when the transform or clip is not finite, when the transform is degenerate, or when the clip is
-    /// empty, in all of which cases the item draws nothing.
-    fn new(transform: Transform, scale: f64, clip: Option<Rect>) -> Option<Self> {
+    /// Returns `None` when the transform or clip is not finite, when the transform is degenerate, when the clip is
+    /// empty, or when the sector clip is invalid, in all of which cases the item draws nothing.
+    fn new(
+        transform: Transform,
+        scale: f64,
+        clip: Option<Rect>,
+        sector: Option<Sector>,
+    ) -> Option<Self> {
         let t = transform;
         if ![t.a, t.b, t.c, t.d, t.e, t.f].iter().all(|v| v.is_finite()) {
             return None;
@@ -495,11 +517,15 @@ impl LeafContext {
         {
             return None;
         }
+        if sector.is_some_and(|s| !s.is_valid()) {
+            return None;
+        }
         Some(Self {
             to_figure: t,
             max_stretch,
             scale,
             clip,
+            sector_bounds: sector.map(|s| s.bounds()),
         })
     }
 
@@ -514,12 +540,13 @@ impl LeafContext {
         [p.x as f32, p.y as f32]
     }
 
-    /// Whether a quad with the given figure-space corners can show through the clip: its bounding box overlaps the
-    /// clip rectangle. Conservative for a sheared quad, which is drawn and cut by the scissor.
-    fn may_show(&self, corners: &[[f32; 2]; 4]) -> bool {
-        let Some(clip) = self.clip else {
+    /// Whether a polygon with the given figure-space corners can show through the clip: its bounding box overlaps
+    /// the clip rectangle and the bounds of the sector clip. Conservative for a sheared quad, which is drawn and cut
+    /// by the scissor, and for a sector, which the fragment shaders cut.
+    fn may_show(&self, corners: &[[f32; 2]]) -> bool {
+        if self.clip.is_none() && self.sector_bounds.is_none() {
             return true;
-        };
+        }
         let (mut min_x, mut min_y, mut max_x, mut max_y) = (
             f64::INFINITY,
             f64::INFINITY,
@@ -533,7 +560,10 @@ impl LeafContext {
             max_x = max_x.max(x);
             max_y = max_y.max(y);
         }
-        max_x > clip.x && min_x < clip.right() && max_y > clip.y && min_y < clip.bottom()
+        let overlaps = |clip: Rect| {
+            max_x > clip.x && min_x < clip.right() && max_y > clip.y && min_y < clip.bottom()
+        };
+        self.clip.is_none_or(overlaps) && self.sector_bounds.is_none_or(overlaps)
     }
 }
 
@@ -1321,7 +1351,7 @@ fn tessellate_image(
     if max_tile_side == 0 || !item.is_valid() {
         return;
     }
-    let plane = if builder.in_group() {
+    let plane = if builder.in_group() && matches!(item.geometry, ImageGeometry::Rect(_)) {
         match item.depth {
             Some(plane) => Some(plane),
             None => return,
@@ -1343,7 +1373,25 @@ fn tessellate_image(
     let Ok(tiles) = u32::try_from(u64::from(rows) * u64::from(columns)) else {
         return;
     };
-    let rect = item.rect;
+    let rect = match &item.geometry {
+        ImageGeometry::Rect(rect) => *rect,
+        ImageGeometry::Mesh(mesh) => {
+            let tiling = Tiling {
+                side: max_tile_side,
+                columns,
+                tiles,
+            };
+            return tessellate_mesh_image(
+                item,
+                mesh,
+                tiling,
+                translucent,
+                context,
+                builder,
+                source,
+            );
+        }
+    };
     let x_at = |column: u32| rect.x + rect.width * (f64::from(column) / f64::from(item.width));
     let y_at = |row: u32| rect.y + rect.height * (f64::from(row) / f64::from(item.height));
     for tile in 0..tiles {
@@ -1397,6 +1445,177 @@ fn tessellate_image(
         builder.push(
             vertices,
             [0, 1, 2, 2, 1, 3],
+            Some(key),
+            translucent,
+            context.clip,
+            source,
+        );
+    }
+}
+
+/// How the pixels of an image are cut into tiles: of at most `side` pixels on a side, `columns` tiles to a row, and
+/// `tiles` in all, numbered in row-major order.
+#[derive(Clone, Copy)]
+struct Tiling {
+    side: u32,
+    columns: u32,
+    tiles: u32,
+}
+
+/// One triangle of a lattice cell: its corners in pixel space, where they are drawn in item space, and their depths.
+struct MeshTriangle {
+    pixel: [(f64, f64); 3],
+    drawn: [Point; 3],
+    depth: [f64; 3],
+}
+
+impl MeshTriangle {
+    /// The drawn position and the depth of a pixel-space point under the affine map of the triangle.
+    fn map(&self, (u, v): (f64, f64)) -> (Point, f64) {
+        let [a, b, c] = self.pixel;
+        let det = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
+        let wb = ((u - a.0) * (c.1 - a.1) - (c.0 - a.0) * (v - a.1)) / det;
+        let wc = ((b.0 - a.0) * (v - a.1) - (u - a.0) * (b.1 - a.1)) / det;
+        let wa = 1.0 - wb - wc;
+        let [pa, pb, pc] = self.drawn;
+        (
+            Point::new(
+                wa * pa.x + wb * pb.x + wc * pc.x,
+                wa * pa.y + wb * pb.y + wc * pc.y,
+            ),
+            wa * self.depth[0] + wb * self.depth[1] + wc * self.depth[2],
+        )
+    }
+}
+
+/// Cuts a convex polygon in pixel space to the rectangle `[u0, u1] × [v0, v1]`, one side at a time.
+fn clip_to_tile(polygon: &[(f64, f64)], u0: f64, u1: f64, v0: f64, v1: f64) -> Vec<(f64, f64)> {
+    // Each side is a signed distance, positive inside, and the coordinate of the side.
+    type Side = (fn((f64, f64), f64) -> f64, f64);
+    let sides: [Side; 4] = [
+        (|p, at| p.0 - at, u0),
+        (|p, at| at - p.0, u1),
+        (|p, at| p.1 - at, v0),
+        (|p, at| at - p.1, v1),
+    ];
+    let mut out = polygon.to_vec();
+    for (distance, at) in sides {
+        let input = std::mem::take(&mut out);
+        for (k, &p) in input.iter().enumerate() {
+            let q = input[(k + 1) % input.len()];
+            let (dp, dq) = (distance(p, at), distance(q, at));
+            if dp >= 0.0 {
+                out.push(p);
+            }
+            if (dp >= 0.0) != (dq >= 0.0) {
+                let t = dp / (dp - dq);
+                out.push((p.0 + t * (q.0 - p.0), p.1 + t * (q.1 - p.1)));
+            }
+        }
+        if out.is_empty() {
+            break;
+        }
+    }
+    out
+}
+
+/// Adds an image drawn through a mesh to the list as one draw per tile that may show through the clip.
+///
+/// Every lattice cell is split along its diagonal from `(u[i], v[j])` to `(u[i+1], v[j+1])` into two triangles, as
+/// [`ImageMesh`] defines. Each triangle is cut to every tile it overlaps in pixel space, so a cell that crosses a tile
+/// boundary is split there, and every corner of the cut polygon is placed, and given its depth, by the affine map of
+/// its triangle, which is exact under the piecewise affine definition. A vertex carries the texture coordinate of its
+/// pixel-space position within its tile and is white, so that the texture is drawn unmodulated. Inside a depth group
+/// the depths come from the mesh, and a mesh without them adds nothing; outside one they are ignored.
+fn tessellate_mesh_image(
+    item: &ImageItem,
+    mesh: &ImageMesh,
+    tiling: Tiling,
+    translucent: bool,
+    context: &LeafContext,
+    builder: &mut ListBuilder,
+    source: Option<ironlab_ir::NodeId>,
+) {
+    let depths = if builder.in_group() {
+        match &mesh.depths {
+            Some(depths) => Some(depths),
+            None => return,
+        }
+    } else {
+        None
+    };
+    let node = |i: usize, j: usize| {
+        let k = j * mesh.u.len() + i;
+        (
+            (mesh.u[i], mesh.v[j]),
+            mesh.points[k],
+            depths.map_or(0.0, |d| d[k]),
+        )
+    };
+    let triangle = |corners: [(usize, usize); 3]| {
+        let [a, b, c] = corners.map(|(i, j)| node(i, j));
+        MeshTriangle {
+            pixel: [a.0, b.0, c.0],
+            drawn: [a.1, b.1, c.1],
+            depth: [a.2, b.2, c.2],
+        }
+    };
+    // The lattice cells whose span overlaps `[lo, hi]` along one axis.
+    let cells = |values: &[f64], lo: f64, hi: f64| {
+        let first = values.partition_point(|x| *x <= lo).saturating_sub(1);
+        let last = values.partition_point(|x| *x < hi).min(values.len() - 1);
+        first..last
+    };
+    for tile in 0..tiling.tiles {
+        let (row, column) = (tile / tiling.columns, tile % tiling.columns);
+        let (c0, r0) = (column * tiling.side, row * tiling.side);
+        let c1 = c0.saturating_add(tiling.side).min(item.width);
+        let r1 = r0.saturating_add(tiling.side).min(item.height);
+        let (u0, u1, v0, v1) = (f64::from(c0), f64::from(c1), f64::from(r0), f64::from(r1));
+        let mut vertices: Vec<(Vertex, f64)> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        for j in cells(&mesh.v, v0, v1) {
+            for i in cells(&mesh.u, u0, u1) {
+                for corners in [
+                    [(i, j), (i + 1, j), (i + 1, j + 1)],
+                    [(i, j), (i + 1, j + 1), (i, j + 1)],
+                ] {
+                    let triangle = triangle(corners);
+                    let polygon = clip_to_tile(&triangle.pixel, u0, u1, v0, v1);
+                    if polygon.len() < 3 {
+                        continue;
+                    }
+                    let base = vertices.len() as u32;
+                    for &(u, v) in &polygon {
+                        let (drawn, depth) = triangle.map((u, v));
+                        let vertex = Vertex {
+                            pos: context.apply(drawn.x, drawn.y),
+                            z: 0.0,
+                            uv: [((u - u0) / (u1 - u0)) as f32, ((v - v0) / (v1 - v0)) as f32],
+                            color: [255, 255, 255, 255],
+                        };
+                        vertices.push((vertex, depth));
+                    }
+                    for k in 1..polygon.len() as u32 - 1 {
+                        indices.extend([base, base + k, base + k + 1]);
+                    }
+                }
+            }
+        }
+        let corners: Vec<[f32; 2]> = vertices.iter().map(|(v, _)| v.pos).collect();
+        if corners.is_empty() || !context.may_show(&corners) {
+            continue;
+        }
+        let key = TileKey {
+            samples: Arc::clone(&item.samples),
+            width: item.width,
+            channels: item.channels,
+            columns: c0..c1,
+            rows: r0..r1,
+        };
+        builder.push(
+            vertices,
+            indices,
             Some(key),
             translucent,
             context.clip,

@@ -183,6 +183,7 @@ fn wire_axis(
         }),
         visible: Some(true),
         tick_label_angle: Some(0.0),
+        side: wire::AxisSide::Low as i32,
     })
 }
 
@@ -941,6 +942,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     reverse: Some(true),
                     visible: Some(false),
                     tick_label_angle: Some(30.0),
+                    side: wire::AxisSide::High as i32,
                     ticks: Some(wire::Ticks {
                         kind: Some(wire::TicksKind::Step(wire::TicksStep {
                             step: Some(0.25),
@@ -960,6 +962,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 )
                 .map(|axis| wire::Axis {
                     tick_label_angle: Some(-60.0),
+                    side: wire::AxisSide::Centre as i32,
                     ticks: Some(wire::Ticks {
                         kind: Some(wire::TicksKind::Values(wire::TicksValues {
                             values: vec![3.0, 3.5],
@@ -1008,6 +1011,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::AxesFraction as i32,
                         y_coords: wire::Coords::Data as i32,
                         clip: Some(false),
+                        base: None,
+                        fill: wire_no_color(),
+                        fill_opacity: Some(1.0),
                     })),
                     wire_artist(wire::ArtistKind::Series(wire::Series {
                         id: Some(31),
@@ -1029,6 +1035,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::Data as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(true),
+                        base: None,
+                        fill: wire_no_color(),
+                        fill_opacity: Some(1.0),
                     })),
                     wire_artist(wire::ArtistKind::Series(wire::Series {
                         id: Some(32),
@@ -1050,6 +1059,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: wire::Coords::AxesFraction as i32,
                         y_coords: wire::Coords::AxesFraction as i32,
                         clip: Some(false),
+                        base: Some(2.25),
+                        fill: wire_rgba(0.125, 0.375, 0.625, 0.8125),
+                        fill_opacity: Some(0.375),
                     })),
                     wire_artist(wire::ArtistKind::Contour(wire::Contour {
                         id: Some(33),
@@ -1369,6 +1381,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         grid: false,
         visible: true,
         tick_label_angle: 0.0,
+        side: AxisSide::Low,
     };
     let category = |policy: OutOfRange, show_key: bool, label: Option<Text>| ColorScaleOutOfRange {
         policy,
@@ -1575,6 +1588,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     grid: true,
                     visible: false,
                     tick_label_angle: 30.0,
+                    side: AxisSide::High,
                 },
                 y: Axis {
                     label: text("y label", Interpreter::Latex),
@@ -1586,6 +1600,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     grid: false,
                     visible: true,
                     tick_label_angle: -60.0,
+                    side: AxisSide::Centre,
                 },
                 z: Axis {
                     label: None,
@@ -1597,6 +1612,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     grid: true,
                     visible: true,
                     tick_label_angle: 0.0,
+                    side: AxisSide::Low,
                 },
                 colorbar: None,
                 box_: false,
@@ -1645,6 +1661,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::AxesFraction,
                         y_coords: Coords::Data,
                         clip: false,
+                        base: None,
+                        fill: ColorSpec::None,
+                        fill_opacity: 1.0,
                     }),
                     Artist::Series(Series {
                         id: NodeId(31),
@@ -1670,6 +1689,9 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::Data,
                         y_coords: Coords::AxesFraction,
                         clip: true,
+                        base: None,
+                        fill: ColorSpec::None,
+                        fill_opacity: 1.0,
                     }),
                     Artist::Series(Series {
                         id: NodeId(32),
@@ -1697,6 +1719,11 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                         x_coords: Coords::AxesFraction,
                         y_coords: Coords::AxesFraction,
                         clip: false,
+                        base: Some(2.25),
+                        fill: ColorSpec::Rgba {
+                            color: Color::rgba(0.125, 0.375, 0.625, 0.8125),
+                        },
+                        fill_opacity: 0.375,
                     }),
                     Artist::Contour(Contour {
                         id: NodeId(33),
@@ -2156,6 +2183,10 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
             |w, v| w.axes[0].x.as_mut().unwrap().scale = v,
             |f| format!("{:?}", f.axes[0].x.scale),
         ),
+        check::<wire::AxisSide>(
+            |w, v| w.axes[0].x.as_mut().unwrap().side = v,
+            |f| format!("{:?}", f.axes[0].x.side),
+        ),
         check::<wire::ColormapName>(
             |w, v| {
                 if let Some(wire::Colormap {
@@ -2389,6 +2420,23 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
                     .element = v;
             },
             |f| format!("{:?}", f.data[0].array.element()),
+        ),
+        check::<wire::PolarAngle>(
+            |w, v| {
+                w.axes[0].projection = Some(wire::Projection {
+                    kind: Some(wire::ProjectionKind::Spherical(wire::ProjectionSpherical {
+                        view3d: None,
+                        spherical: Some(wire::SphericalView {
+                            angle_units: None,
+                            polar_angle: v,
+                        }),
+                    })),
+                });
+            },
+            |f| match f.axes[0].projection {
+                Projection::Spherical { spherical, .. } => format!("{:?}", spherical.polar_angle),
+                other => panic!("the carrier's spherical axes decoded as {other:?}"),
+            },
         ),
     ]
     .into_iter()
@@ -4809,6 +4857,9 @@ fn bytes_encoded_by_hand_from_the_schema_field_numbers_decode_to_the_described_f
                         x_coords: Coords::Data,
                         y_coords: Coords::Data,
                         clip: true,
+                        base: None,
+                        fill: ColorSpec::None,
+                        fill_opacity: 1.0,
                     }),
                     Artist::Image(Image {
                         id: NodeId(4),

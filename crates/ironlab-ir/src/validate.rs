@@ -7,7 +7,7 @@ use crate::artist::{
     ContourPlacement, Coords, Grid, Image, ImagePlacement, ImagePlane, Levels, PerBar, PixelRange,
     Quiver, ScalarImage, Series, Stairs, StairsData, Surface,
 };
-use crate::axes::{Aspect, Axes, Axis, Limits, Projection, Scale, TickLabels, Ticks};
+use crate::axes::{Aspect, Axes, Axis, Limits, PolarAngle, Projection, Scale, TickLabels, Ticks};
 use crate::color_scale::{
     ColorMapping, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKind, ColorScaleLevels,
     ColorScaleNorm, Colormap, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
@@ -112,11 +112,11 @@ pub enum IssueKind {
     /// alpha of cells, whose edges must hold 64-bit floating-point values.
     ElementTypeMismatch,
     /// An artist or placement that needs the z axis (z or w data, contours at their
-    /// level, an image on a wall) is used in a two-dimensional axes. A surface is not
+    /// level, an image on a wall) is used in a two-dimensional axes, Cartesian or polar. A surface is not
     /// such an artist: in a two-dimensional axes it is seen from directly above.
     ThreeDArtistInTwoDAxes,
     /// A series places a dimension in axes-fraction coordinates in a
-    /// three-dimensional axes, which has no plot area along its dimensions to take a
+    /// three-dimensional axes (Cartesian, cylindrical or spherical), which has no plot area along its dimensions to take a
     /// fraction of.
     AxesFractionInThreeDAxes,
     /// A series releases its clip (`clip` is false) although it places no
@@ -237,9 +237,13 @@ pub enum IssueKind {
     InvalidTag,
     /// The placement of an image cannot be drawn: a pixel centre or the offset of its
     /// plane is not finite, the centres of the first and last pixels along an axis
-    /// coincide although the image has more than one pixel along that axis, or, in a
+    /// coincide although the image has more than one pixel along that axis, the first or
+    /// last pixel edge along a logarithmic axis of its plane is not positive, or, in a
     /// three-dimensional axes, the plane is offset to a coordinate that is not positive
-    /// along a logarithmic third axis, which has no place for it.
+    /// along a logarithmic third axis. A logarithmic axis has no place for a coordinate
+    /// that is not positive; an image whose edges are positive is drawn on it with every
+    /// pixel between its edges mapped through the axis. Only the axes of the plane
+    /// constrain the edges: the z axis of a two-dimensional axes is ignored.
     InvalidImagePlacement,
     /// A number that an artist maps through its colour scale falls in a category of the
     /// scale whose policy is strict: below or above the range of a continuous or discrete
@@ -251,15 +255,6 @@ pub enum IssueKind {
     /// No value lies beyond automatic limits, which are the range of the data, except a
     /// value that is not positive under a logarithmic norm, which lies below.
     ValueOutOfRange,
-    /// An image lies in a plane of which an axis is logarithmic. An image is a raster of
-    /// evenly spaced pixels, which has no placement on a logarithmic axis, where equal
-    /// steps in the data are unequal distances on the page, so the figure is refused
-    /// rather than drawn without the image. Values sampled along a logarithmic axis are
-    /// drawn as a [`Surface`](crate::Surface) instead, whose every node is placed
-    /// through the logarithmic scale; the message says how. Only the axes of the plane
-    /// count: the third axis, along which the plane is offset, may be logarithmic, and
-    /// the z axis of a two-dimensional axes is ignored.
-    ImageOnLogAxis,
     /// The opacity of an artist (of an image, of the faces or edges of a surface, of bars
     /// or of cells, of the lines or fill of a contour or of stairs) is not a finite number
     /// from 0 to 1.
@@ -286,23 +281,60 @@ pub enum IssueKind {
     /// does not increase. Bin edges that are not finite and strictly increasing are
     /// [`InvalidEdges`](IssueKind::InvalidEdges) instead.
     InvalidBinning,
-    /// A colour of stairs (their line or fill) is colormapped, but stairs have no colour
-    /// data to map and no colour scale to look the colour up in.
+    /// A colour that cannot take its colour from a colour scale is colormapped: a colour of
+    /// stairs (their line or fill), which have no colour data to map and no colour scale to
+    /// look the colour up in, or the fill of a series, whose colour data colours its points
+    /// and segments and not the area beneath them.
     ColormapNotSupported,
-    /// Stairs have a fill other than none but no base, so there is nothing to fill down
-    /// to.
-    StairsFillWithoutBase,
-    /// Bars, stairs or cells are placed in a three-dimensional axes; they are drawn only
-    /// in the plane of a two-dimensional axes.
+    /// Stairs or a series have a fill other than none but no base, so there is nothing to
+    /// fill down to.
+    FillWithoutBase,
+    /// A series with a fill other than none is placed in a three-dimensional axes
+    /// (Cartesian, cylindrical or spherical), where the area under a line has no plane to
+    /// lie in and is not drawn.
+    SeriesFillInThreeDAxes,
+    /// Bars, stairs or cells are placed in a three-dimensional axes (Cartesian, cylindrical
+    /// or spherical); they are drawn only in the plane of a two-dimensional axes, Cartesian
+    /// or polar.
     TwoDArtistInThreeDAxes,
     /// The tick label angle of an axis that is drawn is not finite. It is reported against
     /// the axes; the z axis of a two-dimensional axes is ignored.
     InvalidTickLabelAngle,
-    /// An axis of a three-dimensional axes has a tick label angle other than 0, which a
-    /// three-dimensional axes ignores because its tick labels lie along projected edges.
-    /// This is a warning, not an error, because the figure is drawn with level labels. It is
+    /// An axis has a tick label angle other than 0 that is ignored: any axis of a
+    /// three-dimensional axes, whose tick labels lie along projected edges, or the angular
+    /// x axis of a polar axes, whose tick labels are placed around the rim. This is a
+    /// warning, not an error, because the figure is drawn with level labels. It is
     /// reported against the axes.
     TickLabelAngleIgnored,
+    /// An axis that carries an angle is logarithmic: x of a polar, cylindrical or
+    /// spherical axes, or y (the polar angle) of a spherical axes. An angle wraps around a
+    /// turn and has no origin for a logarithm. It is reported against the axes.
+    LogAngleAxis,
+    /// The manual limits of an angle span more than its convention allows: limits of the
+    /// angular x axis of a polar, cylindrical or spherical axes that span more than one
+    /// turn, or limits of the polar angle (y) of a spherical axes that lie outside a
+    /// quarter turn either side of the X–Y plane for an elevation, or outside 0 to half a
+    /// turn for an inclination. It is reported against the axes.
+    SectorExceedsTurn,
+    /// The hole of a polar or cylindrical axes is not a finite number from 0 up to, but not
+    /// including, 1. It is reported against the axes.
+    InvalidHole,
+    /// The custom angle units of a polar, cylindrical or spherical axes do not give a finite
+    /// positive number of units to a turn. It is reported against the axes.
+    InvalidAngleUnits,
+    /// A polar or spherical axes has an aspect other than automatic, which it ignores
+    /// because a polar axes is always drawn round and a spherical axes is a sphere. This
+    /// is a warning, not an error, because the figure is drawn. It is reported against the
+    /// axes. A cylindrical axes keeps the ratio of its height to its radius, so its aspect
+    /// is honoured.
+    AspectIgnored,
+    /// An axis that has no side of the plot to move to is given a side other than
+    /// [`AxisSide::Low`](crate::AxisSide::Low): either axis of a polar axes, any axis of a
+    /// spherical axes, or the angle (x) or radius (y) of a cylindrical axes. This is a
+    /// warning, not an error, because the figure is drawn with the axis where the
+    /// projection puts it. It is reported against the axes. The z axis of a
+    /// two-dimensional axes, which is not drawn at all, is not reported.
+    AxisSideIgnored,
 }
 
 impl Figure {
@@ -337,10 +369,10 @@ impl Figure {
     /// colours, an indexed or categorical colour scale with no entries, parameters with an
     /// empty name or a non-finite number, tags that are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
-    /// last centres coincide along an axis of more than one pixel, an image whose plane
-    /// has a logarithmic axis (which must be drawn as a surface instead) or, in a 3D
-    /// axes, is offset to a coordinate that is not positive along a logarithmic third
-    /// axis, and numbers that an artist maps through a colour scale which fall in a
+    /// last centres coincide along an axis of more than one pixel, an image whose first or
+    /// last pixel edge along a logarithmic axis of its plane is not positive or, in a 3D
+    /// axes, whose plane is offset to a coordinate that is not positive along a
+    /// logarithmic third axis, and numbers that an artist maps through a colour scale which fall in a
     /// category of the scale whose policy is strict (a value lies below or above a range
     /// with automatic limits only when it is not positive under a logarithmic norm,
     /// because automatic limits are the range of the data). Warnings report finite
@@ -935,7 +967,8 @@ impl<'a> Validator<'a> {
             }
         }
 
-        let three_d = matches!(axes.projection, Projection::ThreeD { .. });
+        let three_d = axes.projection.is_3d();
+        self.check_projection(axes);
         if let Aspect::Ratio { y, z } = axes.aspect {
             for (name, ratio) in [("y", y), ("z", z)] {
                 if !(ratio.is_finite() && ratio > 0.0) {
@@ -977,6 +1010,18 @@ impl<'a> Validator<'a> {
                          three-dimensional axes draws its tick labels along projected edges"
                     ),
                 );
+            } else if name == "x"
+                && matches!(axes.projection, Projection::Polar { .. })
+                && angle != 0.0
+            {
+                self.warning(
+                    Some(axes.id),
+                    IssueKind::TickLabelAngleIgnored,
+                    format!(
+                        "the tick label angle {angle} of the x axis is ignored, because a polar \
+                         axes places its angular tick labels around the rim"
+                    ),
+                );
             }
         }
         for (name, axis) in axes_drawn {
@@ -997,9 +1042,127 @@ impl<'a> Validator<'a> {
         }
     }
 
+    /// Checks the views of an angular projection and how the axes carry its angles: the
+    /// angle units, the hole, the scales and manual limits of the angles, and the aspect.
+    fn check_projection(&mut self, axes: &Axes) {
+        let Some(units) = axes.projection.angle_units() else {
+            return;
+        };
+        let turn = units.turn();
+        let units_valid = turn.is_finite() && turn > 0.0;
+        if !units_valid {
+            self.error(
+                Some(axes.id),
+                IssueKind::InvalidAngleUnits,
+                format!("the count of {turn} angle units per turn is not a finite positive number"),
+            );
+        }
+        if let Some(polar) = axes.projection.polar() {
+            let hole = polar.hole;
+            if !(hole.is_finite() && (0.0..1.0).contains(&hole)) {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::InvalidHole,
+                    format!(
+                        "the hole {hole} is not a finite fraction of the rim radius from 0 up \
+                         to, but not including, 1"
+                    ),
+                );
+            }
+        }
+        let spherical = match axes.projection {
+            Projection::Spherical { spherical, .. } => Some(spherical),
+            _ => None,
+        };
+        let mut angles = vec![("x", &axes.x)];
+        if spherical.is_some() {
+            angles.push(("y", &axes.y));
+        }
+        for (name, axis) in angles {
+            if axis.scale == Scale::Log {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::LogAngleAxis,
+                    format!(
+                        "the {name} axis carries an angle, which cannot be logarithmic because \
+                         an angle wraps around a turn"
+                    ),
+                );
+            }
+        }
+        // A tolerance of a millionth of a millionth of a turn accepts limits computed in
+        // floating point, such as a quarter of 2π, that land a rounding error beyond the
+        // bound.
+        let slack = turn * 1e-12;
+        if units_valid && let Limits::Manual { min, max } = axes.x.limits {
+            let span = (max - min).abs();
+            if span > turn + slack {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::SectorExceedsTurn,
+                    format!(
+                        "the angular limits from {min} to {max} span more than one turn of \
+                         {turn} units"
+                    ),
+                );
+            }
+        }
+        if units_valid
+            && let Some(spherical) = spherical
+            && let Limits::Manual { min, max } = axes.y.limits
+        {
+            let (low, high, convention) = match spherical.polar_angle {
+                PolarAngle::Elevation => (-turn / 4.0, turn / 4.0, "an elevation"),
+                PolarAngle::Inclination => (0.0, turn / 2.0, "an inclination"),
+            };
+            if min.min(max) < low - slack || min.max(max) > high + slack {
+                self.error(
+                    Some(axes.id),
+                    IssueKind::SectorExceedsTurn,
+                    format!(
+                        "the polar angle limits from {min} to {max} lie outside the range from \
+                         {low} to {high} of {convention}"
+                    ),
+                );
+            }
+        }
+        if matches!(
+            axes.projection,
+            Projection::Polar { .. } | Projection::Spherical { .. }
+        ) && axes.aspect != Aspect::Auto
+        {
+            self.warning(
+                Some(axes.id),
+                IssueKind::AspectIgnored,
+                "the aspect is ignored, because polar axes are always drawn round and spherical \
+                 axes are drawn as a sphere"
+                    .to_owned(),
+            );
+        }
+        let sideless: &[(&str, &Axis)] = match axes.projection {
+            Projection::TwoD | Projection::ThreeD { .. } => &[],
+            Projection::Polar { .. } => &[("x", &axes.x), ("y", &axes.y)],
+            Projection::Cylindrical { .. } => &[("x", &axes.x), ("y", &axes.y)],
+            Projection::Spherical { .. } => &[("x", &axes.x), ("y", &axes.y), ("z", &axes.z)],
+        };
+        for &(name, axis) in sideless {
+            if !axis.side.is_low() {
+                self.warning(
+                    Some(axes.id),
+                    IssueKind::AxisSideIgnored,
+                    format!(
+                        "the {} side of the {name} axis is ignored, because this projection \
+                         draws that axis where its angles or radii place it",
+                        format!("{:?}", axis.side).to_lowercase()
+                    ),
+                );
+            }
+        }
+    }
+
     /// Checks one artist of an axes, as its usage describes it.
     fn check_artist(&mut self, axes: &Axes, id: NodeId, usage: ArtistUsage<'_>) {
-        let three_d = matches!(axes.projection, Projection::ThreeD { .. });
+        let three_d = axes.projection.is_3d();
 
         if !three_d && usage.three_d {
             self.error(
@@ -1048,6 +1211,16 @@ impl<'a> Validator<'a> {
                     .to_owned(),
             );
         }
+        if three_d && usage.filled {
+            self.error(
+                Some(id),
+                IssueKind::SeriesFillInThreeDAxes,
+                "the series is filled, but the area under a line is drawn only in a \
+                 two-dimensional axes, Cartesian or polar, and this series is placed in a \
+                 three-dimensional axes"
+                    .to_owned(),
+            );
+        }
         for (kind, message) in &usage.problems {
             self.error(Some(id), *kind, message.clone());
         }
@@ -1076,6 +1249,22 @@ impl<'a> Validator<'a> {
         }
         if !three_d && references_are_valid {
             self.check_log_extents(axes, id, &usage.shape);
+        }
+        if !three_d
+            && let Some(base) = usage.fill_base
+            && base <= 0.0
+            && !usage.is_fraction(Dimension::Y)
+            && axes.y.scale == Scale::Log
+        {
+            self.warning(
+                Some(id),
+                IssueKind::NonPositiveOnLogAxis,
+                format!(
+                    "the base {base} of the fill of the series is not positive along the \
+                     logarithmic y axis, which has no place for it, so the fill drops to the \
+                     low edge of the plot area"
+                ),
+            );
         }
 
         for &(dimension, data) in &usage.positions {
@@ -1662,7 +1851,7 @@ impl<'a> Validator<'a> {
             None
         };
         self.check_image_placement(node, image.placement, pixels);
-        self.check_image_plane_scales(axes, three_d, node, image);
+        self.check_image_plane_scales(axes, three_d, node, image, pixels);
         let Some([ny, nx]) = pixels else {
             return;
         };
@@ -1779,104 +1968,87 @@ impl<'a> Validator<'a> {
         }
     }
 
-    /// Reports an image whose plane cannot be placed on the logarithmic axes of the axes;
-    /// the z axis of a 2D axes is ignored, as it is when drawing.
+    /// Reports an image that cannot be placed on the logarithmic axes of the axes; the z
+    /// axis of a 2D axes is ignored, as it is when drawing.
     ///
-    /// An image whose plane has a logarithmic axis is an [`IssueKind::ImageOnLogAxis`]
-    /// error, because a raster of evenly spaced pixels has no placement on such an axis;
-    /// its message tells the user how to draw the same values as a surface, whose every
-    /// node is placed through the logarithmic scale. Otherwise, a plane offset to a
-    /// non-positive coordinate along a logarithmic third axis is an
-    /// [`IssueKind::InvalidImagePlacement`] error, because the plane itself could be
-    /// drawn but its offset has no place on that axis.
+    /// Along a logarithmic axis of its plane, the first and last pixel edges of the image
+    /// (computed from `pixels`, its rows and columns, when they are known) must be positive,
+    /// and a plane offset along a logarithmic third axis must be positive too; either fault
+    /// is an [`IssueKind::InvalidImagePlacement`] error.
     fn check_image_plane_scales(
         &mut self,
         axes: &Axes,
         three_d: bool,
         node: NodeId,
         image: &ImageView,
+        pixels: Option<[usize; 2]>,
     ) {
         let plane = image.placement.plane;
         let [columns, rows] = plane.axes();
-        let logarithmic: Vec<&str> = [columns, rows]
-            .into_iter()
-            .filter(|&dimension| three_d || dimension != Dimension::Z)
-            .filter(|&dimension| axis_of(axes, dimension).scale == Scale::Log)
-            .map(dimension_name)
-            .collect();
-        if logarithmic.is_empty() {
-            let third = [Dimension::X, Dimension::Y, Dimension::Z]
-                .into_iter()
-                .find(|&dimension| dimension != columns && dimension != rows)
-                .expect("a plane leaves one dimension of three");
-            if let Some(offset) = plane.offset()
-                && three_d
-                && offset <= 0.0
-                && axis_of(axes, third).scale == Scale::Log
-            {
+        if let Some([ny, nx]) = pixels {
+            let along = [
+                (
+                    columns,
+                    "columns",
+                    "pixel_columns",
+                    image.placement.columns,
+                    nx,
+                ),
+                (rows, "rows", "pixel_rows", image.placement.rows, ny),
+            ];
+            for (dimension, what, remedy, range, n) in along {
+                if (!three_d && dimension == Dimension::Z)
+                    || axis_of(axes, dimension).scale != Scale::Log
+                {
+                    continue;
+                }
+                let (first, last) = pixel_edges(range, n);
+                if !(first.is_finite() && last.is_finite()) {
+                    // A centre that is not finite is reported by the placement check.
+                    continue;
+                }
+                let Some((which, edge)) = [("first", first), ("last", last)]
+                    .into_iter()
+                    .find(|(_, edge)| *edge <= 0.0)
+                else {
+                    continue;
+                };
+                let axis = dimension_name(dimension);
                 self.error(
                     Some(node),
                     IssueKind::InvalidImagePlacement,
                     format!(
-                        "the plane of the image ({node}) is offset to {offset} along the {} \
-                         axis, which is logarithmic and so has no place for a coordinate that \
-                         is not positive; give the plane a positive offset, or no offset to \
-                         place it at the lower limit of the axis",
-                        dimension_name(third)
+                        "the {which} pixel edge of the {what} of the image ({node}) lies at {edge} \
+                         along the {axis} axis, which is logarithmic and so has no place for a \
+                         coordinate that is not positive; give the {what} a range of pixel \
+                         centres whose edges are positive (with `{remedy}` in the Rust \
+                         facade), so that every pixel is drawn between its edges mapped through \
+                         the axis"
                     ),
                 );
             }
-            return;
         }
-        let (noun, verb) = if logarithmic.len() == 1 {
-            ("axis", "is")
-        } else {
-            ("axes", "are")
-        };
-        let surface = match (three_d, plane) {
-            (false, _) => "a rectilinear grid of the pixel-centre coordinates along x and y, and \
-                 the values as its field `z`, which is the colour data of its nodes: in a \
-                 two-dimensional axes a surface is seen from directly above as a pseudocolour \
-                 plot, and every node of its grid is placed through the logarithmic scale"
-                .to_owned(),
-            (true, ImagePlane::Xy { .. }) => "a rectilinear grid of the pixel-centre coordinates \
-                 along x and y, a field `z` that holds the height of the plane at every node, and \
-                 the values as its colour data `c`; every node of a surface is placed through \
-                 the logarithmic scale"
-                .to_owned(),
-            (true, ImagePlane::Xz { .. } | ImagePlane::Yz { .. }) => {
-                let (along, across) = if matches!(plane, ImagePlane::Xz { .. }) {
-                    ("x", "y")
-                } else {
-                    ("y", "x")
-                };
+        let third = [Dimension::X, Dimension::Y, Dimension::Z]
+            .into_iter()
+            .find(|&dimension| dimension != columns && dimension != rows)
+            .expect("a plane leaves one dimension of three");
+        if let Some(offset) = plane.offset()
+            && three_d
+            && offset <= 0.0
+            && axis_of(axes, third).scale == Scale::Log
+        {
+            self.error(
+                Some(node),
+                IssueKind::InvalidImagePlacement,
                 format!(
-                    "a curvilinear grid whose {along} coordinates are the pixel-centre \
-                     coordinates along {along} and whose {across} coordinates all equal the \
-                     offset of the plane, a field `z` of the pixel-centre coordinates along z, \
-                     and the values as its colour data `c`; every node of a surface is placed \
-                     through the logarithmic scale"
-                )
-            }
-        };
-        let true_colour = if image.channels {
-            "; a surface is coloured through the colormap, so the colours of a true-colour \
-             image must be given as the values from which they were made"
-        } else {
-            ""
-        };
-        self.error(
-            Some(node),
-            IssueKind::ImageOnLogAxis,
-            format!(
-                "the image ({node}) lies in the {} plane, whose {} {noun} {verb} logarithmic, \
-                 but an image is a raster of evenly spaced pixels, which has no placement on a \
-                 logarithmic axis, where equal steps in the data are unequal distances on the \
-                 page; draw the values as a surface instead, with {surface}{true_colour}",
-                plane_name(plane),
-                logarithmic.join(" and ")
-            ),
-        );
+                    "the plane of the image ({node}) is offset to {offset} along the {} \
+                     axis, which is logarithmic and so has no place for a coordinate that \
+                     is not positive; give the plane a positive offset, or no offset to \
+                     place it at the lower limit of the axis",
+                    dimension_name(third)
+                ),
+            );
+        }
     }
 
     /// Checks the colour scale reference of an artist: that a reference names a colour
@@ -2159,13 +2331,22 @@ fn dimension_name(dimension: Dimension) -> &'static str {
     }
 }
 
-/// Returns the name of the plane of an image as the schema writes it.
-fn plane_name(plane: ImagePlane) -> &'static str {
-    match plane {
-        ImagePlane::Xy { .. } => "xy",
-        ImagePlane::Xz { .. } => "xz",
-        ImagePlane::Yz { .. } => "yz",
-    }
+/// Returns the first and last pixel edges of an image of `n` pixels along one axis of its
+/// plane, as the scene compiler places them: half a pitch beyond the centres of the first
+/// and last pixels (absent, they lie at 0 and n − 1), a single pixel being one unit wide
+/// about its first centre.
+fn pixel_edges(range: Option<PixelRange>, n: usize) -> (f64, f64) {
+    let (first, last) = match range {
+        Some(PixelRange { first, last }) if n > 1 => (first, last),
+        Some(PixelRange { first, .. }) => (first, first),
+        None => (0.0, n.saturating_sub(1) as f64),
+    };
+    let pitch = if n > 1 {
+        (last - first) / (n - 1) as f64
+    } else {
+        1.0
+    };
+    (first - pitch / 2.0, last + pitch / 2.0)
 }
 
 /// Calls `visit` with every value of an array as a floating-point number, an 8-bit value
@@ -2218,6 +2399,10 @@ pub(crate) struct ArtistUsage<'a> {
     fraction: [bool; 2],
     /// Whether the artist releases its clip, as only a series can.
     clip_released: bool,
+    /// The base of the fill of a series, when the series is filled and has a base.
+    fill_base: Option<f64>,
+    /// Whether a series has a fill other than none, with or without a base.
+    filled: bool,
     /// Each opacity of the artist, with its name for messages.
     opacities: Vec<(&'static str, f64)>,
     /// The levels of a contour, when it has levels of its own.
@@ -2314,6 +2499,8 @@ impl<'a> ArtistUsage<'a> {
             problems: Vec::new(),
             fraction: [false; 2],
             clip_released: false,
+            fill_base: None,
+            filled: false,
             opacities: Vec::new(),
             levels: None,
             color_scale: None,
@@ -2383,9 +2570,30 @@ impl Usage for Series {
             x: self.x,
             colors,
         };
+        let mut problems = Vec::new();
+        if self.fill == ColorSpec::Colormapped {
+            problems.push((
+                IssueKind::ColormapNotSupported,
+                "the fill colour of the series is colormapped, but the colour data of a series \
+                 colours its points and segments, and the area under the line has no value of \
+                 its own to look a colour up by"
+                    .to_owned(),
+            ));
+        }
+        if self.fill != ColorSpec::None && self.base.is_none() {
+            problems.push((
+                IssueKind::FillWithoutBase,
+                "the series is filled but has no base, so there is nothing to fill down to"
+                    .to_owned(),
+            ));
+        }
         ArtistUsage {
             fraction: fractions(self.x_coords, self.y_coords),
             clip_released: !self.clip,
+            problems,
+            opacities: vec![("fill opacity", self.fill_opacity)],
+            fill_base: self.fill_base(),
+            filled: self.fill != ColorSpec::None,
             ..ArtistUsage::new(references, positions, self.z.is_some(), shape)
         }
     }
@@ -2576,7 +2784,7 @@ impl Usage for Stairs {
         }
         if self.fill != ColorSpec::None && self.base.is_none() {
             problems.push((
-                IssueKind::StairsFillWithoutBase,
+                IssueKind::FillWithoutBase,
                 "the stairs are filled but have no base, so there is nothing to fill down to"
                     .to_owned(),
             ));

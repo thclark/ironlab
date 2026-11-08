@@ -812,7 +812,9 @@ pub fn holds_depth(list: &DisplayList) -> bool {
     fn walk(items: &[Item]) -> bool {
         items.iter().any(|item| match &item.kind {
             ItemKind::Depth { .. } => true,
-            ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => walk(items),
+            ItemKind::Group { items, .. }
+            | ItemKind::Dense { items, .. }
+            | ItemKind::SectorClip { items, .. } => walk(items),
             _ => false,
         })
     }

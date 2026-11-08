@@ -1,6 +1,6 @@
 //! Two-dimensional axes: margins, grid, box, ticks, labels, title, artists and legend.
 
-use ironlab_ir::{NodeId, TitleAlign};
+use ironlab_ir::{Axes, AxisSide, NodeId, TitleAlign};
 
 use crate::display::{Item, ItemKind, Point, Rect, Stroke};
 use crate::hit::{AxesHit, AxesHitKind, AxisMap, HitMap};
@@ -10,6 +10,7 @@ use super::artists::{AxesInput, Placement, Space, coalesce_markers, draw_artists
 use super::decor::{AxisTicks, Decor};
 use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
+use super::plane::Plane;
 use super::style::{self, GRID, INK};
 use super::text::TextBlock;
 use super::{colorbar, legend, limits::Range};
@@ -64,30 +65,74 @@ fn x_row_height(ticks: &AxisTicks) -> f64 {
     ticks.max_height() + ticks.max_depth()
 }
 
-/// The side of the plot area along which an axis of a 2D axes sets its tick labels.
-#[derive(Clone, Copy)]
+/// The side of its line on which an axis of a 2D axes sets its tick labels and label.
+///
+/// An axis on the low side or through the middle sets them below its line (x) or left of it (y), and an axis on the
+/// high side above it (x) or right of it (y), so that the labels of an axis on an edge lie outside the plot area.
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
-    /// Below the plot area, where the x axis sets its labels.
+    /// Below the line, where an x axis on the low side or through the middle sets its labels.
     Bottom,
-    /// Left of the plot area, where the y axis sets its labels.
+    /// Above the line, where an x axis on the high side sets its labels.
+    Top,
+    /// Left of the line, where a y axis on the low side or through the middle sets its labels.
     Left,
+    /// Right of the line, where a y axis on the high side sets its labels.
+    Right,
 }
 
 impl Side {
-    /// The unit page direction across the axis, away from the plot area.
+    /// The side on which an x axis on `side` sets its labels.
+    fn of_x(side: AxisSide) -> Self {
+        match side {
+            AxisSide::Low | AxisSide::Centre => Side::Bottom,
+            AxisSide::High => Side::Top,
+        }
+    }
+
+    /// The side on which a y axis on `side` sets its labels.
+    fn of_y(side: AxisSide) -> Self {
+        match side {
+            AxisSide::Low | AxisSide::Centre => Side::Left,
+            AxisSide::High => Side::Right,
+        }
+    }
+
+    /// The unit page direction across the axis, away from its line towards its labels.
     fn outward(self) -> Point {
         match self {
             Side::Bottom => Point::new(0.0, 1.0),
+            Side::Top => Point::new(0.0, -1.0),
             Side::Left => Point::new(-1.0, 0.0),
+            Side::Right => Point::new(1.0, 0.0),
         }
     }
 
     /// The unit page direction along the axis.
     fn along(self) -> Point {
         match self {
-            Side::Bottom => Point::new(1.0, 0.0),
-            Side::Left => Point::new(0.0, 1.0),
+            Side::Bottom | Side::Top => Point::new(1.0, 0.0),
+            Side::Left | Side::Right => Point::new(0.0, 1.0),
         }
+    }
+}
+
+/// Returns the page y of the line of an x axis on `side`: the bottom edge of the plot area, its middle or its top
+/// edge. The side is a side of the page, so a reversed y axis does not move it.
+fn x_line(side: AxisSide, plot: Rect) -> f64 {
+    match side {
+        AxisSide::Low => plot.bottom(),
+        AxisSide::Centre => plot.y + plot.height / 2.0,
+        AxisSide::High => plot.y,
+    }
+}
+
+/// Returns the page x of the line of a y axis on `side`: the left edge of the plot area, its middle or its right edge.
+fn y_line(side: AxisSide, plot: Rect) -> f64 {
+    match side {
+        AxisSide::Low => plot.x,
+        AxisSide::Centre => plot.x + plot.width / 2.0,
+        AxisSide::High => plot.right(),
     }
 }
 
@@ -176,7 +221,9 @@ fn turned_reach(ticks: &AxisTicks, angle: f64, side: Side, pad: f64) -> Option<R
         let b = turned_label(label, angle, side, pad).bounds;
         let (out, before, after) = match side {
             Side::Bottom => (b.bottom(), -b.x, b.right()),
+            Side::Top => (-b.y, -b.x, b.right()),
             Side::Left => (-b.x, -b.y, b.bottom()),
+            Side::Right => (b.right(), -b.y, b.bottom()),
         };
         reach.out = reach.out.max(out);
         reach.before = reach.before.max(before);
@@ -185,18 +232,55 @@ fn turned_reach(ticks: &AxisTicks, angle: f64, side: Side, pad: f64) -> Option<R
     Some(reach)
 }
 
-/// The height of the band above the plot that holds the y exponent label and the overhang of the top y tick label.
-fn top_band(decor: &Decor, s: &Spacing) -> f64 {
+/// The distance across an x axis from its line to the far edge of its tick labels, or 0 without tick labels.
+fn x_tick_band(ticks: &AxisTicks, reach: Option<&Reach>, s: &Spacing) -> f64 {
+    match reach {
+        Some(r) => r.out,
+        None if ticks.labels.is_empty() => 0.0,
+        None => s.tick_pad + x_row_height(ticks),
+    }
+}
+
+/// The distance across an x axis from its line to the far edge of its tick labels and label, or of its common
+/// exponent label beside them, whichever lies further.
+fn x_band(axes: &Axes, decor: &Decor, s: &Spacing) -> f64 {
+    let x = &decor.ticks[0];
+    let reach = turned_reach(x, decor.angles[0], Side::of_x(axes.x.side), s.tick_pad);
+    let xlabel = decor.labels[0]
+        .as_ref()
+        .map_or(0.0, |l| l.total_height() + s.label_gap);
+    let exponent_row = x
+        .exponent
+        .as_ref()
+        .map_or(0.0, |e| e.total_height() + s.exponent_gap);
+    x_tick_band(x, reach.as_ref(), s) + xlabel.max(exponent_row)
+}
+
+/// How far the y tick labels reach along the axis beyond the first tick (up the page) and the last (down the page).
+fn y_overhang(axes: &Axes, decor: &Decor, s: &Spacing) -> (f64, f64) {
     let y = &decor.ticks[1];
-    let overhang = match turned_reach(y, decor.angles[1], Side::Left, s.tick_pad) {
-        Some(reach) => reach.before,
-        None => (y.max_height() + y.max_depth()) / 2.0,
-    };
+    match turned_reach(y, decor.angles[1], Side::of_y(axes.y.side), s.tick_pad) {
+        Some(reach) => (reach.before, reach.after),
+        None => {
+            let half = (y.max_height() + y.max_depth()) / 2.0;
+            (half, half)
+        }
+    }
+}
+
+/// The height of the band above the plot that holds the y exponent label and the overhang of the top y tick label,
+/// and, for an x axis on the high side, its tick labels and label, beneath the y exponent label.
+fn top_band(axes: &Axes, decor: &Decor, s: &Spacing) -> f64 {
+    let y = &decor.ticks[1];
+    let (overhang, _) = y_overhang(axes, decor, s);
     let exponent = y
         .exponent
         .as_ref()
         .map_or(0.0, |e| e.total_height() + s.exponent_gap);
-    overhang.max(exponent)
+    match axes.x.side {
+        AxisSide::High => overhang.max(x_band(axes, decor, s) + exponent),
+        AxisSide::Low | AxisSide::Centre => overhang.max(exponent),
+    }
 }
 
 /// Computes the space a 2D axes needs around its plot rectangle.
@@ -204,11 +288,15 @@ fn top_band(decor: &Decor, s: &Spacing) -> f64 {
 /// Level tick labels take the space they always have. Turned tick labels take the extent of their turned boxes
 /// across the axis, and along it the overhang of any label beyond its tick, since any of them may lie at an end of
 /// the axis; turned y labels may also overhang below the plot area.
-pub(super) fn margins(ctx: &Ctx, decor: &Decor) -> Margins {
+///
+/// The band of an axis is reserved on the side it is drawn on: below (x) or left of (y) the plot area for the low
+/// side, above or right of it for the high side, and nowhere for an axis through the middle, whose labels lie inside
+/// the plot area. The overhang of the end labels along an axis is reserved whatever its side.
+pub(super) fn margins(ctx: &Ctx, axes: &Axes, decor: &Decor) -> Margins {
     let s = Spacing::new(ctx);
     let [x, y, _] = &decor.ticks;
-    let x_reach = turned_reach(x, decor.angles[0], Side::Bottom, s.tick_pad);
-    let y_reach = turned_reach(y, decor.angles[1], Side::Left, s.tick_pad);
+    let x_reach = turned_reach(x, decor.angles[0], Side::of_x(axes.x.side), s.tick_pad);
+    let y_reach = turned_reach(y, decor.angles[1], Side::of_y(axes.y.side), s.tick_pad);
     let (first_x_half, last_x_half) = match &x_reach {
         Some(r) => (r.before, r.after),
         None => (
@@ -244,12 +332,25 @@ pub(super) fn margins(ctx: &Ctx, decor: &Decor) -> Margins {
         .exponent
         .as_ref()
         .map_or(0.0, |e| s.exponent_gap + e.width());
-    let below = x_labels + xlabel.max(exponent_row);
-    let below = y_reach.as_ref().map_or(below, |r| below.max(r.after));
+    let below = match axes.x.side {
+        AxisSide::Low => {
+            let below = x_labels + xlabel.max(exponent_row);
+            y_reach.as_ref().map_or(below, |r| below.max(r.after))
+        }
+        AxisSide::Centre | AxisSide::High => y_overhang(axes, decor, &s).1,
+    };
+    let left = match axes.y.side {
+        AxisSide::Low => (y_labels + ylabel).max(first_x_half),
+        AxisSide::Centre | AxisSide::High => first_x_half,
+    };
+    let right = match axes.y.side {
+        AxisSide::High => (y_labels + ylabel).max(last_x_half.max(right_exponent)),
+        AxisSide::Low | AxisSide::Centre => last_x_half.max(right_exponent),
+    };
     Margins {
-        left: s.outer + (y_labels + ylabel).max(first_x_half),
-        right: s.outer + last_x_half.max(right_exponent),
-        top: s.outer + top_band(decor, &s) + title,
+        left: s.outer + left,
+        right: s.outer + right,
+        top: s.outer + top_band(axes, decor, &s) + title,
         bottom: s.outer + below,
     }
 }
@@ -261,7 +362,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
     let [xr, yr, _] = *input.ranges;
     let x = axis_map(xr, plot.x, plot.right());
     let y = axis_map(yr, plot.bottom(), plot.y);
-    let space = Space::TwoD { x, y };
+    let space = Space::TwoD(Plane::cartesian(x, y));
     let decor = input.decor;
 
     draw_grid(input, &x, &y, out);
@@ -308,7 +409,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
 /// group with that clip. An artist listed in `released` takes the clip listed with it, which extends beyond the plot
 /// area along the dimensions it places as fractions of the plot area; every other artist is clipped to the plot area.
 /// Grouping by runs keeps what covers what.
-fn clip_groups(
+pub(super) fn clip_groups(
     axes: NodeId,
     plot: Rect,
     items: Vec<Item>,
@@ -398,40 +499,61 @@ fn draw_grid(input: &AxesInput, x: &AxisMap, y: &AxisMap, out: &mut Vec<Item>) {
     ));
 }
 
-/// Draws the axes box (or its left and bottom edges) and inward tick marks.
+/// Draws the axes box (or the line of each axis) and inward tick marks.
 ///
-/// The box consists of the spines of the two axes: the bottom edge, and the top edge when the box is on, belong to the
-/// x axis, and the left edge, and the right edge when the box is on, to the y axis. A hidden axis draws neither its
-/// spines nor its tick marks, so hiding both axes removes the box. While both axes are shown the box is drawn as one
-/// rectangle (or one polyline without the box), exactly as before axes could be hidden.
+/// The box consists of the spines of the two axes: the bottom and top edges belong to the x axis, and the left and
+/// right edges to the y axis. With the box on, the whole frame is drawn and carries tick marks on every edge, and an
+/// axis through the middle adds its own line, with tick marks, across the plot area. With the box off, each axis draws
+/// only its own line, on its side, with its tick marks. A hidden axis draws neither its spines nor its tick marks, so
+/// hiding both axes removes the box. While both axes are shown on the low side the box is drawn as one rectangle (or
+/// one polyline without the box), exactly as before axes could be hidden or moved.
+///
+/// Tick marks point into the plot area from an edge, and towards the high side from a line through the middle, whose
+/// labels lie on its low side.
 fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, out: &mut Vec<Item>) {
     let (axes, plot) = (input.axes, input.plot);
     let (l, r, t, bt) = (plot.x, plot.right(), plot.y, plot.bottom());
     let (x_shown, y_shown) = (axes.x.visible, axes.y.visible);
-    if x_shown && y_shown {
-        if axes.box_ {
-            out.extend(frame(axes.id, plot));
-        } else {
-            let mut b = PathBuilder::new();
-            b.polyline(
-                &[Point::new(l, t), Point::new(l, bt), Point::new(r, bt)],
-                false,
-            );
-            out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
-        }
+    let (x_side, y_side) = (axes.x.side, axes.y.side);
+    let (x_at, y_at) = (x_line(x_side, plot), y_line(y_side, plot));
+    let both_low = x_side == AxisSide::Low && y_side == AxisSide::Low;
+    if x_shown && y_shown && axes.box_ {
+        out.extend(frame(axes.id, plot));
+    } else if x_shown && y_shown && both_low {
+        let mut b = PathBuilder::new();
+        b.polyline(
+            &[Point::new(l, t), Point::new(l, bt), Point::new(r, bt)],
+            false,
+        );
+        out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
     } else {
         let mut b = PathBuilder::new();
         if x_shown {
-            b.polyline(&[Point::new(l, bt), Point::new(r, bt)], false);
             if axes.box_ {
+                b.polyline(&[Point::new(l, bt), Point::new(r, bt)], false);
                 b.polyline(&[Point::new(l, t), Point::new(r, t)], false);
+            } else {
+                b.polyline(&[Point::new(l, x_at), Point::new(r, x_at)], false);
             }
         }
         if y_shown {
-            b.polyline(&[Point::new(l, t), Point::new(l, bt)], false);
             if axes.box_ {
+                b.polyline(&[Point::new(l, t), Point::new(l, bt)], false);
                 b.polyline(&[Point::new(r, t), Point::new(r, bt)], false);
+            } else {
+                b.polyline(&[Point::new(y_at, t), Point::new(y_at, bt)], false);
             }
+        }
+        out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
+    }
+    if axes.box_ {
+        // The frame holds the edges; an axis through the middle adds its own line.
+        let mut b = PathBuilder::new();
+        if x_shown && x_side == AxisSide::Centre {
+            b.polyline(&[Point::new(l, x_at), Point::new(r, x_at)], false);
+        }
+        if y_shown && y_side == AxisSide::Centre {
+            b.polyline(&[Point::new(y_at, t), Point::new(y_at, bt)], false);
         }
         out.extend(paths::item(axes.id, b.finish(), None, Some(frame_stroke())));
     }
@@ -445,9 +567,16 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
         if !fx.is_finite() {
             return;
         }
-        b.polyline(&[Point::new(fx, bt), Point::new(fx, bt - len)], false);
         if axes.box_ {
+            b.polyline(&[Point::new(fx, bt), Point::new(fx, bt - len)], false);
             b.polyline(&[Point::new(fx, t), Point::new(fx, t + len)], false);
+            if x_side == AxisSide::Centre {
+                b.polyline(&[Point::new(fx, x_at), Point::new(fx, x_at - len)], false);
+            }
+        } else if x_side == AxisSide::High {
+            b.polyline(&[Point::new(fx, t), Point::new(fx, t + len)], false);
+        } else {
+            b.polyline(&[Point::new(fx, x_at), Point::new(fx, x_at - len)], false);
         }
     };
     if x_shown {
@@ -459,9 +588,16 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
         if !fy.is_finite() {
             return;
         }
-        b.polyline(&[Point::new(l, fy), Point::new(l + len, fy)], false);
         if axes.box_ {
+            b.polyline(&[Point::new(l, fy), Point::new(l + len, fy)], false);
             b.polyline(&[Point::new(r, fy), Point::new(r - len, fy)], false);
+            if y_side == AxisSide::Centre {
+                b.polyline(&[Point::new(y_at, fy), Point::new(y_at + len, fy)], false);
+            }
+        } else if y_side == AxisSide::High {
+            b.polyline(&[Point::new(r, fy), Point::new(r - len, fy)], false);
+        } else {
+            b.polyline(&[Point::new(y_at, fy), Point::new(y_at + len, fy)], false);
         }
     };
     if y_shown {
@@ -481,6 +617,11 @@ pub(super) fn title_left(align: TitleAlign, plot: Rect, width: f64) -> f64 {
 }
 
 /// Draws tick labels, common exponent labels, axis labels and the title.
+///
+/// The labels of each axis are set beside its line, on the side that [`Side::of_x`] or [`Side::of_y`] gives: tick
+/// labels next to the line, the axis label beyond them, and the common exponent label beyond the end of the axis (x)
+/// or above it (y). The label of an axis on an edge is centred along the plot; that of an axis through the middle is
+/// set at its high end (the right of x, the top of y), away from where the two axes cross.
 fn draw_labels(
     ctx: &mut Ctx,
     input: &AxesInput,
@@ -490,23 +631,40 @@ fn draw_labels(
     out: &mut Vec<Item>,
 ) {
     let s = Spacing::new(ctx);
-    let (id, plot) = (input.axes.id, input.plot);
+    let (axes, id, plot) = (input.axes, input.axes.id, input.plot);
     let [xt, yt, _] = &decor.ticks;
+    let (x_side, y_side) = (Side::of_x(axes.x.side), Side::of_y(axes.y.side));
+    let (x_at, y_at) = (x_line(axes.x.side, plot), y_line(axes.y.side, plot));
 
-    // Level x tick labels share a baseline below the plot; turned ones are each placed by `turned_label`.
+    // Where both axes run through the middle they cross inside the plot area, and the tick label of either axis at the
+    // crossing would be struck through by the line of the other, so neither is drawn.
+    let crossed = axes.x.side == AxisSide::Centre && axes.y.side == AxisSide::Centre;
+    let at_crossing = |position: f64, line: f64| crossed && (position - line).abs() < 0.5;
+
+    // Level x tick labels share a baseline beside the line; turned ones are each placed by `turned_label`.
     let [x_angle, y_angle] = decor.angles;
-    let x_reach = turned_reach(xt, x_angle, Side::Bottom, s.tick_pad);
+    let x_reach = turned_reach(xt, x_angle, x_side, s.tick_pad);
     if x_reach.is_some() {
         for (v, label) in xt.major.iter().zip(&xt.labels) {
             let fx = x.to_figure(*v);
-            let o = turned_label(label, x_angle, Side::Bottom, s.tick_pad).origin;
-            let origin = Point::new(fx + o.x, plot.bottom() + o.y);
+            if at_crossing(fx, y_at) {
+                continue;
+            }
+            let o = turned_label(label, x_angle, x_side, s.tick_pad).origin;
+            let origin = Point::new(fx + o.x, x_at + o.y);
             label.draw_turned_on_page(ctx, origin, x_angle, INK, id, out);
         }
     } else {
-        let x_baseline = plot.bottom() + s.tick_pad + xt.max_height();
+        let x_baseline = if x_side == Side::Top {
+            x_at - s.tick_pad - xt.max_depth()
+        } else {
+            x_at + s.tick_pad + xt.max_height()
+        };
         for (v, label) in xt.major.iter().zip(&xt.labels) {
             let fx = x.to_figure(*v);
+            if at_crossing(fx, y_at) {
+                continue;
+            }
             label.draw_on_page(
                 ctx,
                 Point::new(fx - label.width() / 2.0, x_baseline),
@@ -516,62 +674,105 @@ fn draw_labels(
             );
         }
     }
-    let below_ticks = match &x_reach {
-        Some(reach) => plot.bottom() + reach.out,
-        None if xt.labels.is_empty() => plot.bottom(),
-        None => plot.bottom() + s.tick_pad + x_row_height(xt),
+    // The page y of the far edge of the x tick labels from the line.
+    let beyond_ticks = if x_side == Side::Top {
+        x_at - x_tick_band(xt, x_reach.as_ref(), &s)
+    } else {
+        match &x_reach {
+            Some(reach) => x_at + reach.out,
+            None if xt.labels.is_empty() => x_at,
+            None => x_at + s.tick_pad + x_row_height(xt),
+        }
     };
     if let Some(e) = &xt.exponent {
-        let origin = Point::new(
-            plot.right() + s.exponent_gap,
-            below_ticks + s.exponent_gap + e.height(),
-        );
+        let baseline = if x_side == Side::Top {
+            beyond_ticks - s.exponent_gap - e.depth()
+        } else {
+            beyond_ticks + s.exponent_gap + e.height()
+        };
+        let origin = Point::new(plot.right() + s.exponent_gap, baseline);
         e.draw_on_page(ctx, origin, INK, id, out);
     }
 
-    // Level y tick labels are right-aligned beside the plot and centred on their ticks; turned ones are each placed
-    // by `turned_label`.
-    let y_right = plot.x - s.tick_pad;
-    let y_reach = turned_reach(yt, y_angle, Side::Left, s.tick_pad);
+    // Level y tick labels are aligned to the line beside it and centred on their ticks (right-aligned to its left,
+    // left-aligned to its right); turned ones are each placed by `turned_label`.
+    let y_right = y_at - s.tick_pad;
+    let y_left = y_at + s.tick_pad;
+    let y_reach = turned_reach(yt, y_angle, y_side, s.tick_pad);
     for (v, label) in yt.major.iter().zip(&yt.labels) {
         let fy = y.to_figure(*v);
+        if at_crossing(fy, x_at) {
+            continue;
+        }
         if y_reach.is_some() {
-            let o = turned_label(label, y_angle, Side::Left, s.tick_pad).origin;
-            let origin = Point::new(plot.x + o.x, fy + o.y);
+            let o = turned_label(label, y_angle, y_side, s.tick_pad).origin;
+            let origin = Point::new(y_at + o.x, fy + o.y);
             label.draw_turned_on_page(ctx, origin, y_angle, INK, id, out);
+        } else if y_side == Side::Right {
+            let origin = label.origin_for_centre(Point::new(y_left + label.width() / 2.0, fy));
+            label.draw_on_page(ctx, origin, INK, id, out);
         } else {
             let origin = label.origin_for_centre(Point::new(y_right - label.width() / 2.0, fy));
             label.draw_on_page(ctx, origin, INK, id, out);
         }
     }
     if let Some(e) = &yt.exponent {
-        let origin = Point::new(plot.x, plot.y - s.exponent_gap - e.depth());
+        // Above the plot area, or above the labels of an x axis on the high side, starting at the line of the y axis
+        // (ending there for a y axis on the high side).
+        let top = match axes.x.side {
+            AxisSide::High => plot.y - x_band(axes, decor, &s),
+            AxisSide::Low | AxisSide::Centre => plot.y,
+        };
+        let left = match axes.y.side {
+            AxisSide::High => y_at - e.width(),
+            AxisSide::Low | AxisSide::Centre => y_at,
+        };
+        let origin = Point::new(left, top - s.exponent_gap - e.depth());
         e.draw_on_page(ctx, origin, INK, id, out);
     }
 
     if let Some(label) = &decor.labels[0] {
-        let origin = Point::new(
-            plot.x + (plot.width - label.width()) / 2.0,
-            below_ticks + s.label_gap + label.height(),
-        );
+        let baseline = if x_side == Side::Top {
+            beyond_ticks - s.label_gap - label.depth()
+        } else {
+            beyond_ticks + s.label_gap + label.height()
+        };
+        // An axis through the middle crosses the other axis there, so its label is set at its high end, clear of the
+        // crossing; an axis on an edge centres its label along the plot.
+        let left = match axes.x.side {
+            AxisSide::Centre => plot.right() - label.width(),
+            AxisSide::Low | AxisSide::High => plot.x + (plot.width - label.width()) / 2.0,
+        };
+        let origin = Point::new(left, baseline);
         label.draw_on_page(ctx, origin, INK, id, out);
     }
     if let Some(label) = &decor.labels[1] {
-        let right = match &y_reach {
-            Some(reach) => plot.x - reach.out - s.label_gap,
-            None if yt.labels.is_empty() => plot.x - s.label_gap,
-            None => y_right - yt.max_width() - s.label_gap,
+        let baseline_x = if y_side == Side::Right {
+            let left = match &y_reach {
+                Some(reach) => y_at + reach.out + s.label_gap,
+                None if yt.labels.is_empty() => y_at + s.label_gap,
+                None => y_left + yt.max_width() + s.label_gap,
+            };
+            left + label.height()
+        } else {
+            let right = match &y_reach {
+                Some(reach) => y_at - reach.out - s.label_gap,
+                None if yt.labels.is_empty() => y_at - s.label_gap,
+                None => y_right - yt.max_width() - s.label_gap,
+            };
+            right - label.depth()
         };
-        let origin = Point::new(
-            right - label.depth(),
-            plot.y + (plot.height + label.width()) / 2.0,
-        );
+        let bottom = match axes.y.side {
+            AxisSide::Centre => plot.y + label.width(),
+            AxisSide::Low | AxisSide::High => plot.y + (plot.height + label.width()) / 2.0,
+        };
+        let origin = Point::new(baseline_x, bottom);
         label.draw_upwards_on_page(ctx, origin, INK, id, out);
     }
     if let Some(title) = &decor.title {
-        let bottom = plot.y - top_band(decor, &s) - s.title_gap;
+        let bottom = plot.y - top_band(axes, decor, &s) - s.title_gap;
         let origin = Point::new(
-            title_left(input.axes.title_align, plot, title.width()),
+            title_left(axes.title_align, plot, title.width()),
             bottom - title.depth(),
         );
         title.draw_on_page(ctx, origin, INK, id, out);

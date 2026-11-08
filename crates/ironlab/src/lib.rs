@@ -69,6 +69,7 @@ mod hist;
 mod legend;
 mod matrix;
 mod pixels;
+mod polar;
 
 pub use ironlab_ir as ir;
 
@@ -88,6 +89,7 @@ pub use hist::{DensityContourMut, Hist2dMut, HistMut, HistsMut};
 pub use legend::{LegendItemRef, PanelLegendMut, PanelMut};
 pub use matrix::{Matrix, linspace, logspace, meshgrid};
 pub use pixels::{ByteMatrix, ImageValues, Pixels};
+pub use polar::ThetaZero;
 
 /// The coordinate dimension of an axes, used to link axes and set limits.
 pub use ironlab_ir::Dimension as Dim;
@@ -120,6 +122,12 @@ pub use ironlab_ir::ColorScaleKey;
 /// one that names none of its entries, or one that is not finite. See
 /// [`ColorScaleMut::below`].
 pub use ironlab_ir::OutOfRange;
+
+pub use ironlab_ir::{AngleUnits, PolarAngle, PolarView, SphericalView};
+
+/// The side of the plot on which an axis draws its line, tick marks, tick labels and label.
+/// See [`AxesMut::xaxis_side`].
+pub use ironlab_ir::AxisSide;
 
 pub use ironlab_ir::{
     Aspect, AspectAdjust, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Coords,
@@ -222,6 +230,8 @@ pub struct ExportReport {
 /// ```
 pub mod prelude {
     pub use crate::AxesMut;
+    pub use crate::AxisSide;
+    pub use crate::{AngleUnits, PolarAngle, PolarView, SphericalView, ThetaZero};
     pub use crate::{
         Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Color,
         ColorScaleKey, ColorScaleMut, ColorScaleNorm, ColorSpec, ColorbarOrientation,

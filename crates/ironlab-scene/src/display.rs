@@ -16,15 +16,17 @@
 //!
 //! The artists of a three-dimensional axes lie inside an [`ItemKind::Depth`] group, in the painter's order the scene
 //! compiler chose, and every path and image among them carries the depth at which it is painted: a [`DepthPlane`]
-//! over the item's local space, or one depth per endpoint of a path. Larger depths are nearer the viewer. A backend
+//! over the item's local space, one depth per endpoint of a path, or one depth per lattice node of an image drawn
+//! through an [`ImageMesh`]. Larger depths are nearer the viewer. A backend
 //! with a depth buffer clears it at the group and tests every item against it, so that faces, lines, markers and
 //! images which cross one another are resolved pixel by pixel; a backend without one draws the items in order and
 //! gets the painter's picture. Depths are literal: no backend biases them. A translucent item (one whose colour, or
 //! a pixel of whose image, has an alpha below 1) must not hide what lies behind it, so a backend with a depth buffer
 //! draws the opaque items of the group first and the translucent ones after them, each in the order of the group,
 //! testing the translucent ones against the depth of the opaque ones without recording their own. Inside a depth group every
-//! path and image carries a depth, a path's vertex depths are one finite value per endpoint, and no glyph run or
-//! further depth group appears.
+//! path and image carries a depth, a path's vertex depths are one finite value per endpoint, an image carries either
+//! a `depth` plane (drawn over a rectangle) or mesh `depths` (drawn through a mesh), and no glyph run or further
+//! depth group appears.
 
 use std::sync::Arc;
 
@@ -335,11 +337,156 @@ impl PathItem {
     }
 }
 
-/// A raster image drawn into an axis-aligned rectangle of the item's local coordinate space.
+/// Where the pixel space `[0, width] × [0, height]` of an image is drawn in the item's local coordinate space.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImageGeometry {
+    /// Stretched over an axis-aligned rectangle, the top-left pixel at its top-left corner (the geometry of every
+    /// image drawn through an affine placement). [`ImageItem::depth`] gives the depth over pixel space inside a
+    /// depth group.
+    Rect(Rect),
+    /// Through a lattice that places pixel space piecewise affinely (see [`ImageMesh`]), for an image whose
+    /// placement is not affine, such as one on a logarithmic axis.
+    Mesh(ImageMesh),
+}
+
+impl ImageGeometry {
+    /// The rectangle the image is stretched over, or `None` when it is drawn through a mesh.
+    pub fn rect(&self) -> Option<Rect> {
+        match self {
+            Self::Rect(rect) => Some(*rect),
+            Self::Mesh(_) => None,
+        }
+    }
+}
+
+/// A lattice that places the pixel space of an image piecewise affinely.
 ///
-/// `samples` holds `width · height · channels` bytes, row by row from the top-left pixel of the image, which is
-/// drawn at the top-left corner of `rect`: three channels for opaque red, green and blue, and four for red, green,
-/// blue and straight (non-premultiplied) alpha. The values are sRGB, as everywhere else in the display list.
+/// Node `(i, j)` sits at pixel-space position `(u[i], v[j])` and is drawn at `points[j · u.len() + i]`. Each lattice
+/// cell `[u[i], u[i+1]] × [v[j], v[j+1]]` is split into two triangles along the diagonal from `(u[i], v[j])` to
+/// `(u[i+1], v[j+1])`, and each triangle maps pixel space affinely onto the triangle of its three drawn nodes. Every
+/// backend draws a mesh by this rule, so the lattice decides exactly where every pixel lands.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageMesh {
+    /// Strictly increasing, from 0 to the width of the image, at least two values.
+    pub u: Vec<f64>,
+    /// Strictly increasing, from 0 (the top row edge) to the height of the image, at least two values.
+    pub v: Vec<f64>,
+    /// `u.len() · v.len()` finite points, row by row (all of `v[0]` first).
+    pub points: Vec<Point>,
+    /// One finite depth per node inside a depth group, `None` elsewhere; interpolated as the points are.
+    pub depths: Option<Vec<f64>>,
+}
+
+impl ImageMesh {
+    /// The drawn position of node `(i, j)`.
+    fn node(&self, i: usize, j: usize) -> Point {
+        self.points[j * self.u.len() + i]
+    }
+
+    /// Returns the drawn position of a pixel-space position under the piecewise affine map, or `None` outside the
+    /// lattice.
+    pub fn locate(&self, u: f64, v: f64) -> Option<Point> {
+        let (i, s) = cell_of(&self.u, u)?;
+        let (j, t) = cell_of(&self.v, v)?;
+        if self.points.len() != self.u.len() * self.v.len() {
+            return None;
+        }
+        let (p00, p10) = (self.node(i, j), self.node(i + 1, j));
+        let (p01, p11) = (self.node(i, j + 1), self.node(i + 1, j + 1));
+        // Below the diagonal the triangle is (p00, p10, p11); above it, (p00, p11, p01).
+        let (a, b, c, wa, wb, wc) = if s >= t {
+            (p00, p10, p11, 1.0 - s, s - t, t)
+        } else {
+            (p00, p11, p01, 1.0 - t, s, t - s)
+        };
+        Some(Point::new(
+            wa * a.x + wb * b.x + wc * c.x,
+            wa * a.y + wb * b.y + wc * c.y,
+        ))
+    }
+
+    /// Returns the closed outline of the pixel `[column, column + 1] × [row, row + 1]` in drawn space.
+    ///
+    /// The outline starts at the pixel's `(column, row)` corner, runs along increasing u first, and is not closed by
+    /// repeating its first point. It passes through every lattice node that lies on the boundary of the pixel, so a
+    /// pixel that spans several lattice cells follows the lattice; a pixel corner that lies inside a lattice cell is
+    /// placed by [`locate`](Self::locate). A pixel outside the lattice has no outline.
+    pub fn pixel_outline(&self, column: u32, row: u32) -> Vec<Point> {
+        let (u0, u1) = (f64::from(column), f64::from(column) + 1.0);
+        let (v0, v1) = (f64::from(row), f64::from(row) + 1.0);
+        let inner = |values: &[f64], lo: f64, hi: f64| -> Vec<f64> {
+            values
+                .iter()
+                .copied()
+                .filter(|x| *x > lo && *x < hi)
+                .collect()
+        };
+        let us = inner(&self.u, u0, u1);
+        let vs = inner(&self.v, v0, v1);
+        let mut along: Vec<(f64, f64)> = Vec::with_capacity(4 + 2 * (us.len() + vs.len()));
+        along.push((u0, v0));
+        along.extend(us.iter().map(|u| (*u, v0)));
+        along.push((u1, v0));
+        along.extend(vs.iter().map(|v| (u1, *v)));
+        along.push((u1, v1));
+        along.extend(us.iter().rev().map(|u| (*u, v1)));
+        along.push((u0, v1));
+        along.extend(vs.iter().rev().map(|v| (u0, *v)));
+        along
+            .into_iter()
+            .map(|(u, v)| self.locate(u, v))
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default()
+    }
+
+    /// Reports whether the lattice can be drawn for an image of `width` by `height` pixels: `u` and `v` strictly
+    /// increasing from 0 to the width and height with at least two values each, one finite point per node, and,
+    /// when present, one finite depth per node.
+    pub fn is_valid(&self, width: u32, height: u32) -> bool {
+        let axis_ok = |values: &[f64], extent: u32| {
+            values.len() >= 2
+                && values.iter().all(|x| x.is_finite())
+                && values.first() == Some(&0.0)
+                && values.last() == Some(&f64::from(extent))
+                && values.windows(2).all(|w| w[0] < w[1])
+        };
+        let nodes = self.u.len().checked_mul(self.v.len());
+        axis_ok(&self.u, width)
+            && axis_ok(&self.v, height)
+            && nodes == Some(self.points.len())
+            && self
+                .points
+                .iter()
+                .all(|p| p.x.is_finite() && p.y.is_finite())
+            && self.depths.as_ref().is_none_or(|depths| {
+                depths.len() == self.points.len() && depths.iter().all(|d| d.is_finite())
+            })
+    }
+}
+
+/// Finds the lattice interval `[values[k], values[k + 1]]` holding `x` and the fraction of the way across it at which
+/// `x` lies, or `None` when `x` lies outside the lattice or the lattice has fewer than two values.
+fn cell_of(values: &[f64], x: f64) -> Option<(usize, f64)> {
+    let (first, last) = (*values.first()?, *values.last()?);
+    if values.len() < 2 || !(x >= first && x <= last) {
+        return None;
+    }
+    // The first value beyond x ends its interval; x on the last value lies in the last interval.
+    let k = values
+        .partition_point(|value| *value <= x)
+        .clamp(1, values.len() - 1)
+        - 1;
+    let (lo, hi) = (values[k], values[k + 1]);
+    let span = hi - lo;
+    (span > 0.0).then(|| (k, ((x - lo) / span).clamp(0.0, 1.0)))
+}
+
+/// A raster image drawn into the item's local coordinate space.
+///
+/// `samples` holds `width · height · channels` bytes, row by row from the top-left pixel of the image: three channels
+/// for opaque red, green and blue, and four for red, green, blue and straight (non-premultiplied) alpha. The values
+/// are sRGB, as everywhere else in the display list. `geometry` says where the pixel space `[0, width] × [0, height]`
+/// is drawn: stretched over a rectangle, the top-left pixel at its top-left corner, or through a mesh.
 ///
 /// The samples are resolved true colour rather than data values with a colour mapping, so that a backend draws them
 /// without consulting anything else. The scene compiler resolves the pixels of every image artist into this form,
@@ -349,12 +496,13 @@ impl PathItem {
 ///
 /// The samples are shared behind an [`Arc`] so that cloning a display list does not copy them.
 ///
-/// `depth`, present for an image inside an [`ItemKind::Depth`] group, is the depth of the image over its own pixel
-/// space, from which a backend places every pixel in depth.
+/// Inside an [`ItemKind::Depth`] group an image drawn over a rectangle carries `depth`, the depth of the image over
+/// its own pixel space, from which a backend places every pixel in depth; an image drawn through a mesh carries
+/// [`ImageMesh::depths`] instead, and its `depth` is `None`.
 #[derive(Clone, PartialEq)]
 pub struct ImageItem {
-    /// Where the image is drawn, in the item's local coordinate space.
-    pub rect: Rect,
+    /// Where the pixel space of the image is drawn, in the item's local coordinate space.
+    pub geometry: ImageGeometry,
     /// The number of columns of samples.
     pub width: u32,
     /// The number of rows of samples.
@@ -363,7 +511,7 @@ pub struct ImageItem {
     pub channels: u8,
     /// `width · height · channels` bytes.
     pub samples: Arc<[u8]>,
-    /// The depth of the image over its pixel space, inside a depth group.
+    /// The depth of an image drawn over a rectangle, over its pixel space, inside a depth group.
     pub depth: Option<DepthPlane>,
 }
 
@@ -373,24 +521,33 @@ impl ImageItem {
     /// The number of channels of an image with straight alpha.
     pub const RGBA: u8 = 4;
 
-    /// Reports whether the item can be drawn: a positive, finite rectangle, a non-empty grid of samples, a supported
-    /// channel count, exactly `width · height · channels` bytes of samples, and a finite depth when it has one.
+    /// Reports whether the item can be drawn: a non-empty grid of samples, a supported channel count, exactly
+    /// `width · height · channels` bytes of samples, and a drawable geometry. A rectangle must be finite and positive
+    /// and its depth, when it has one, finite; a mesh must be valid by [`ImageMesh::is_valid`] and carries no depth
+    /// plane.
     pub fn is_valid(&self) -> bool {
-        let finite = [self.rect.x, self.rect.y, self.rect.width, self.rect.height]
-            .iter()
-            .all(|v| v.is_finite());
         let expected = (self.width as usize)
             .checked_mul(self.height as usize)
             .and_then(|pixels| pixels.checked_mul(usize::from(self.channels)));
-        finite
-            && self.rect.width > 0.0
-            && self.rect.height > 0.0
+        let geometry = match &self.geometry {
+            ImageGeometry::Rect(rect) => {
+                [rect.x, rect.y, rect.width, rect.height]
+                    .iter()
+                    .all(|v| v.is_finite())
+                    && rect.width > 0.0
+                    && rect.height > 0.0
+                    && self.depth.is_none_or(|plane| plane.is_finite())
+            }
+            ImageGeometry::Mesh(mesh) => {
+                self.depth.is_none() && mesh.is_valid(self.width, self.height)
+            }
+        };
+        geometry
             && self.width > 0
             && self.height > 0
             && matches!(self.channels, Self::RGB | Self::RGBA)
             && expected == Some(self.samples.len())
             && !self.samples.is_empty()
-            && self.depth.is_none_or(|plane| plane.is_finite())
     }
 }
 
@@ -398,7 +555,7 @@ impl std::fmt::Debug for ImageItem {
     /// Prints the shape of the image rather than its samples, of which there can be millions.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ImageItem")
-            .field("rect", &self.rect)
+            .field("geometry", &self.geometry)
             .field("width", &self.width)
             .field("height", &self.height)
             .field("channels", &self.channels)
@@ -507,9 +664,10 @@ pub struct Item {
 pub enum ItemKind {
     Path(PathItem),
     Glyphs(GlyphsItem),
-    /// A raster image. The scene compiler emits one for every image artist it draws, in pixel space beneath a group
-    /// whose transform places it in the axes (see [`crate::compile::compile`]), and the PDF exporter builds them
-    /// when it replaces dense vector content with a raster.
+    /// A raster image. The scene compiler emits one for every image artist it draws: on linear axes in pixel space
+    /// beneath a group whose transform places it in the axes, and on a logarithmic axis through a mesh in figure
+    /// space (see [`crate::compile::compile`]). The PDF exporter builds them when it replaces dense vector content
+    /// with a raster.
     Image(ImageItem),
     /// The markers of one artist as instances of one outline. The scene compiler emits one per artist in a 2D axes
     /// and one per run of consecutive markers in the painter's order of a 3D axes.
@@ -529,10 +687,12 @@ pub enum ItemKind {
     /// produces exactly the same picture as one that honours it. The interactive canvas ignores it; the PDF
     /// exporter uses it to replace the items with an image XObject (see [`crate::display`] consumers).
     ///
-    /// `cells` is the number of data cells (surface faces) that the artist draws over the whole display list, which
-    /// is what a backend thresholds on. An image artist is already a raster and is never marked dense, so that no
-    /// backend resamples the pixels the user supplied. It is deliberately not the number of items in
-    /// this group, because depth sorting in a 3D axes can split one artist's geometry into several dense groups
+    /// `cells` is the number of data cells (surface faces, or the pixels of an image drawn through a mesh) that the
+    /// artist draws over the whole display list, which is what a backend thresholds on. An image drawn over a
+    /// rectangle is already a raster and is never marked dense, so that no backend resamples the pixels the user
+    /// supplied; an image drawn through a mesh is marked dense, because the PDF exporter writes it as one path per
+    /// pixel, which is vector content that a large image makes too dense to keep. It is deliberately not the number
+    /// of items in this group, because depth sorting in a 3D axes can split one artist's geometry into several dense groups
     /// separated by the geometry of other artists; every one of them records the same total.
     Dense {
         cells: u64,
@@ -550,10 +710,102 @@ pub enum ItemKind {
     Depth {
         items: Vec<Item>,
     },
+    /// Items clipped to a sector of an annulus: the plot region of a polar axes. The sector is expressed in the
+    /// enclosing coordinate space, which the scene compiler always makes figure space, and is applied in addition to
+    /// any enclosing rectangular clip.
+    ///
+    /// Like a dense group it carries no transform, and it is never placed beneath a rotation nor inside a depth group.
+    /// A backend that cannot clip to a sector may clip to its [`bounds`](Sector::bounds) instead, which loosens the
+    /// clip but never cuts into the sector.
+    SectorClip {
+        sector: Sector,
+        items: Vec<Item>,
+    },
 }
 
-/// A visitor of leaves: the leaf, its accumulated transform, its clip in figure space, and its depth group.
-type LeafVisitor<'a> = dyn FnMut(&Item, Transform, Option<Rect>, Option<usize>) + 'a;
+/// A sector of an annulus: the points whose distance from `centre` lies between `inner` and `outer`, and whose
+/// direction from `centre` lies between the angles `start` and `start + sweep`.
+///
+/// Angles are in radians, measured anticlockwise on the page from the direction of increasing x (so towards
+/// decreasing y, because y grows downwards). A sector is valid when its centre and start are finite, its radii satisfy
+/// `0 ≤ inner < outer` with a finite outer radius, and its sweep lies in `(0, 2π]`; a sweep of a full turn describes a
+/// whole disc or annulus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sector {
+    pub centre: Point,
+    pub inner: f64,
+    pub outer: f64,
+    pub start: f64,
+    pub sweep: f64,
+}
+
+impl Sector {
+    /// Returns whether the sector satisfies the validity rules in the type's documentation.
+    pub fn is_valid(&self) -> bool {
+        self.centre.x.is_finite()
+            && self.centre.y.is_finite()
+            && self.start.is_finite()
+            && self.inner.is_finite()
+            && self.outer.is_finite()
+            && self.inner >= 0.0
+            && self.inner < self.outer
+            && self.sweep.is_finite()
+            && self.sweep > 0.0
+            && self.sweep <= std::f64::consts::TAU
+    }
+
+    /// Returns whether the sweep covers a full turn, so that the sector is a whole disc or annulus.
+    pub fn is_full_turn(&self) -> bool {
+        self.sweep >= std::f64::consts::TAU - 1e-12
+    }
+
+    /// Returns whether the point lies in the sector, boundary included.
+    pub fn contains(&self, p: Point) -> bool {
+        let dx = p.x - self.centre.x;
+        let dy = self.centre.y - p.y;
+        let r = dx.hypot(dy);
+        if r < self.inner || r > self.outer {
+            return false;
+        }
+        if self.is_full_turn() || r == 0.0 {
+            return true;
+        }
+        let angle = dy.atan2(dx);
+        (angle - self.start).rem_euclid(std::f64::consts::TAU) <= self.sweep
+    }
+
+    /// Returns the smallest axis-aligned rectangle that contains the sector.
+    pub fn bounds(&self) -> Rect {
+        use std::f64::consts::FRAC_PI_2;
+        let mut xs = Vec::with_capacity(12);
+        let mut ys = Vec::with_capacity(12);
+        let mut add = |angle: f64, r: f64| {
+            xs.push(self.centre.x + r * angle.cos());
+            ys.push(self.centre.y - r * angle.sin());
+        };
+        let end = self.start + self.sweep;
+        for r in [self.inner, self.outer] {
+            add(self.start, r);
+            add(end, r);
+        }
+        let first = (self.start / FRAC_PI_2).ceil() as i64;
+        let mut k = first;
+        while (k as f64) * FRAC_PI_2 <= end && k - first < 5 {
+            add(k as f64 * FRAC_PI_2, self.outer);
+            k += 1;
+        }
+        let x0 = xs.iter().copied().fold(f64::INFINITY, f64::min);
+        let x1 = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let y0 = ys.iter().copied().fold(f64::INFINITY, f64::min);
+        let y1 = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        Rect::new(x0, y0, x1 - x0, y1 - y0)
+    }
+}
+
+/// A visitor of leaves: the leaf, its accumulated transform, its clip in figure space, its depth group, and the sector
+/// of the innermost sector clip enclosing it.
+type LeafVisitor<'a> =
+    dyn FnMut(&Item, Transform, Option<Rect>, Option<usize>, Option<Sector>) + 'a;
 
 /// The complete, ordered list of items to draw for a figure; later items paint over earlier ones.
 #[derive(Clone, Debug, PartialEq)]
@@ -572,9 +824,12 @@ impl DisplayList {
     /// intersection of all enclosing clips in figure space. Clips are only meaningful beneath translations and
     /// scalings; the scene compiler never places a clipped group beneath a rotation.
     ///
-    /// [`ItemKind::Dense`] and [`ItemKind::Depth`] groups are descended into like any other group, so a backend that
-    /// draws leaves through this method draws dense content as vector geometry, and the artists of a
-    /// three-dimensional axes in painter's order, without having to know about either marking.
+    /// [`ItemKind::Dense`], [`ItemKind::Depth`] and [`ItemKind::SectorClip`] groups are descended into like any other
+    /// group, so a backend that draws leaves through this method draws dense content as vector geometry, and the
+    /// artists of a three-dimensional axes in painter's order, without having to know about either marking. The
+    /// sector of a sector clip is not reported: the reported clip is only the enclosing rectangular clips, which
+    /// contain the sector; a backend that needs the sector visits the leaves with
+    /// [`visit_leaves_sectored`](Self::visit_leaves_sectored).
     pub fn visit_leaves(&self, mut visit: impl FnMut(&Item, Transform, Option<Rect>)) {
         self.visit_leaves_grouped(|item, transform, clip, _| visit(item, transform, clip));
     }
@@ -590,14 +845,30 @@ impl DisplayList {
         &self,
         mut visit: impl FnMut(&Item, Transform, Option<Rect>, Option<usize>),
     ) {
-        fn walk(
-            items: &[Item],
+        self.visit_leaves_sectored(|item, transform, clip, group, _| {
+            visit(item, transform, clip, group);
+        });
+    }
+
+    /// Visits every leaf item as [`visit_leaves_grouped`](Self::visit_leaves_grouped) does, reporting with each leaf
+    /// the sector of the innermost [`ItemKind::SectorClip`] enclosing it, or `None` outside every sector clip.
+    ///
+    /// The sector is reported as the sector clip holds it, in the coordinate space enclosing the clip, which the scene
+    /// compiler always makes figure space. It is applied in addition to the reported rectangular clip, which is the
+    /// intersection of the enclosing rectangular clips alone, exactly as the other visitors report it.
+    pub fn visit_leaves_sectored(
+        &self,
+        mut visit: impl FnMut(&Item, Transform, Option<Rect>, Option<usize>, Option<Sector>),
+    ) {
+        /// The state a leaf inherits from the groups enclosing it.
+        #[derive(Clone, Copy)]
+        struct Scope {
             transform: Transform,
             clip: Option<Rect>,
             group: Option<usize>,
-            next_group: &mut usize,
-            visit: &mut LeafVisitor<'_>,
-        ) {
+            sector: Option<Sector>,
+        }
+        fn walk(items: &[Item], scope: Scope, next_group: &mut usize, visit: &mut LeafVisitor<'_>) {
             for item in items {
                 match &item.kind {
                     ItemKind::Group {
@@ -605,6 +876,7 @@ impl DisplayList {
                         transform: group_transform,
                         items,
                     } => {
+                        let transform = scope.transform;
                         let clip = match group_clip {
                             Some(c) => {
                                 let a = transform.apply(Point::new(c.x, c.y));
@@ -615,28 +887,39 @@ impl DisplayList {
                                     (b.x - a.x).abs(),
                                     (b.y - a.y).abs(),
                                 );
-                                Some(match clip {
+                                Some(match scope.clip {
                                     Some(outer) => intersect(outer, local),
                                     None => local,
                                 })
                             }
-                            None => clip,
+                            None => scope.clip,
                         };
                         let transform = match group_transform {
                             Some(t) => t.then(transform),
                             None => transform,
                         };
-                        walk(items, transform, clip, group, next_group, visit);
+                        walk(
+                            items,
+                            Scope {
+                                transform,
+                                clip,
+                                ..scope
+                            },
+                            next_group,
+                            visit,
+                        );
                     }
-                    ItemKind::Dense { items, .. } => {
-                        walk(items, transform, clip, group, next_group, visit);
+                    ItemKind::Dense { items, .. } => walk(items, scope, next_group, visit),
+                    ItemKind::SectorClip { sector, items } => {
+                        let sector = Some(*sector);
+                        walk(items, Scope { sector, ..scope }, next_group, visit);
                     }
                     ItemKind::Depth { items } => {
-                        let index = *next_group;
+                        let group = Some(*next_group);
                         *next_group += 1;
-                        walk(items, transform, clip, Some(index), next_group, visit);
+                        walk(items, Scope { group, ..scope }, next_group, visit);
                     }
-                    _ => visit(item, transform, clip, group),
+                    _ => visit(item, scope.transform, scope.clip, scope.group, scope.sector),
                 }
             }
         }
@@ -650,9 +933,12 @@ impl DisplayList {
         let mut next_group = 0;
         walk(
             &self.items,
-            Transform::IDENTITY,
-            None,
-            None,
+            Scope {
+                transform: Transform::IDENTITY,
+                clip: None,
+                group: None,
+                sector: None,
+            },
             &mut next_group,
             &mut visit,
         );

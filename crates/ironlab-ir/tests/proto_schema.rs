@@ -1117,14 +1117,16 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
     }
 }
 
-// Why: the visibility and the tick label angle of an axis were added to a message that
-// clients in other languages already read, so they must continue its numbering after its
-// last field (7, the tick labels), leaving every existing number with its meaning; and
-// each must have presence, because an absent visibility must mean visible (a file written
-// before the field existed shows every axis) and an absent angle must mean 0, neither of
-// which a reader could tell from proto3's zero for a field without presence.
+// Why: the visibility, the tick label angle and the side of an axis were added to a message
+// that clients in other languages already read, so they must continue its numbering after
+// its last field (7, the tick labels), leaving every existing number with its meaning. The
+// visibility and the angle must have presence, because an absent visibility must mean
+// visible (a file written before the field existed shows every axis) and an absent angle
+// must mean 0, neither of which a reader could tell from proto3's zero for a field without
+// presence. The side is an enumeration, whose zero is "unspecified" and is read as the low
+// side, so it needs no presence.
 #[test]
-fn the_axis_message_declares_its_visibility_and_tick_label_angle_after_its_existing_fields() {
+fn the_axis_message_declares_its_visibility_tick_label_angle_and_side_after_its_existing_fields() {
     let pool = compile();
     assert_eq!(
         declared_fields(&pool, "Axis"),
@@ -1138,6 +1140,7 @@ fn the_axis_message_declares_its_visibility_and_tick_label_angle_after_its_exist
             (7, "tick_labels", "TickLabels"),
             (8, "visible", "bool"),
             (9, "tick_label_angle", "double"),
+            (10, "side", "AxisSide"),
         ]
         .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
     );

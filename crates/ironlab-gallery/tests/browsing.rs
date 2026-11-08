@@ -19,8 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_gallery::all;
 use ironlab_ir::{
-    Artist, Figure, Legend, LegendEntries, LegendItemContent, PanelContent, Parameter, Projection,
-    Scale,
+    Artist, Figure, Legend, LegendEntries, LegendItemContent, PanelContent, Parameter, Scale,
 };
 use ironlab_viewer::browse::{
     Browse, FacetKey, FacetKind, FacetValue, FigureCard, Query, Sort, SortKey, describe_facets,
@@ -233,7 +232,7 @@ fn drawing_in_three_dimensions() -> Vec<String> {
                 .into_ir()
                 .axes
                 .iter()
-                .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }))
+                .any(|axes| axes.projection.is_3d())
                 .then(|| entry.title.to_owned())
         })
         .collect();
@@ -432,6 +431,7 @@ fn each_kind_of_bar_and_cell_chart_is_found_by_its_name() {
         "tag:histogram",
         &[
             "Histograms",
+            "Polar histograms",
             "Two-dimensional histogram and density contour",
         ],
     );
@@ -603,10 +603,7 @@ fn the_parameters_of_each_entry_describe_the_figure_it_builds() {
             );
         }
 
-        let solid = ir
-            .axes
-            .iter()
-            .any(|axes| matches!(axes.projection, Projection::ThreeD { .. }));
+        let solid = ir.axes.iter().any(|axes| axes.projection.is_3d());
         assert_eq!(
             parameters.get("dimensionality"),
             Some(&Parameter::String(

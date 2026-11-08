@@ -97,11 +97,43 @@ pub struct Series {
     /// clipped to the plot area, so an artist in data coordinates along both dimensions
     /// is always clipped, and so is every artist of a 3D axes.
     pub clip: bool,
+    /// The value of y down to which the area under the line is filled, or `None` for no
+    /// base. The base is read in the coordinates of y, so with y in axes-fraction
+    /// coordinates a base of 0 is the bottom edge of the plot area.
+    ///
+    /// The property is omitted from JSON when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<f64>,
+    /// The colour of the area between the line through the points and the base, or none
+    /// (the default) for no fill. A fill other than none needs a base, and is invalid in
+    /// three-dimensional axes. An automatic fill takes the colour of the series; a
+    /// colormapped fill is invalid, because the colour data colours points and segments
+    /// and not the area beneath them.
+    ///
+    /// The property is omitted from JSON when it is none, and is none when JSON omits it.
+    #[serde(default = "no_fill", skip_serializing_if = "is_no_fill")]
+    pub fill: ColorSpec,
+    /// The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the
+    /// alpha of its colour.
+    ///
+    /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
+    #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    pub fill_opacity: f64,
+}
+
+/// The default fill of a series, for serde: none.
+fn no_fill() -> ColorSpec {
+    ColorSpec::None
+}
+
+/// Whether a fill is none, so that serde leaves it out of JSON.
+fn is_no_fill(fill: &ColorSpec) -> bool {
+    *fill == ColorSpec::None
 }
 
 impl Default for Series {
     /// The series that `plot` draws: a solid automatic line without markers, size or
-    /// colour data, or a colour scale, in data coordinates, clipped and visible.
+    /// colour data, a colour scale or a fill, in data coordinates, clipped and visible.
     fn default() -> Self {
         Self {
             id: NodeId::default(),
@@ -118,6 +150,9 @@ impl Default for Series {
             x_coords: Coords::Data,
             y_coords: Coords::Data,
             clip: true,
+            base: None,
+            fill: ColorSpec::None,
+            fill_opacity: 1.0,
         }
     }
 }
@@ -133,6 +168,12 @@ impl Series {
     /// `none`.
     pub fn draws_markers(&self) -> bool {
         self.marker.shape != MarkerShape::None
+    }
+
+    /// Returns the base down to which the series is filled, when it draws a fill: its
+    /// fill is not `none` and it has a base.
+    pub fn fill_base(&self) -> Option<f64> {
+        self.base.filter(|_| self.fill != ColorSpec::None)
     }
 }
 

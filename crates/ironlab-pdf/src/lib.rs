@@ -44,8 +44,13 @@
 //!   appearance and loses only its copyable text.
 //! - A group with a non-finite clip, or a non-finite or singular transform, is skipped with all of its items; a
 //!   singular transform collapses its content to a line or a point, so nothing visible is lost.
-//! - An image whose rectangle is not finite and positive, whose grid of samples is empty, whose channel count is
-//!   neither three nor four, or whose samples are not exactly `width · height · channels` bytes, is skipped.
+//! - An image whose rectangle is not finite and positive, whose mesh is not valid, whose grid of samples is empty,
+//!   whose channel count is neither three nor four, or whose samples are not exactly `width · height · channels`
+//!   bytes, is skipped.
+//!
+//! An image drawn through a mesh, as the scene compiler draws an image on a logarithmic axis, is written as one filled
+//! path per pixel, since PDF has no warped image; it comes inside a dense group counting its pixels, so a large one is
+//! drawn as a raster under the raster policy and reported with [`ExportWarningKind::RasterisedForWarp`].
 //! - A dense group that encloses no finite geometry within its clips, or that lies beneath a transform whose inverse
 //!   would not be finite, is drawn as vector geometry, because there is nowhere to place an image for it.
 //! - Colour channels are clamped to `[0, 1]`, with NaN treated as 0.
@@ -101,6 +106,9 @@ pub enum ExportWarningKind {
     /// A dense artist was drawn as an image, because it drew `cells` data cells, at or beyond the threshold of the
     /// raster policy.
     RasterisedForSize { cells: u64 },
+    /// An image warped through its axes (drawn through a mesh, which is written as one path per pixel) was drawn as
+    /// a raster, because its `pixels` pixels reach the threshold of the raster policy.
+    RasterisedForWarp { pixels: u64 },
     /// Content was drawn as an image because the export options asked for it ([`RasterPolicy::Always`] or
     /// [`DepthPolicy::Raster`]).
     RasterisedByRequest,
@@ -430,6 +438,9 @@ impl Painter<'_, '_> {
                     self.draw_dense(surface, item.source, *cells, items)?;
                 }
                 ItemKind::Depth { items } => self.draw_depth(surface, item.source, items)?,
+                ItemKind::SectorClip { sector, items } => {
+                    self.draw_sector_clip(surface, *sector, items)?;
+                }
             }
         }
         Ok(())
@@ -488,6 +499,39 @@ impl Painter<'_, '_> {
         result
     }
 
+    /// Draws items beneath a clip path of `sector`, in addition to the enclosing clips, or draws nothing when the
+    /// sector is invalid or cannot be placed under the current transform, as a group with such a clip draws nothing.
+    ///
+    /// The clip is pushed onto krilla's stack, so a raster that dense content inside is replaced by is drawn beneath
+    /// it as the vector geometry would be. The mirrored clip narrows to the sector's bounds, which only shrinks the
+    /// rasters planned inside to the region the sector can show.
+    fn draw_sector_clip(
+        &mut self,
+        surface: &mut Surface<'_>,
+        sector: display::Sector,
+        items: &[Item],
+    ) -> Result<(), PdfError> {
+        if !sector.is_valid() {
+            return Ok(());
+        }
+        let Some(path) = sector_path(surface, sector) else {
+            return Ok(());
+        };
+        surface.push_clip_path(&path, &FillRule::NonZero);
+        let outer_clip = self.clip;
+        let bounds = map_rect(self.to_figure, sector.bounds());
+        self.clip = Some(match self.clip {
+            Some(outer) => raster::intersect(outer, bounds),
+            None => bounds,
+        });
+
+        let result = self.draw_items(surface, items);
+
+        self.clip = outer_clip;
+        surface.pop();
+        result
+    }
+
     /// Records a warning of the exporter about `node`, the `subject` of the warning.
     fn warn(
         &mut self,
@@ -514,6 +558,17 @@ impl Painter<'_, '_> {
                 format!(
                     "The {subject} is drawn as an image at {dpi} dots per inch, because it drew {cells} data \
                      cells, at or beyond the threshold of {threshold}; `RasterPolicy::Never` keeps it vector."
+                )
+            }
+            ExportWarningKind::RasterisedForWarp { pixels } => {
+                let threshold = match self.options.policy {
+                    RasterPolicy::Auto { cells } => cells,
+                    RasterPolicy::Never | RasterPolicy::Always => *pixels,
+                };
+                format!(
+                    "The {subject} is drawn as a raster image at {dpi} dots per inch, because it is an image warped \
+                     through its axes, which is otherwise written as one path per pixel, and it has {pixels} pixels, \
+                     at or beyond the threshold of {threshold}; `RasterPolicy::Never` writes the pixels as paths."
                 )
             }
             ExportWarningKind::RasterisedByRequest => format!(
@@ -587,6 +642,9 @@ impl Painter<'_, '_> {
         };
         let kind = match self.options.policy {
             RasterPolicy::Always => ExportWarningKind::RasterisedByRequest,
+            RasterPolicy::Auto { .. } | RasterPolicy::Never if holds_mesh_image(items) => {
+                ExportWarningKind::RasterisedForWarp { pixels: cells }
+            }
             RasterPolicy::Auto { .. } | RasterPolicy::Never => {
                 ExportWarningKind::RasterisedForSize { cells }
             }
@@ -926,7 +984,21 @@ fn convert_path(segments: &[PathSegment]) -> Option<KrillaPath> {
     builder.finish()
 }
 
-/// Draws an image item as a deflated image XObject, or nothing when the item is invalid.
+/// Reports whether any of `items`, at any depth of grouping, is an image drawn through a mesh, whose dense count is a
+/// count of pixels rather than of data cells.
+fn holds_mesh_image(items: &[Item]) -> bool {
+    items.iter().any(|item| match &item.kind {
+        ItemKind::Image(image) => matches!(image.geometry, display::ImageGeometry::Mesh(_)),
+        ItemKind::Group { items, .. }
+        | ItemKind::Dense { items, .. }
+        | ItemKind::SectorClip { items, .. }
+        | ItemKind::Depth { items } => holds_mesh_image(items),
+        ItemKind::Path(_) | ItemKind::Glyphs(_) | ItemKind::Markers(_) => false,
+    })
+}
+
+/// Draws an image item, or nothing when the item is invalid: over a rectangle as a deflated image XObject, and
+/// through a mesh as one filled path per pixel.
 ///
 /// krilla deflates the samples and, for an image with alpha, its soft mask, so both streams carry `/FlateDecode`.
 /// It writes `/Interpolate` only when interpolation is asked for, and the key defaults to false, so omitting it is
@@ -940,9 +1012,13 @@ fn draw_image(surface: &mut Surface<'_>, item: &display::ImageItem) {
     if !item.is_valid() {
         return;
     }
+    let rect = match &item.geometry {
+        display::ImageGeometry::Rect(rect) => *rect,
+        display::ImageGeometry::Mesh(mesh) => return draw_mesh_image(surface, item, mesh),
+    };
     let (Some(size), Some(origin)) = (
-        KrillaSize::from_wh(item.rect.width as f32, item.rect.height as f32),
-        point(display::Point::new(item.rect.x, item.rect.y)),
+        KrillaSize::from_wh(rect.width as f32, rect.height as f32),
+        point(display::Point::new(rect.x, rect.y)),
     ) else {
         return;
     };
@@ -952,6 +1028,44 @@ fn draw_image(surface: &mut Surface<'_>, item: &display::ImageItem) {
     surface.push_transform(&KrillaTransform::from_translate(origin.0, origin.1));
     surface.draw_image(image, size);
     surface.pop();
+}
+
+/// Draws an image through a mesh as one path per pixel, the outline [`display::ImageMesh::pixel_outline`] gives,
+/// filled with the pixel's colour and with its alpha as the fill's opacity, without a stroke. A fully transparent
+/// pixel draws nothing. PDF has no warped image, and a path per pixel places every pixel exactly where the mesh does.
+fn draw_mesh_image(
+    surface: &mut Surface<'_>,
+    item: &display::ImageItem,
+    mesh: &display::ImageMesh,
+) {
+    let channels = usize::from(item.channels);
+    surface.set_stroke(None);
+    for (k, sample) in item.samples.chunks_exact(channels).enumerate() {
+        let alpha = sample.get(3).copied().unwrap_or(u8::MAX);
+        if alpha == 0 {
+            continue;
+        }
+        let (row, column) = (k / item.width as usize, k % item.width as usize);
+        let outline = mesh.pixel_outline(column as u32, row as u32);
+        let Some((first, rest)) = outline.split_first() else {
+            continue;
+        };
+        let segments: Vec<PathSegment> = std::iter::once(PathSegment::MoveTo(*first))
+            .chain(rest.iter().map(|p| PathSegment::LineTo(*p)))
+            .chain(std::iter::once(PathSegment::Close))
+            .collect();
+        let Some(path) = convert_path(&segments) else {
+            continue;
+        };
+        let colour = Rgba::new(
+            f32::from(sample[0]) / 255.0,
+            f32::from(sample[1]) / 255.0,
+            f32::from(sample[2]) / 255.0,
+            f32::from(alpha) / 255.0,
+        );
+        surface.set_fill(Some(fill(colour, FillRule::NonZero)));
+        surface.draw_path(&path);
+    }
 }
 
 /// The samples of an [`display::ImageItem`] presented to krilla as a custom image.
@@ -1113,6 +1227,94 @@ fn clip_path(surface: &Surface<'_>, rect: display::Rect) -> Option<KrillaPath> {
         return None;
     }
     rect_path(x.min(right), y.min(bottom), x.max(right), y.max(bottom))
+}
+
+/// Builds the clip path of a sector, or `None` when it is not finite or cannot be placed under the current transform.
+///
+/// The outline runs anticlockwise on the page along the outer arc, then back along the inner arc, or through the
+/// centre when there is no hole. A full turn has no radial edges: the outer circle and the inner circle are separate
+/// subpaths wound in opposite directions, so that the nonzero rule leaves the hole unfilled.
+fn sector_path(surface: &Surface<'_>, sector: display::Sector) -> Option<KrillaPath> {
+    let bounds = sector.bounds();
+    let ctm = surface.ctm();
+    let maps_finitely = [
+        (bounds.x, bounds.y),
+        (bounds.right(), bounds.y),
+        (bounds.right(), bounds.bottom()),
+        (bounds.x, bounds.bottom()),
+    ]
+    .iter()
+    .all(|&(px, py)| {
+        let (px, py) = (px as f32, py as f32);
+        let tx = ctm.sx() * px + ctm.kx() * py + ctm.tx();
+        let ty = ctm.ky() * px + ctm.sy() * py + ctm.ty();
+        tx.is_finite() && ty.is_finite()
+    });
+    if !maps_finitely {
+        return None;
+    }
+    convert_path(&sector_outline(sector))
+}
+
+/// The outline of a valid sector as path segments, its arcs written as cubic Béziers of at most a quarter turn each.
+fn sector_outline(sector: display::Sector) -> Vec<PathSegment> {
+    let display::Sector {
+        centre,
+        inner,
+        outer,
+        start,
+        sweep,
+    } = sector;
+    let at = |angle: f64, r: f64| {
+        display::Point::new(centre.x + r * angle.cos(), centre.y - r * angle.sin())
+    };
+    // Appends the arc of radius `r` from angle `from` to angle `to` (either direction) to `segments`, assuming the
+    // current point is its start.
+    let arc = |segments: &mut Vec<PathSegment>, r: f64, from: f64, to: f64| {
+        let pieces = ((to - from).abs() / std::f64::consts::FRAC_PI_2)
+            .ceil()
+            .max(1.0);
+        let step = (to - from) / pieces;
+        let k = 4.0 / 3.0 * (step / 4.0).tan();
+        // The derivative of `at` with respect to the angle, scaled by `k`.
+        let tangent = |angle: f64| display::Point::new(-r * angle.sin() * k, -r * angle.cos() * k);
+        for i in 0..pieces as usize {
+            let a0 = from + step * i as f64;
+            let a1 = if i + 1 == pieces as usize {
+                to
+            } else {
+                a0 + step
+            };
+            let (p0, p1) = (at(a0, r), at(a1, r));
+            let (t0, t1) = (tangent(a0), tangent(a1));
+            segments.push(PathSegment::CubicTo(
+                display::Point::new(p0.x + t0.x, p0.y + t0.y),
+                display::Point::new(p1.x - t1.x, p1.y - t1.y),
+                p1,
+            ));
+        }
+    };
+    let end = start + sweep;
+    let mut segments = vec![PathSegment::MoveTo(at(start, outer))];
+    if sector.is_full_turn() {
+        arc(&mut segments, outer, start, start + std::f64::consts::TAU);
+        segments.push(PathSegment::Close);
+        if inner > 0.0 {
+            segments.push(PathSegment::MoveTo(at(start, inner)));
+            arc(&mut segments, inner, start + std::f64::consts::TAU, start);
+            segments.push(PathSegment::Close);
+        }
+    } else {
+        arc(&mut segments, outer, start, end);
+        if inner > 0.0 {
+            segments.push(PathSegment::LineTo(at(end, inner)));
+            arc(&mut segments, inner, end, start);
+        } else {
+            segments.push(PathSegment::LineTo(centre));
+        }
+        segments.push(PathSegment::Close);
+    }
+    segments
 }
 
 /// Converts a group transform, returning `None` when it is not finite or is singular.

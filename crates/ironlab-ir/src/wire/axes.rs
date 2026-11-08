@@ -7,7 +7,8 @@ proto_file! {
         optional uint64 id = 1;
         /// The cells of the figure's tile layout that the axes occupies.
         message Cell cell = 2;
-        /// Whether the axes is two- or three-dimensional, with its 3D view.
+        /// Whether the axes is two- or three-dimensional, Cartesian or angular, with its
+        /// views.
         message Projection projection = 3;
         /// The title drawn above the axes; absent when there is no title.
         message Text title = 4;
@@ -126,6 +127,12 @@ proto_file! {
             TwoD(ProjectionTwoD) two_d = 1;
             /// A three-dimensional Cartesian axes.
             ThreeD(ProjectionThreeD) three_d = 2;
+            /// A two-dimensional polar axes.
+            Polar(ProjectionPolar) polar = 3;
+            /// A three-dimensional cylindrical axes.
+            Cylindrical(ProjectionCylindrical) cylindrical = 4;
+            /// A three-dimensional spherical axes.
+            Spherical(ProjectionSpherical) spherical = 5;
         }
     }
 
@@ -136,6 +143,89 @@ proto_file! {
     message ProjectionThreeD {
         /// The camera view.
         message View3d view3d = 1;
+    }
+
+    /// A two-dimensional polar axes, in which x is the angle and y the radius.
+    message ProjectionPolar {
+        /// How angles are measured and where the sector and the hole lie on the page.
+        message PolarView polar = 1;
+    }
+
+    /// A three-dimensional cylindrical axes viewed through an orthographic camera, in
+    /// which x is the angle, y the radius and z the height along the central axis.
+    message ProjectionCylindrical {
+        /// The camera view.
+        message View3d view3d = 1;
+        /// How angles are measured and where angle 0 points.
+        message PolarView polar = 2;
+    }
+
+    /// A three-dimensional spherical axes viewed through an orthographic camera, in which
+    /// x is the azimuth, y the polar angle and z the radius.
+    message ProjectionSpherical {
+        /// The camera view.
+        message View3d view3d = 1;
+        /// How the two angles are measured.
+        message SphericalView spherical = 2;
+    }
+
+    /// How the angles of a polar or cylindrical axes are measured, and where its sector
+    /// and hole lie on the page.
+    message PolarView {
+        /// The data units of the angle carried by x; absent means degrees.
+        message AngleUnits angle_units = 1;
+        /// The direction on the page in which angle 0 points, in degrees anticlockwise
+        /// from east in polar axes, or from the +X edge of the box in cylindrical axes;
+        /// absent means 0.
+        optional double zero_deg = 2;
+        /// The fraction of the rim radius left empty at the centre, at least 0 and less
+        /// than 1; absent means 0.
+        optional double hole = 3;
+        /// The angle, in the data units of x, of the spoke along which the radial tick
+        /// labels are drawn; absent means halfway between the first two angular ticks.
+        optional double radial_axis_angle = 4;
+    }
+
+    /// How the two angles of a spherical axes are measured.
+    message SphericalView {
+        /// The data units of the azimuth carried by x and of the polar angle carried by
+        /// y; absent means degrees.
+        message AngleUnits angle_units = 1;
+        /// Whether the polar angle is measured up from the X–Y plane or down from +Z.
+        enum PolarAngle polar_angle = 2;
+    }
+
+    /// The data units of an angle.
+    message AngleUnits {
+        /// The kind of units; unset means the default of the context.
+        oneof kind: AngleUnitsKind {
+            /// 360 to a turn.
+            Degrees(AngleUnitsDegrees) degrees = 1;
+            /// 2π to a turn.
+            Radians(AngleUnitsRadians) radians = 2;
+            /// A given number to a turn.
+            PerTurn(AngleUnitsPerTurn) per_turn = 3;
+        }
+    }
+
+    /// 360 to a turn; tick labels carry a degree sign.
+    message AngleUnitsDegrees {}
+
+    /// 2π to a turn; tick labels are written as multiples of π.
+    message AngleUnitsRadians {}
+
+    /// A given number to a turn.
+    message AngleUnitsPerTurn {
+        /// The number of units in one turn; finite and positive.
+        optional double per_turn = 1;
+    }
+
+    /// How the polar angle of a spherical axes is measured.
+    enum PolarAngle {
+        /// The angle above the X–Y plane: 0 on the plane and a quarter turn at +Z.
+        Elevation = 1;
+        /// The angle down from +Z: 0 at +Z and half a turn at −Z.
+        Inclination = 2;
     }
 
     /// The orthographic camera view of a three-dimensional axes.
@@ -179,6 +269,21 @@ proto_file! {
         /// The angle of every tick label in degrees anticlockwise from horizontal; absent
         /// means 0.
         optional double tick_label_angle = 9;
+        /// The side of the plot on which the axis is drawn; unspecified means low.
+        enum AxisSide side = 10;
+    }
+
+    /// The side of the plot on which an axis draws its line, tick marks, tick labels and
+    /// label, across the direction in which the axis runs on the page.
+    enum AxisSide {
+        /// The left of the plot for an axis that runs up the page, and the bottom for one
+        /// that runs across it.
+        Low = 1;
+        /// Through the middle of the plot.
+        Centre = 2;
+        /// The right of the plot for an axis that runs up the page, and the top for one
+        /// that runs across it.
+        High = 3;
     }
 
     /// Where the major ticks of an axis are placed.

@@ -13,8 +13,11 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 45] = [
+const WITH_CHOICES: [ValueType; 48] = [
     ValueType::Projection,
+    ValueType::AxisSide,
+    ValueType::AngleUnits,
+    ValueType::PolarAngle,
     ValueType::Scale,
     ValueType::Limits,
     ValueType::Ticks,
@@ -443,7 +446,39 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::Projection(Projection::ThreeD {
                 view3d: View3d::default(),
             }),
+            Value::Projection(Projection::Polar {
+                polar: PolarView::default(),
+            }),
+            Value::Projection(Projection::Cylindrical {
+                view3d: View3d::default(),
+                polar: PolarView::default(),
+            }),
+            Value::Projection(Projection::Spherical {
+                view3d: View3d::default(),
+                spherical: SphericalView::default(),
+            }),
         ],
+    );
+    covered(
+        ValueType::AngleUnits,
+        vec![
+            Value::AngleUnits(AngleUnits::Degrees),
+            Value::AngleUnits(AngleUnits::Radians),
+            Value::AngleUnits(AngleUnits::PerTurn(12.0)),
+        ],
+    );
+    covered(
+        ValueType::PolarAngle,
+        vec![
+            Value::PolarAngle(PolarAngle::Elevation),
+            Value::PolarAngle(PolarAngle::Inclination),
+        ],
+    );
+    covered(
+        ValueType::AxisSide,
+        [AxisSide::Low, AxisSide::Centre, AxisSide::High]
+            .map(Value::AxisSide)
+            .to_vec(),
     );
     covered(
         ValueType::PerBar,

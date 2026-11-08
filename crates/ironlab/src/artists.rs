@@ -449,6 +449,32 @@ impl SeriesMut<'_> {
         self.artist().clip = clip;
         self
     }
+
+    /// Sets the value of y down to which the area under the line is filled by
+    /// [`fill`](Self::fill). The base is read in the coordinates of y; in polar axes a base
+    /// at the lower radial limit closes the fill at the centre.
+    pub fn base(&mut self, base: f64) -> &mut Self {
+        self.artist().base = Some(base);
+        self
+    }
+
+    /// Fills the area between the line and the base with the given colour; an automatic
+    /// colour is the colour of the series. The area of each unbroken run of points is the
+    /// polygon of its points closed straight down to the base at its first and last points,
+    /// drawn beneath the line and the markers. A fill needs a [`base`](Self::base), without
+    /// which [`Figure::validate`](crate::Figure::validate) reports an error, and is drawn
+    /// only in two-dimensional axes, Cartesian or polar.
+    pub fn fill(&mut self, color: impl IntoColorSpec) -> &mut Self {
+        self.artist().fill = color.into_color_spec();
+        self
+    }
+
+    /// Sets the opacity of the fill, from 0 (transparent) to 1 (opaque, the default), which
+    /// multiplies the alpha of its colour and leaves the line and the markers as they are.
+    pub fn fill_opacity(&mut self, opacity: f64) -> &mut Self {
+        self.artist().fill_opacity = opacity;
+        self
+    }
 }
 
 /// A handle to contours created by [`contour`](crate::AxesMut::contour),

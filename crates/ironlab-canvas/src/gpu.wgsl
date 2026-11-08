@@ -4,7 +4,7 @@
 
 struct Mapping {
     // The size of the render target in points (pixels over pixels per point), as egui's own uniform holds it, in
-    // the first two components.
+    // the first two components, and the pixels per point in the third.
     size_in_points: vec4<f32>,
     // The screen position of the figure's top-left corner in the first two components and the screen points per
     // figure point in the third.
@@ -24,6 +24,61 @@ fn clip_of(figure: vec2<f32>, z: f32) -> vec4<f32> {
     );
 }
 
+// ---- Sector clips ----
+
+// The sector a draw is clipped to, in figure points, with angles in radians anticlockwise on the page from east.
+// Slot 0 of every list is disabled, and a draw outside every sector clip binds it, so that its fragments take the
+// branch that leaves their colour untouched.
+struct SectorClip {
+    centre: vec2<f32>,
+    // The inner and outer radii.
+    radii: vec2<f32>,
+    // The start angle and the sweep.
+    angles: vec2<f32>,
+    enabled: u32,
+    full_turn: u32,
+};
+
+@group(2) @binding(0) var<uniform> sector: SectorClip;
+
+const TAU: f32 = 6.28318530717959;
+
+// The distance from `v` to the ray from the centre in direction `u`, both relative to the centre in page axes.
+fn ray_distance(v: vec2<f32>, u: vec2<f32>) -> f32 {
+    if dot(v, u) <= 0.0 {
+        return length(v);
+    }
+    return abs(u.x * v.y - u.y * v.x);
+}
+
+// The share of a pixel centred on the figure point `figure` that lies inside the sector: the signed distance to the
+// sector's boundary, positive inside, measured in pixels and clamped to a ramp one pixel wide. A fragment with no
+// share is discarded by its caller.
+fn sector_coverage(figure: vec2<f32>) -> f32 {
+    // Figure y grows downwards, so the page's anticlockwise angles are measured with y negated.
+    let d = figure - sector.centre;
+    let v = vec2<f32>(d.x, -d.y);
+    let r = length(v);
+    var distance = sector.radii.y - r;
+    if sector.radii.x > 0.0 {
+        distance = min(distance, r - sector.radii.x);
+    }
+    if sector.full_turn == 0u {
+        let start = sector.angles.x;
+        let end = start + sector.angles.y;
+        let edges = min(
+            ray_distance(v, vec2<f32>(cos(start), sin(start))),
+            ray_distance(v, vec2<f32>(cos(end), sin(end))),
+        );
+        // The angle from the start, reduced to a turn, decides the side of the edges the point lies on.
+        let turned = atan2(v.y, v.x) - start;
+        let offset = turned - floor(turned / TAU) * TAU;
+        distance = min(distance, select(-edges, edges, r == 0.0 || offset <= sector.angles.y));
+    }
+    let pixels_per_figure_point = mapping.origin_scale.z * max(mapping.size_in_points.z, 1e-6);
+    return clamp(distance * pixels_per_figure_point + 0.5, 0.0, 1.0);
+}
+
 // ---- Triangles ----
 
 @group(1) @binding(0) var texture: texture_2d<f32>;
@@ -40,6 +95,8 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    // The position in figure points, which the sector test reads.
+    @location(2) figure: vec2<f32>,
 };
 
 @vertex
@@ -48,14 +105,24 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.clip_position = clip_of(in.position, in.z);
     out.uv = in.uv;
     out.color = in.color;
+    out.figure = in.position;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // The vertex colour and the texture both hold premultiplied colour in gamma space, as egui's do, so their
-    // product is the premultiplied gamma-space output that the blend state expects.
-    return in.color * textureSample(texture, texture_sampler, in.uv);
+    // product is the premultiplied gamma-space output that the blend state expects. Scaling premultiplied colour by
+    // the sector's coverage fades it as a whole.
+    let color = in.color * textureSample(texture, texture_sampler, in.uv);
+    if sector.enabled != 0u {
+        let coverage = sector_coverage(in.figure);
+        if coverage <= 0.0 {
+            discard;
+        }
+        return color * coverage;
+    }
+    return color;
 }
 
 // One triangle covering the whole target at the far plane, drawn with depth writes and no colour writes, clears
@@ -127,6 +194,8 @@ struct StrokeOutput {
     // The arc lengths at which the subpath starts and ends, where the segment is its first or last, else far
     // away: no dash lies beyond them.
     @location(3) @interpolate(flat) bounds: vec2<f32>,
+    // The position in figure points, which the sector test reads.
+    @location(4) figure: vec2<f32>,
 };
 
 const JOIN_AT_START: u32 = 1u;
@@ -318,7 +387,9 @@ fn vs_stroke(in: SegmentInput, @builtin(vertex_index) index: u32) -> StrokeOutpu
     } else {
         z = z + dot(in.grad, item - anchor);
     }
-    out.clip_position = clip_of(item_to_figure(item), z);
+    let figure = item_to_figure(item);
+    out.clip_position = clip_of(figure, z);
+    out.figure = figure;
     out.st = st;
     out.joint = joint;
     out.st_prev = select(st, st_prev, fan_vertex);
@@ -526,7 +597,10 @@ fn dash_coverage(st: vec2<f32>, joint: vec4<f32>, st_prev: vec2<f32>, bounds: ve
 
 @fragment
 fn fs_stroke(in: StrokeOutput) -> @location(0) vec4<f32> {
-    let coverage = dash_coverage(in.st, in.joint, in.st_prev, in.bounds);
+    var coverage = dash_coverage(in.st, in.joint, in.st_prev, in.bounds);
+    if sector.enabled != 0u {
+        coverage *= sector_coverage(in.figure);
+    }
     if coverage <= 0.0 {
         discard;
     }
@@ -549,6 +623,8 @@ struct MarkerVertexInput {
 struct MarkerOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) color: vec4<f32>,
+    // The position in figure points, which the sector test reads.
+    @location(1) figure: vec2<f32>,
 };
 
 // The instance's centre, the outline scaled by its size and the edge's offset (in item units, unscaled), mapped
@@ -561,12 +637,21 @@ fn vs_marker(in: MarkerVertexInput) -> MarkerOutput {
     if stroke.vertex_z == 0u {
         z = 0.0;
     }
-    out.clip_position = clip_of(item_to_figure(item), z);
+    let figure = item_to_figure(item);
+    out.clip_position = clip_of(figure, z);
+    out.figure = figure;
     out.color = select(in.face, in.edge, in.slot == 1u);
     return out;
 }
 
 @fragment
 fn fs_marker(in: MarkerOutput) -> @location(0) vec4<f32> {
+    if sector.enabled != 0u {
+        let coverage = sector_coverage(in.figure);
+        if coverage <= 0.0 {
+            discard;
+        }
+        return in.color * coverage;
+    }
     return in.color;
 }

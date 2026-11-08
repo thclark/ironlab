@@ -33,6 +33,7 @@ Axes are placed in tiles, numbered from zero starting at the top-left tile.
 
 - `fig.axes(row, col)` returns the axes in that tile, creating a two-dimensional axes if the tile is empty. Calling it again with the same tile returns the same axes.
 - `fig.axes3(row, col)` does the same but makes the axes three-dimensional.
+- `fig.polar_axes(row, col)` does the same but makes the axes polar, as [polar axes](#polar-axes) describes.
 - `fig.axes_span(row, col, row_span, col_span)` returns an axes whose top-left tile is `(row, col)` and makes it cover the given numbers of rows and columns.
 
 Tiles are of equal size by default. `row_weights` and `col_weights` give the rows and columns relative sizes, so that, for example, a wide plot and a narrow [legend panel](legends.md#legend-panels) can share a row; [sizing rows and columns with weights](legends.md#sizing-rows-and-columns-with-weights) explains how weights combine with spans, and `fit_row` and `fit_col` make a row or column as large as the [legend panels it holds](legends.md#fitting-rows-and-columns-to-their-legends).
@@ -72,9 +73,18 @@ ax.plot(&x, &y)
 
 Non-finite values (such as `f64::NAN`) break a line into separate pieces.
 
+A series can fill the area between its line and a constant value of y, its base. `base(y)` sets the base and `fill(colour)` the colour of the fill, which `ColorSpec::Auto` makes the colour of the series; `fill_opacity(a)` fades the fill without fading the line. The fill of each unbroken piece of the line is the polygon of its points closed straight down to the base at its first and last points, drawn beneath the line and the markers. The facade does not choose a base, because 0 is the wrong base for data far from 0 and has no place on a logarithmic axis, so a fill set without a base is reported by [`validate`](#validating-a-figure) as `FillWithoutBase`. A fill is drawn only in two-dimensional axes, Cartesian or [polar](#polar-axes).
+
+```rust
+ax.plot(&t, &power)
+    .base(0.0)
+    .fill(ColorSpec::Auto)  // the colour of the series
+    .fill_opacity(0.3);
+```
+
 ### Logarithmic axes
 
-`loglog(x, y)`, `semilogx(x, y)` and `semilogy(x, y)` draw a line as `plot` does and set the scales of the x and y axes to logarithmic, as MATLAB's functions of the same names do. The scale of any axis can also be set directly with `xscale`, `yscale` and `zscale`. Points with a non-positive coordinate on a logarithmic axis are not drawn, and validation warns about them. An image cannot be drawn on a logarithmic axis at all, and data sampled along one is drawn as a surface instead, as described in [images on logarithmic axes](#images-on-logarithmic-axes).
+`loglog(x, y)`, `semilogx(x, y)` and `semilogy(x, y)` draw a line as `plot` does and set the scales of the x and y axes to logarithmic, as MATLAB's functions of the same names do. The scale of any axis can also be set directly with `xscale`, `yscale` and `zscale`. Points with a non-positive coordinate on a logarithmic axis are not drawn, and validation warns about them. An image on a logarithmic axis is drawn with each pixel between its pixel edges mapped through the axis, provided that those edges are positive, as described in [images on logarithmic axes](#images-on-logarithmic-axes).
 
 ```rust
 let f = logspace(0.0, 4.0, 200);
@@ -341,7 +351,7 @@ fig.axes(0, 2)
 
 `density_contour(x, y)` bins pairs as `hist2d` does and draws the [contours](#contours) of the binned values on the grid of the bin centres (Plotly's `histogram2dcontour`). It returns a `DensityContourMut`, whose binning setters are those of `Hist2dMut`, and whose `levels(n)`, `level_values(levels)`, `filled(true)` and `color_scale(id)` set the contour as `contour` and `contourf` do. A contour stores no record of its binning, because its field is sampled at the bin centres rather than held in bins.
 
-The gallery's [histograms](../gallery/histogram.md) overlay two samples as step outlines of their densities with fitted normal densities, and stack the same samples as counts; its [two-dimensional histogram and density contour](../gallery/histogram_2d.md) draws a correlated sample as cells on a logarithmic colour scale and as filled contours of its density.
+The gallery's [histograms](../gallery/histogram.md) overlay two samples as step outlines of their densities with fitted normal densities, and stack the same samples as counts; its [two-dimensional histogram and density contour](../gallery/histogram_2d.md) draws a correlated sample as cells on a logarithmic colour scale and as filled contours of its density. A histogram of angles, which wraps round a turn, is drawn by [`polar_hist`](#polar-histograms-and-wind-roses) in a polar axes.
 
 #### Normalising stacked and side-by-side histograms
 
@@ -438,10 +448,10 @@ Out of the box, a surface in a two-dimensional axes and a [scalar image](#images
 | A value belongs to | the centre of a pixel | a vertex of the grid |
 | A field of n rows and m columns draws | n × m pixels, each in the colour of its own value | (n − 1) × (m − 1) faces, each in the colour of the mean of its four corner values |
 | Placement | evenly spaced pixel centres, given by the first and last centre along each axis | any rectilinear grid (two coordinate vectors) or curvilinear grid (two coordinate matrices) |
-| Logarithmic axes | refused by validation with an `ImageOnLogAxis` error | drawn, because every vertex is placed through the scale of its axis |
+| Logarithmic axes | drawn with each pixel between its pixel edges mapped through the axis, so pixels of equal pitch in the data are of unequal widths on the page | drawn, because every vertex is placed through the scale of its axis |
 | Drawn as | one flat raster at its own resolution | one quadrilateral per face, with optional edges |
 
-An image therefore suits evenly sampled data such as a camera frame or a matrix, and a surface suits data on an uneven, logarithmic, polar or otherwise mapped mesh. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: the figure is valid, the surface is not drawn, validation warns of it with a `NothingToDraw` warning that names the surface, and the [report](#exporting-pdf) that `export_pdf` returns names it too. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
+An image therefore suits evenly sampled data such as a camera frame, a matrix or the bins of a Fourier transform, and a surface suits data on an uneven, polar or otherwise mapped mesh, including data sampled at points spaced evenly in their logarithm. Because a field of n rows draws n − 1 rows of faces, a field with a single row or a single column has no face: the figure is valid, the surface is not drawn, validation warns of it with a `NothingToDraw` warning that names the surface, and the [report](#exporting-pdf) that `export_pdf` returns names it too. MATLAB's `pcolor` differs in one detail: with its default shading it gives each face the value of its first corner, so the last row and column of the field are never shown, whereas IronLAB gives each face the mean of its four corners, so every value contributes.
 
 A surface added with `surface` is an ordinary surface, so a later `surf` or `mesh` in the same axes converts that axes to three dimensions and the earlier surface is drawn there with `z` as its height. The [Flow past a cylinder](../gallery/cylinder_flow.md) gallery entry draws a field on a polar mesh in this way, and the [figure schema](../reference/figure-schema.md#surface) states how a surface is stored.
 
@@ -490,13 +500,29 @@ In a three-dimensional axes an image lies in one of the three coordinate planes,
 
 #### Images on logarithmic axes
 
-An image is a raster of evenly spaced pixels, and a logarithmic axis has no place for one: equal steps in the data are unequal distances on the page, so the pixels of one image would have to be of different widths, and the width of each would span an interval of the data that the image does not describe. An image whose plane has a logarithmic axis is therefore a validation error, `ImageOnLogAxis`, and the figure is neither exported nor shown. Only the two axes of the image's plane count. The third axis of a three-dimensional axes, along which the plane is only offset, may be logarithmic, provided that an explicit offset along it is positive; a plane offset to zero or to a negative coordinate along a logarithmic third axis has no position and is an `InvalidImagePlacement` error. The z axis of a two-dimensional axes is never drawn, so its scale does not matter. Why such an image is refused rather than drawn one path per pixel is recorded in [ADR 0021](../adrs/0021-images-refused-on-logarithmic-axes-and-alpha-and-opacity.md).
+An image whose plane has a logarithmic axis is drawn with every pixel between its own pixel edges mapped through that axis. The pixels keep an equal pitch in the data, as the placement defines them, so on the page they are of unequal widths: along a logarithmic axis a pixel near the low end of a decade is wider than one of the same pitch near its high end. This is what a spectrogram computed with a Fourier transform needs, because the transform resolves frequency in bins of equal width, and those bins are what the reader should see against a logarithmic frequency axis.
 
-Data sampled along a logarithmic axis, such as a spectrogram with a logarithmic frequency axis, is drawn as a [surface](#surfaces-in-two-dimensional-axes) instead. A surface is made of vertices, each of which is placed through the scale of its axis, so its faces stretch and shrink with the logarithmic axis exactly as the data does. The values that would have been the pixels become the field of a surface whose grid holds the coordinates of the pixel centres:
+A logarithmic axis has no place for zero or a negative coordinate, so the first and last pixel edges along a logarithmic axis of the image's plane must both be positive. The default placement centres the pixels on 0, 1, …, n − 1, which puts the first edge at −0.5, so an image on a logarithmic axis is placed with `pixel_columns` or `pixel_rows`. An image whose edge along such an axis is not positive is an `InvalidImagePlacement` error, whose message names the image, the axis and the edge. Only the two axes of the image's plane count. The third axis of a three-dimensional axes, along which the plane is only offset, may be logarithmic, provided that an explicit offset along it is positive; a plane offset to zero or to a negative coordinate along a logarithmic third axis has no position and is also an `InvalidImagePlacement` error. The z axis of a two-dimensional axes is never drawn, so its scale does not matter.
 
 ```rust
-let time = linspace(0.0, 8.0, 241);                            // the centres of the columns
-let frequency = logspace(20f64.log10(), 20e3f64.log10(), 241); // the centres of the rows
+let bin_hz = 48_000.0 / 1024.0;                    // the width of one bin of the transform
+// `stft` stands for the power of the 511 bins above the mean in each of 120 frames.
+let power = Matrix::from_fn(511, 120, |row, col| stft(col, row + 1));
+
+let mut ax = fig.axes(0, 0);
+ax.scalar_image(&power)
+    .pixel_columns(0.5 / 15.0, 8.0 - 0.5 / 15.0)   // the centres of the frames, in seconds
+    .pixel_rows(bin_hz, 511.0 * bin_hz);           // bins 1 to 511, whose edges are all positive
+ax.yscale(Scale::Log);
+```
+
+The [Image on a logarithmic frequency axis](../gallery/fft_spectrogram.md) gallery entry draws such a spectrogram. On screen and in a PNG the image is drawn as a warped raster. A PDF has no warped raster, so an exported image on a logarithmic axis is written as one filled path per pixel, which keeps every pixel edge exact; an image with as many pixels as the [raster threshold](#dense-surfaces) of the export is embedded as a raster instead, and the export report says so with a `RasterisedForWarp` warning that gives the number of pixels.
+
+Values that belong to the nodes of a grid rather than to pixels, such as the output of a constant-Q analysis sampled at frequencies spaced evenly in their logarithm, are drawn as a [surface](#surfaces-in-two-dimensional-axes) instead. A surface is made of vertices, each of which is placed through the scale of its axis, so its faces stretch and shrink with the logarithmic axis exactly as the data does, and the values become the field of a surface whose grid holds the coordinates of the samples:
+
+```rust
+let time = linspace(0.0, 8.0, 241);                            // the times of the samples
+let frequency = logspace(20f64.log10(), 20e3f64.log10(), 241); // the frequencies of the samples
 // `psd` stands for whatever computes the power spectral density at one time and frequency.
 let power = Matrix::from_fn(frequency.len(), time.len(), |row, col| psd(time[col], frequency[row]));
 
@@ -505,9 +531,9 @@ ax.surface(&time, &frequency, &power).edge_color(None);
 ax.yscale(Scale::Log);
 ```
 
-The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. A true-colour image has no values for a colour scale to colour, so its colours must be given as the values from which they were made. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
+The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
 
-An exported PDF embeds every image at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
+An exported PDF embeds every image on linear axes at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
 
 In the viewer, resting the pointer over an image in a two-dimensional axes reads the pixel beneath it, as described in [datatips](viewer.md#datatips). The gallery entries [Image](../gallery/image.md), [Mapped image](../gallery/mapped_image.md) and [Indexed image](../gallery/indexed_image.md) show a true-colour image and a scalar image through a continuous and through an indexed scale, [Image orientation](../gallery/image_orientation.md) shows one photograph with three placements, [Mapped image and surface](../gallery/mapped_image_and_surface.md) shows an image on the floor of a three-dimensional axes beneath a surface that covers it, and [Correlation peak in 3D](../gallery/correlation_peak.md) shows images in each of the three coordinate planes at explicit offsets, on a face of the box and inside it. The decisions behind the image artists are recorded in [ADR 0011](../adrs/0011-image-artists.md), and the replacement of its colour-indexed and colour-mapped kinds by the scalar image in [ADR 0024](../adrs/0024-colour-scales-colourbars-and-colour-keys.md).
 
@@ -651,11 +677,12 @@ The remaining axes properties are also set on the axes handle.
 | `xtick_labels_hidden()`, `ytick_labels_hidden()`, `ztick_labels_hidden()` | Draws the ticks of an axis without labels and reserves no space for them. |
 | `xtick_label_angle(degrees)`, `ytick_label_angle(degrees)`, `ztick_label_angle(degrees)` | Turns every tick label of an axis by the angle, anticlockwise from horizontal; see [turned tick labels and hidden axes](#turned-tick-labels-and-hidden-axes). |
 | `xaxis_visible(on)`, `yaxis_visible(on)`, `zaxis_visible(on)` | Shows or hides an axis with its spine, ticks, tick labels and label, and gives its space to the plot area. |
+| `xaxis_side(side)`, `yaxis_side(side)`, `zaxis_side(side)` | Draws an axis on the low side of the plot (`AxisSide::Low`, the default: the bottom or the left), through its middle (`AxisSide::Centre`) or on its high side (`AxisSide::High`: the top or the right); see [axis sides](#axis-sides). |
 | `aspect(aspect)` | Fixes the ratios of the drawn length of a unit of y, and of z, to that of a unit of x: `Aspect::Equal`, `Aspect::ratio(y)` or `Aspect::Ratio { y, z }`; see [equal aspect](#equal-aspect). |
 | `aspect_adjust(adjust)` | Keeps a fixed aspect by shaping the plot area or the box to the limits (`AspectAdjust::Box`, the default) or by widening the limits (`AspectAdjust::Limits`). |
 | `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
-| `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. |
+| `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. A three-dimensional axes with the box off keeps only the three edges that carry the ticks of x, y and z, and a cylindrical axes keeps only its floor. |
 | `color_scale()` | Returns the default [colour scale](colour.md) of the axes, which its colour-mapped plots share, so that its colormap (MATLAB's `colormap`) and its limits (MATLAB's `clim`) can be set. |
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |
 
@@ -709,6 +736,20 @@ bottom.xticks(ticks).xtick_labels(names).xtick_label_angle(45.0);
 
 A three-dimensional axes draws its tick labels along the projected edges of its box, where a turn in the page has no agreed meaning, so it ignores the angle and [`validate`](#validating-a-figure) warns of it with `TickLabelAngleIgnored`; an angle that is not finite is the error `InvalidTickLabelAngle`. A hidden axis of a three-dimensional axes draws no ticks, tick labels or label, and the box is drawn as before. The [equivalent functions](../reference/equivalent-functions.md#axes) map both settings to MATLAB, matplotlib and Plotly, and the [figure schema](../reference/figure-schema.md#axis) gives the exact rules. In the gallery, the [case by subroutine coverage matrix](../gallery/coverage_matrix.md) stands its column names vertically, the lower axes of [stacked, horizontal, floating and highlighted bars](../gallery/bar_variants.md) turn theirs by 30 degrees, and the [branch coverage occupancy matrix](../gallery/branch_coverage.md) hides its x axis.
 
+### Axis sides
+
+`yaxis_side(AxisSide::High)` moves the y axis to the right of the plot: its line, its tick marks, its tick labels and its label move together, and the space for them is reserved on the right instead of the left. `xaxis_side(AxisSide::High)` moves the x axis to the top, between the plot area and the title. `AxisSide::Centre` draws an axis through the middle of the plot area, with its labels on its low side and no space reserved, which is the textbook look of a function plotted about its origin. With the box on, the frame keeps its tick marks on every edge and only the labels follow the side. The side is a side of the page, so a reversed axis stays where it was put.
+
+```rust
+let mut ax = fig.axes(0, 0);
+ax.plot(&t, &f);
+ax.box_on(false)
+    .xaxis_side(AxisSide::Centre)
+    .yaxis_side(AxisSide::Centre);
+```
+
+In a three-dimensional axes the high side labels the box edge highest on the page for x and y, and the vertical edge furthest right for z, and the centre labels a line through the centre of the floor; the edge is chosen again as the view turns. The z axis of a cylindrical axes stands on the left wall by default, and `zaxis_side` moves it to the right wall or up the axis of the cylinder. Polar and spherical axes, and the angle and radius of a cylindrical axes, have no side to move to, so [`validate`](#validating-a-figure) warns of a side other than the low side there with `AxisSideIgnored`. The [figure schema](../reference/figure-schema.md#axis) gives the exact rules, and the gallery entry [Axis sides](../gallery/axis_sides.md) shows every side in every projection that honours it.
+
 ## Legends
 
 A legend lists every plot of an axes that has a label, in the order the plots were added. The label of a plot is the text drawn beside its sample in the legend, and is set with `label`. It is shown inside the plot area with `legend` and hidden with `legend_off`.
@@ -761,6 +802,117 @@ ax.xlabel("$x$").ylabel("$y$").zlabel("$z$").view(-37.5, 30.0).grid(true);
 ```
 
 A series or quiver without z data in a three-dimensional axes lies in the plane z = 0. Faces, line segments, markers and images are drawn from back to front for the current view, except that an image on a face of the axes box is painted behind or in front of all of them, and each surface face has a single flat colour. Each segment of a line is placed by its own depth, so that a line passing through a surface is drawn behind it and in front of it where it should be. The reasons for this approach are recorded in [ADR 0010](../adrs/0010-pdf-export-with-a-raster-fallback.md), those for images in [ADR 0011](../adrs/0011-image-artists.md), and those for lines drawn by segment in [ADR 0025](../adrs/0025-series-replaces-line-and-scatter.md).
+
+## Polar axes
+
+A polar axes places each point by an angle and a radius. It has no axes of its own for them: x carries the angle and y the radius, so the limits, scale, direction, ticks and labels of those two axes apply to the angle and the radius, and every plotting function of a two-dimensional axes draws in it. `fig.polar_axes(row, col)` returns a polar axes with both grids on, so that the spokes and circles a polar plot is read by are drawn, and `make_polar` converts an existing axes. `polarplot` and `polarscatter` add exactly the series that `plot` and `scatter` add, converting the axes to polar first.
+
+```rust
+use ironlab::prelude::*;
+
+// A cardioid microphone pattern, in decibels relative to the front.
+let theta = linspace(0.0, 360.0, 361); // degrees, the default units
+let gain: Vec<f64> = theta
+    .iter()
+    .map(|t| (20.0 * (0.5 + 0.5 * t.to_radians().cos()).abs().max(1e-6).log10()).max(-30.0))
+    .collect();
+
+let mut fig = Figure::new().size_mm(100.0, 100.0);
+let mut ax = fig.polar_axes(0, 0);
+ax.theta_zero(ThetaZero::North) // angle 0 points up the page, as on a compass
+    .clockwise(true)            // angles increase clockwise
+    .rlim(-30.0, 0.0);          // -30 dB at the centre, 0 dB at the rim
+ax.polarplot(&theta, &gain).label("cardioid");
+```
+
+| Method | Effect |
+| --- | --- |
+| `theta_zero(zero)` | Sets the direction on the page in which angle 0 points: `ThetaZero::East` (the default), `North`, `West`, `South`, or `ThetaZero::Degrees(d)` for any angle anticlockwise from east. |
+| `clockwise(on)` | Makes angles increase clockwise rather than anticlockwise. The direction is the direction of the x axis, so `clockwise(true)` is `xreverse(true)`. |
+| `angle_units(units)` | Sets the units of the angles of the data: `AngleUnits::Degrees` (the default), `AngleUnits::Radians`, or `AngleUnits::PerTurn(n)` for `n` units to a turn, such as 24 hours or the number of categories of a radar chart. |
+| `thetalim(min, max)` | Fixes the angular limits, which draw a sector rather than the full turn; it is `xlim` under a name that says what it does. |
+| `rlim(min, max)` | Fixes the radial limits: the lower limit lies at the centre and the upper limit at the rim. It is `ylim`. |
+| `rscale(scale)` | Makes the radius linear or logarithmic. It is `yscale`; the angle cannot be logarithmic. |
+| `hole(fraction)` | Leaves the given fraction of the rim radius empty at the centre, and puts the lower radial limit on the edge of the hole. |
+| `radial_axis_angle(angle)` | Draws the radial tick labels along the spoke at the given angle, in the units of the data, rather than halfway between the first two angular ticks. |
+
+Automatic angular limits are always the full turn, whatever the data, and automatic radial limits start at the centre for a linear radius whose data holds no negative value. Angular tick labels are written in the units of the angle: `45°` for degrees, multiples of π such as `π/4` for radians, and plain numbers for other units. A polar axes is always drawn round, so it ignores [`aspect`](#equal-aspect), and [`validate`](#validating-a-figure) warns of an aspect other than automatic with `AspectIgnored`.
+
+One rule decides how an artist is drawn in polar axes. **Direct artists**, which draw the data points themselves (series, contours, surfaces and quivers), join consecutive points with straight lines on the page, exactly as they do in Cartesian axes; they never interpolate between points, so a curve is drawn smoothly by sampling it finely, and a closed curve repeats its first point at its end, as the pattern above does at 360°. **Representing shapes**, which draw outlines made of edges at constant coordinates (bars, stairs, cells and the pixels of images), follow the axes: an edge at constant radius is an arc and an edge at constant angle is a spoke, so an upright bar becomes a wedge, a bar lying flat sweeps round the centre, and a cell or a pixel becomes an annular sector. A point whose radius lies below the lower radial limit, and so would lie beyond the centre, has no position and breaks a line, as a non-finite value does; nothing is reflected through the centre. A point beyond the rim is cut away at the rim.
+
+A polar axes given a third dimension becomes a [cylindrical axes](#cylindrical-and-spherical-axes). The [figure schema](../reference/figure-schema.md#angular-axes) states every rule of angular axes exactly, and the [artists in polar axes](../reference/figure-schema.md#artists-in-polar-axes) section describes each artist. In the gallery, [Antenna directivity](../gallery/polar_directivity.md) draws a pattern with angle 0 at the north and clockwise angles, [Polar scatter](../gallery/polar_scatter.md) colours markers by data, [Fields on an angle–radius grid](../gallery/polar_field.md) draws a filled contour and a surface, [Sonar sweep in a polar sector](../gallery/polar_image.md) draws an image in a partial sector, [Radial and polar bars](../gallery/radial_bars.md) draws both orientations of bars, the second with a hole, and [Logarithmic radius](../gallery/log_radius.md) draws a line on a logarithmic radius. The viewer's gestures in polar axes are described under [panning](viewer.md#panning) and [zooming](viewer.md#zooming).
+
+### Radar charts
+
+A radar chart compares several items against the same criteria, one spoke per criterion. `spokes(labels)` prepares a polar axes for it: the angle is measured in one unit per spoke, so that spoke `k` lies at angle `k` and the data needs no conversion to degrees; the angular limits are fixed at the full turn; each spoke is labelled; spoke 0 points north and the others follow clockwise; and both grids are drawn. `radar(values)` then adds one item as an ordinary series through one value per spoke, with the first value repeated a turn later so that the outline closes, drawn with circle markers and filled translucently in its own colour down to the centre. The edges of the outline are straight, because a series is a direct artist.
+
+```rust
+let mut ax = fig.polar_axes(0, 0);
+ax.spokes(&["Mass", "Cost", "Efficiency", "Noise", "Range"])
+    .rlim(0.0, 1.0); // the radial labels lie between the first two spokes by default
+ax.radar([0.55, 0.85, 0.60, 0.50, 0.55]).label("Baseline");
+ax.radar([0.95, 0.45, 0.75, 0.70, 0.40]).label("Lightweight");
+```
+
+The axes has one radial scale, which every outline shares, so criteria measured in different units, or on which a lower value is better, are normalised before they are plotted, for example to the range from 0 for the worst item to 1 for the best. The fill of an outline goes down to the lower radial limit when it is fixed before `radar` is called, and to 0 otherwise. Values of the wrong number for the spokes are stored as given, and `validate` reports the mismatch as `ShapeMismatch`. The [Radar chart](../gallery/radar_chart.md) gallery entry compares three design candidates in this way.
+
+### Polar histograms and wind roses
+
+`polar_hist(angles)` draws a histogram of angles over one turn, converting the axes to polar axes. It wraps each finite angle into one turn of the angle units of the axes, so that −10° counts as 350° and 370° as 10°, and then bins the wrapped angles exactly as [`hist`](#histograms) does, with the range fixed to the whole turn, so that the last bin adjoins the first, and sixteen bins unless `bins` sets others. It returns the same `HistMut`, so `style(HistStyle::Step)` draws the outline of the bins, whose runs are arcs, and the record of the binning describes the wrapped angles.
+
+```rust
+let mut ax = fig.polar_axes(0, 0);
+ax.theta_zero(ThetaZero::North).clockwise(true);
+ax.polar_hist(&headings).bins(Bins::Count(24));
+```
+
+`wind_rose(directions, speeds, class_edges)` draws a wind rose: it converts the axes to polar axes in degrees with north up and bearings clockwise, bins the directions into sixteen sectors centred on the compass points, so that the sector of north spans north itself, and bins the speeds into the classes between consecutive edges. A class holds the speeds from its lower edge up to, but not including, its upper edge, and the last class is open above its edge. Each class is a series of bars stacked on the classes below it, labelled by its range of speeds, such as `2–4`, and its values are the percentages of all the observations whose direction and speed are both finite. A speed below the first edge is a calm: it counts towards the total but is drawn in no class, so the petals then sum to less than 100. The function returns the [`bars`](#bar-charts) helper of the classes, through which the gap between petals and the style of each class are set.
+
+```rust
+let mut ax = fig.polar_axes(0, 0);
+ax.wind_rose(&directions, &speeds, [0.5, 2.0, 4.0, 6.0, 8.0]);
+```
+
+The [Polar histograms](../gallery/polar_histogram.md) gallery entry draws the headings of waves both as bars and as steps, and the [Wind rose](../gallery/wind_rose.md) entry draws a year of hourly wind.
+
+## Cylindrical and spherical axes
+
+A cylindrical axes places each point by an angle about its central axis, a distance from that axis and a height along it, carried on x, y and z; a spherical axes places each point by an azimuth, a polar angle and a distance from its centre, carried on x, y and z. Both are three-dimensional axes, seen through the same camera as a Cartesian one and rotated, zoomed and panned in the viewer in the same way, and every plotting function of a three-dimensional axes draws in them unchanged: `plot3`, `scatter3`, `surf`, `mesh`, `contour3`, `quiver3` and images on any plane. Bars, stairs and cells are drawn only in two-dimensional axes, as in Cartesian three-dimensional axes.
+
+| Function | Effect |
+| --- | --- |
+| `fig.cylindrical_axes(row, col)` | Returns the axes of the tile as a cylindrical axes, creating or converting it. A new cylindrical axes has its x and y grids on, which draw the spokes and circles of its floor. An axes that is already cylindrical keeps its camera, its polar view and its grids. |
+| `fig.spherical_axes(row, col)` | Returns the axes of the tile as a spherical axes, creating or converting it. A new spherical axes has all three grids on, which draw its spokes and its circles of constant radius. An axes that is already spherical keeps its camera, its spherical view and its grids. |
+| `make_cylindrical()` | Converts the axes to cylindrical axes, keeping its artists, its camera when it has one and its polar view when it is polar. |
+| `make_spherical()` | Converts the axes to spherical axes, keeping its artists, its camera when it has one and the angle units of a polar or cylindrical axes. |
+| `polar_angle(PolarAngle)` | Measures the polar angle of a spherical axes up from the X–Y plane (`PolarAngle::Elevation`, the default, as in antenna patterns and geography) or down from +Z (`PolarAngle::Inclination`, as in physics), converting the axes to spherical axes. |
+
+A polar axes becomes cylindrical, keeping its polar view, when a three-dimensional plotting function adds a plot to it or when `view` is called on it, so a polar plot given a height keeps the directions of its angles. The setters of the polar view, `theta_zero`, `clockwise`, `angle_units`, `hole` and `radial_axis_angle`, apply to a cylindrical axes as to a polar one, with angle 0 measured from the +X edge of the box, and `angle_units` sets both angles of a spherical axes.
+
+```rust
+use ironlab::prelude::*;
+
+// The gain of an antenna in every direction, as a balloon coloured by the gain.
+let azimuth = linspace(0.0, 360.0, 73);
+let elevation = linspace(-90.0, 90.0, 37);
+let gain = Matrix::from_fn(37, 73, |row, col| {
+    let (az, el) = (azimuth[col].to_radians(), elevation[row].to_radians());
+    (20.0 * (0.5 * (1.0 + el.cos() * az.cos())).powi(2).max(1e-3).log10()).max(-30.0)
+});
+let radius = gain.map(|g| g + 30.0);
+
+let mut fig = Figure::new();
+let mut ax = fig.spherical_axes(0, 0);
+ax.surf(&azimuth, &elevation, &radius).color_data(&gain);
+ax.zlim(0.0, 30.0);
+assert!(fig.validate().is_valid());
+```
+
+The angles take automatic limits of their whole range whatever the data: the full turn for the angle of a cylinder and the azimuth of a sphere, and a quarter turn either side of the equator for an elevation, or half a turn down from the north pole for an inclination. The radius starts at 0 for data that holds no negative radius, as in a polar axes. A cylindrical axes keeps its [aspect](#equal-aspect) as the ratio of a unit of height to a unit of radius, so `aspect(Aspect::Equal)` draws a tank in its true proportions; a spherical axes is always drawn as a sphere and ignores its aspect.
+
+The rule of the two kinds of artist holds in three dimensions. A series, a contour, a surface and a quiver join their mapped points with straight chords, so a helix is drawn by supplying a point every few degrees and a surface face is the quadrilateral of its four grid nodes. Each pixel of an image follows the axes: on the floor of a cylinder an image is a disc, on its wall it wraps round at a fixed radius, and on the X–Y plane of a spherical axes, which holds the azimuth and the polar angle at a fixed radius, it wraps the sphere as a globe whose far side is hidden by its near side.
+
+The frame is made of circles rather than the edges of a box. A cylindrical axes draws the rim of its floor, with the angle labels outside it and the radial labels along a spoke, the z axis on its left wall with its labels outside it (or on its right wall, or up its centre, as [axis sides](#axis-sides) describes), and, when the box is on, the rim of its top and the two lines that outline its wall. A spherical axes draws its equator, which carries the azimuth labels, the meridian of azimuth 0, which carries the polar-angle labels all the way round, and the radial axis along azimuth 0. Each line of the outer frame is painted behind the plots where it lies behind the centre of the box and in front of them where it lies in front, and a line inside the volume, such as the z axis of a cylinder or the radial axis of a sphere, is hidden by the plots in front of it. Each kind of axes is fitted to its plot area by the sphere that encloses what it draws, less the room its tick labels take round the frame, so a sphere nearly fills the shorter side of the plot area and keeps its size as it turns. The [figure schema](../reference/figure-schema.md#angular-axes) states every rule exactly, and [artists in cylindrical and spherical axes](../reference/figure-schema.md#artists-in-cylindrical-and-spherical-axes) describes each artist. In the gallery, [Membrane mode in cylindrical axes](../gallery/cylindrical_surface.md) draws a surface over a disc, [Helix in cylindrical axes](../gallery/helix.md) draws a helix and its tangents, [Antenna balloon in spherical axes](../gallery/antenna_balloon.md) draws a radiation pattern coloured by its gain, and [Globe in spherical axes](../gallery/globe_image.md) wraps an image round a sphere with a route over it.
 
 ## Parameters
 
@@ -899,7 +1051,7 @@ for warning in &report.export {
 }
 ```
 
-The first two lists overlap where the compiler leaves out an artist that validation warned of, and differ where the compiler finds a reason that validation cannot see. A program that wants one reason per artist reads `validation`; one that wants every reason reads both. The third list, `export`, says what the exporter drew as an image and why (`RasterisedForSize`, `RasterisedForDepth` or `RasterisedByRequest`, see the two sections below) and which three-dimensional axes it could not verify (`Unverified`, with its cause). Every raster on the page is explained there, so a page that a program expects to be wholly vector can be checked by testing that the list is empty. A caller that does not need the report can drop it, as `fig.export_pdf("pressure.pdf")?;` does.
+The first two lists overlap where the compiler leaves out an artist that validation warned of, and differ where the compiler finds a reason that validation cannot see. A program that wants one reason per artist reads `validation`; one that wants every reason reads both. The third list, `export`, says what the exporter drew as an image and why (`RasterisedForSize`, `RasterisedForWarp`, `RasterisedForDepth` or `RasterisedByRequest`, see the two sections below) and which three-dimensional axes it could not verify (`Unverified`, with its cause). Every raster on the page is explained there, so a page that a program expects to be wholly vector can be checked by testing that the list is empty. A caller that does not need the report can drop it, as `fig.export_pdf("pressure.pdf")?;` does.
 
 ### Dense surfaces
 
@@ -942,6 +1094,8 @@ fig.export_pdf_with("pressure.pdf", PdfExport {
 ```
 
 Rendering the image needs a graphics adapter. A figure with nothing dense in it is exported without one, as it always was, so exporting on a machine without a GPU only fails for a figure that must be rasterised — and then it fails with a message naming `RasterPolicy::Never` rather than quietly writing something else. A dense artist drawn as an image is reported in the `export` list of the report as `RasterisedForSize`, with its cell count.
+
+An image on a [logarithmic axis](#images-on-logarithmic-axes) is dense content of the same kind, because a PDF writes it as one filled path per pixel; its pixels count as cells against the same threshold, and an image drawn as a raster for that reason is reported as `RasterisedForWarp`, with its pixel count.
 
 ### Three-dimensional axes in PDF
 

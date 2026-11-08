@@ -41,7 +41,8 @@
 use std::sync::Arc;
 
 use ironlab_scene::display::{
-    DisplayList, ImageItem, Item, ItemKind, PathSegment, Point, Rect, Rgba, Transform,
+    DisplayList, ImageGeometry, ImageItem, Item, ItemKind, PathSegment, Point, Rect, Rgba,
+    Transform,
 };
 
 /// How the exporter draws a three-dimensional axes, whose artists the viewer draws with a depth buffer that a PDF
@@ -250,7 +251,9 @@ pub fn rasterises_any(list: &DisplayList, options: &RasterOptions) -> bool {
             ItemKind::Dense { cells, items } => {
                 options.policy.rasterises(*cells) || walk(items, options)
             }
-            ItemKind::Group { items, .. } | ItemKind::Depth { items } => walk(items, options),
+            ItemKind::Group { items, .. }
+            | ItemKind::Depth { items }
+            | ItemKind::SectorClip { items, .. } => walk(items, options),
             _ => false,
         })
     }
@@ -267,7 +270,9 @@ pub fn needs_rasteriser(list: &DisplayList, options: &RasterOptions) -> Need {
     fn depth_groups(items: &[Item]) -> bool {
         items.iter().any(|item| match &item.kind {
             ItemKind::Depth { .. } => true,
-            ItemKind::Group { items, .. } | ItemKind::Dense { items, .. } => depth_groups(items),
+            ItemKind::Group { items, .. }
+            | ItemKind::Dense { items, .. }
+            | ItemKind::SectorClip { items, .. } => depth_groups(items),
             _ => false,
         })
     }
@@ -325,12 +330,12 @@ impl Plan {
             (ImageItem::RGBA, rendered.rgba.as_slice().into())
         };
         let item = ImageItem {
-            rect: Rect::new(
+            geometry: ImageGeometry::Rect(Rect::new(
                 self.rect.x,
                 self.rect.y,
                 f64::from(rendered.width) / self.scale,
                 f64::from(rendered.height) / self.scale,
-            ),
+            )),
             width: rendered.width,
             height: rendered.height,
             channels,
@@ -536,7 +541,9 @@ fn accumulate(items: &[Item], transform: Transform, box_: &mut BoundingBox) {
                 let inner = group.map_or(transform, |t| t.then(transform));
                 accumulate(items, inner, box_);
             }
-            ItemKind::Dense { items, .. } | ItemKind::Depth { items } => {
+            ItemKind::Dense { items, .. }
+            | ItemKind::Depth { items }
+            | ItemKind::SectorClip { items, .. } => {
                 accumulate(items, transform, box_);
             }
             ItemKind::Markers(markers) => {
@@ -568,13 +575,21 @@ fn accumulate(items: &[Item], transform: Transform, box_: &mut BoundingBox) {
                     box_.add(transform.apply(instance.position), margin);
                 }
             }
-            ItemKind::Image(image) => {
-                box_.add(transform.apply(Point::new(image.rect.x, image.rect.y)), 0.0);
-                box_.add(
-                    transform.apply(Point::new(image.rect.right(), image.rect.bottom())),
-                    0.0,
-                );
-            }
+            ItemKind::Image(image) => match &image.geometry {
+                ImageGeometry::Rect(rect) => {
+                    box_.add(transform.apply(Point::new(rect.x, rect.y)), 0.0);
+                    box_.add(
+                        transform.apply(Point::new(rect.right(), rect.bottom())),
+                        0.0,
+                    );
+                }
+                // A mesh is drawn piecewise affinely between its nodes, so the nodes bound it.
+                ImageGeometry::Mesh(mesh) => {
+                    for point in &mesh.points {
+                        box_.add(transform.apply(*point), 0.0);
+                    }
+                }
+            },
         }
     }
 }

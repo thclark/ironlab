@@ -1,11 +1,11 @@
 //! Ticks and the measured text of axes decorations: tick labels, common exponents, axis labels and titles.
 
-use ironlab_ir::{Axes, Axis, NodeId, TickLabels, Ticks};
+use ironlab_ir::{AngleUnits, Axes, Axis, NodeId, Projection, TickLabels, Ticks};
 
 use crate::maths::ticks;
 
 use super::Ctx;
-use super::limits::{Range, axes_axis, is_3d, x_length_estimate};
+use super::limits::{Range, axes_axis, is_3d, is_polar, x_length_estimate};
 use super::text::{self, TextBlock, measure_str};
 use crate::display::Rect;
 
@@ -102,7 +102,25 @@ pub(super) fn measure(
                 MIN_TICKS
             };
             let name = ["x", "y", "z"][dim];
-            let mut ticks = axis_ticks(ctx, axes.id, axis, name, ranges[dim], targets[dim], fewest);
+            let angle = |sweep: Sweep, units: AngleUnits| (sweep, units);
+            let angular = match (axes.projection, dim) {
+                (Projection::Polar { polar } | Projection::Cylindrical { polar, .. }, 0) => {
+                    Some(angle(Sweep::Turn, polar.angle_units))
+                }
+                (Projection::Spherical { spherical, .. }, 0) => {
+                    Some(angle(Sweep::Turn, spherical.angle_units))
+                }
+                (Projection::Spherical { spherical, .. }, 1) => {
+                    Some(angle(Sweep::HalfTurn, spherical.angle_units))
+                }
+                _ => None,
+            };
+            let mut ticks = match angular {
+                Some((sweep, units)) => {
+                    angular_ticks(ctx, axes.id, axis, ranges[dim], targets[dim], units, sweep)
+                }
+                None => axis_ticks(ctx, axes.id, axis, name, ranges[dim], targets[dim], fewest),
+            };
             // A hidden axis keeps its ticks, which place its grid lines, but draws no tick labels or exponent, so
             // that no space is reserved for them.
             if !axis.visible {
@@ -125,7 +143,8 @@ pub(super) fn measure(
         (dim < dims).then(|| text::measure(ctx, label, fs, axes.id))
     });
     let angles = std::array::from_fn(|dim| {
-        if dims == 2 {
+        // The angular labels of a polar axes are placed about the rim, level, whatever their angle.
+        if dims == 2 && !(dim == 0 && is_polar(axes)) {
             normalised_angle(axes_axis(axes, dim).tick_label_angle)
         } else {
             0.0
@@ -162,7 +181,7 @@ pub(super) fn fit_x_target(
 ) -> usize {
     let automatic =
         axes.x.ticks == Ticks::Auto && axes.x.tick_labels != TickLabels::Hidden && axes.x.visible;
-    if is_3d(axes) || range.log || target <= 2 || !automatic {
+    if is_3d(axes) || is_polar(axes) || range.log || target <= 2 || !automatic {
         return target;
     }
     let ticks = axis_ticks(ctx, axes.id, &axes.x, "x", range, target, MIN_X_TICKS);
@@ -324,6 +343,141 @@ pub(super) fn axis_ticks(
         labels,
         exponent,
     }
+}
+
+/// The whole range of an angle: a full turn for an angle about an axis, half a turn for the polar angle of spherical
+/// axes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Sweep {
+    /// A periodic angle, whose whole range is a turn and whose ends coincide.
+    Turn,
+    /// The polar angle of spherical axes, whose whole range is half a turn from pole to pole.
+    HalfTurn,
+}
+
+/// Computes the ticks of an axis that carries an angle and typesets their labels.
+///
+/// Automatic ticks of a whole range in degrees or radians are its equal divisions: eighths of a full turn, and sixths
+/// of the half turn of a polar angle (every 30°); every other angular axis takes the ticks [`axis_ticks`] gives a
+/// linear axis. When the limits span a full turn, a tick at the upper limit is dropped, because it lies on the tick at
+/// the lower limit. Formatted labels are written in the units of the angle: a number of degrees with a degree sign, a
+/// number of radians as a multiple of π, and any other unit as a plain number; explicit texts are kept.
+pub(super) fn angular_ticks(
+    ctx: &mut Ctx,
+    owner: NodeId,
+    axis: &Axis,
+    range: Range,
+    target: usize,
+    units: AngleUnits,
+    sweep: Sweep,
+) -> AxisTicks {
+    let size = TICK_SCALE * ctx.font_size;
+    let turn = units.turn();
+    let (whole, divisions) = match sweep {
+        Sweep::Turn => (turn, 8.0),
+        Sweep::HalfTurn => (turn / 2.0, 6.0),
+    };
+    let span = range.max - range.min;
+    let full_range = turn.is_finite() && turn > 0.0 && (span - whole).abs() <= 1e-9 * turn;
+    let full = full_range && sweep == Sweep::Turn;
+    let eighths = full_range
+        && axis.ticks == Ticks::Auto
+        && matches!(units, AngleUnits::Degrees | AngleUnits::Radians);
+    let mut ticks = if eighths {
+        let step = whole / divisions;
+        let first = (range.min / step).ceil() as i64;
+        let major: Vec<f64> = (first..first + divisions as i64 + 1)
+            .map(|k| k as f64 * step)
+            .filter(|v| *v <= range.max + 1e-9 * turn)
+            .collect();
+        AxisTicks {
+            major,
+            minor: Vec::new(),
+            labels: Vec::new(),
+            exponent: None,
+        }
+    } else {
+        axis_ticks(ctx, owner, axis, "x", range, target, MIN_TICKS)
+    };
+    let numbered = matches!(axis.tick_labels, TickLabels::Auto);
+    if full {
+        let keep: Vec<bool> = ticks
+            .major
+            .iter()
+            .map(|v| (v - range.max).abs() > 1e-9 * turn)
+            .collect();
+        let labelled = ticks.labels.len() == ticks.major.len();
+        let mut k = 0;
+        ticks.major.retain(|_| {
+            k += 1;
+            keep[k - 1]
+        });
+        if labelled {
+            let mut k = 0;
+            ticks.labels.retain(|_| {
+                k += 1;
+                keep[k - 1]
+            });
+        }
+    }
+    let relabel =
+        numbered && (eighths || matches!(units, AngleUnits::Degrees | AngleUnits::Radians));
+    if relabel {
+        let step = ticks
+            .major
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).abs())
+            .fold(f64::INFINITY, f64::min);
+        let step = if step.is_finite() && step > 0.0 {
+            step
+        } else {
+            1.0
+        };
+        ticks.labels = ticks
+            .major
+            .iter()
+            .map(|&v| {
+                let label = match units {
+                    AngleUnits::Radians => {
+                        pi_label(v).unwrap_or_else(|| ticks::format_linear(v, step))
+                    }
+                    _ => format!("{}°", ticks::format_linear(v, step)),
+                };
+                measure_str(ctx, &label, false, size, owner)
+            })
+            .collect();
+        ticks.exponent = None;
+    }
+    ticks
+}
+
+/// Returns an angle in radians written as a multiple of π with a small denominator (`0`, `π/4`, `3π/4`, `π`,
+/// `−π/2`), or `None` when it is no such multiple.
+fn pi_label(value: f64) -> Option<String> {
+    let q = value / std::f64::consts::PI;
+    for den in [1i64, 2, 3, 4, 6, 8, 12] {
+        let num = (q * den as f64).round();
+        if (q * den as f64 - num).abs() > 1e-9 {
+            continue;
+        }
+        let num = num as i64;
+        if num == 0 {
+            return Some("0".to_owned());
+        }
+        let sign = if num < 0 { "\u{2212}" } else { "" };
+        let n = num.abs();
+        let numerator = if n == 1 {
+            "π".to_owned()
+        } else {
+            format!("{n}π")
+        };
+        return Some(if den == 1 {
+            format!("{sign}{numerator}")
+        } else {
+            format!("{sign}{numerator}/{den}")
+        });
+    }
+    None
 }
 
 /// Computes automatic ticks for one axis and typesets their labels, giving a linear axis more intervals than `target`

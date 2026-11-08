@@ -12,7 +12,8 @@
 //! 5. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle. When the
 //!    layout has fitted rows or columns, steps 3 to 5 are repeated with their sizes recomputed from the margins found,
 //!    until the sizes settle.
-//! 6. `axes2d` and `axes3d` draw each axes, using `artists` for the data, `colorbar` for a colourbar inside the plot
+//! 6. `axes2d`, `axes_polar`, `axes3d` and `axes_curved3d` draw each axes (two-dimensional Cartesian, polar,
+//!    three-dimensional Cartesian, and cylindrical or spherical), using `artists` for the data, `colorbar` for a colourbar inside the plot
 //!    area and `legend` for a legend inside it.
 //! 7. `layout` places the panels, and `panel` draws the content of each.
 //!
@@ -23,6 +24,8 @@ mod artists;
 mod aspect;
 mod axes2d;
 mod axes3d;
+mod axes_curved3d;
+mod axes_polar;
 mod bars;
 mod cells;
 mod colorbar;
@@ -34,6 +37,7 @@ mod legend;
 mod limits;
 mod panel;
 mod paths;
+mod plane;
 mod rects;
 mod style;
 mod text;
@@ -204,8 +208,11 @@ fn arrange(
         .iter()
         .zip(&decorations)
         .map(|(axes, d)| match axes.projection {
-            Projection::TwoD => axes2d::margins(ctx, d),
-            Projection::ThreeD { .. } => axes3d::margins(ctx, d),
+            Projection::TwoD => axes2d::margins(ctx, axes, d),
+            Projection::Polar { .. } => axes_polar::margins(ctx, d),
+            Projection::ThreeD { .. }
+            | Projection::Cylindrical { .. }
+            | Projection::Spherical { .. } => axes3d::margins(ctx, axes, d),
         })
         .collect();
     let placement = layout::place(ctx, fits, grid_area, &margins, panel_tops);
@@ -264,7 +271,8 @@ fn arrange(
 ///   colour between the face's outline and that outline moved half the edge width inwards, so that it never spills
 ///   over the neighbouring faces (see **3D**); a face whose outline has no such inset is stroked instead. Each
 ///   filled-contour band is one path item filled with the nonzero rule. A contour isoline path never mixes levels. Each image
-///   artist is one image item beneath one group that carries its placement (see **Images**).
+///   artist is one image item, beneath one group that carries its placement on linear axes and drawn through a mesh
+///   on a logarithmic axis (see **Images**).
 /// - **Decimation.** A series with more points than its plot rectangle can resolve is thinned to about
 ///   [`crate::maths::decimate::SAMPLES_PER_POINT`] points per point of plot width: a line by the
 ///   largest-triangle-three-buckets rule, applied to each run of placeable points separately so that a break in the
@@ -290,8 +298,9 @@ fn arrange(
 ///   width held to 0.5–1.5 pt, and one that draws no line at 0.5 pt.
 /// - **Picking.** The hit map records the points every series drew, each naming the index it has in the
 ///   artist's own data arrays, so a front end reports the index and the values of the user's data whether or not the
-///   series was decimated. For every image drawn in a 2D axes it records an [`crate::hit::ImageHit`]: the inverse
-///   of the image's placement with its pixel counts, through which [`crate::hit::HitMap::pixel_at`] finds the row
+///   series was decimated. For every image drawn in a 2D axes it records an [`crate::hit::ImageHit`]: the map of
+///   figure space into the image's pixel space (the inverse of its placement on linear axes, and the inverse of the
+///   axis maps followed by the linear map from its pixel edges on a logarithmic axis) with its pixel counts, through which [`crate::hit::HitMap::pixel_at`] finds the row
 ///   and column of the artist's array under a pointer, the pixel coordinates being floored so that the image is the
 ///   half-open extent `[0, nx) × [0, ny)` and a boundary shared by two pixels belongs to the higher index. A hidden
 ///   image, a skipped image and an image drawn in a 3D axes record nothing.
@@ -304,8 +313,9 @@ fn arrange(
 ///   interleaves with the geometry of other artists — including a line thinned by the decimation above — yields
 ///   several groups, each recording the artist's total face count. A dense group has
 ///   no clip and no transform of its own, so a backend that ignores the marking draws exactly the same picture. An
-///   image artist is already a raster and is never wrapped in a dense group, so that no backend resamples the pixels
-///   the user supplied.
+///   image drawn over a rectangle is already a raster and is never wrapped in a dense group, so that no backend
+///   resamples the pixels the user supplied; an image drawn through a mesh is wrapped in one that counts its pixels,
+///   because a backend that cannot draw a warped raster writes it as one path per pixel.
 /// - **Colour order.** Automatic colours are taken from the Okabe–Ito palette without black, starting at orange:
 ///   `#E69F00`, `#56B4E9`, `#009E73`, `#F0E442`, `#0072B2`, `#D55E00`, `#CC79A7`, after which the order repeats.
 ///   Within each axes, every series and quiver whose primary colour, its `line.color`, is `ColorSpec::Auto` takes
@@ -373,7 +383,12 @@ fn arrange(
 ///   columns run along the first axis of the plane and the rows along the second; the coordinate along the third
 ///   axis is the offset of the plane, or the low end of that axis when it has none, and a 2D axes ignores it. In a
 ///   3D axes the image is one primitive sorted at the mean depth of its four corners, unless its plane lies on a
-///   face of the box, when it is painted before or after every other primitive (see **3D**). The pixels are resolved to
+///   face of the box, when it is painted before or after every other primitive (see **3D**). When an axis of its
+///   plane is logarithmic the image is instead drawn through an [`crate::display::ImageMesh`] in figure space whose
+///   lattice lines along that axis are the pixel edges, each node mapped through the axes (and projected, with its
+///   depth, in 3D), so that every pixel lies between its own mapped edges; edges that would lie less than a point
+///   apart on the page are dropped, keeping the first and the last, and along a linear axis only the outer edges are
+///   lattice lines. The pixels are resolved to
 ///   eight-bit sRGB by kind. A true-colour image clamps floating-point components into `[0, 1]` and quantises them
 ///   by rounding, copies 8-bit components, and draws a pixel with a non-finite component transparent. A scalar
 ///   image maps each number, an 8-bit value as the whole number it denotes, through its colour scale (see **Colour
@@ -383,8 +398,9 @@ fn arrange(
 ///   warning naming it when its array is missing or has the wrong shape (`[ny, nx, 3]` or `[ny, nx, 4]` for pixels,
 ///   `[ny, nx]` for values), when it names no colour scale, when a pixel centre or
 ///   the plane offset is not finite or the centres of the first and last pixels coincide along an axis of more
-///   than one pixel, when its plane is `xz` or `yz` in a 2D axes, when an axis of its plane is logarithmic (the
-///   third axis may be, but then the offset must be positive), when it has no rows or no columns, or when a corner
+///   than one pixel, when its plane is `xz` or `yz` in a 2D axes, when its first or last pixel edge along a
+///   logarithmic axis of its plane is not positive, when its plane is offset to a coordinate that is not positive
+///   along a logarithmic third axis, when it has no rows or no columns, or when a corner
 ///   cannot be placed. A skipped image contributes nothing to the axis limits, while its numbers still count
 ///   towards the automatic limits of the colour scale it names, as those of a hidden image do.
 /// - **Tile sizes.** The aligned margins of every row and column of the tile layout are taken out of the area below
@@ -550,6 +566,32 @@ fn arrange(
 ///   labels of a 3D axes keep a clear gap of at least 0.3 font sizes: labels are placed for x, then y, then z, and a
 ///   label that would come closer to one already placed is left out, while its tick mark is still drawn. The hit map describes a 3D axes
 ///   with [`crate::hit::AxesHitKind::ThreeD`], which carries no projection data.
+/// - **Cylindrical and spherical axes.** Both are 3D axes with the camera, fit, zoom, pan, depths and painter's sort
+///   above; only the placement of a data point in the normalised box differs. In cylindrical axes x is the angle θ, y
+///   the radius and z the height: the point lies at radial fraction `ρ = hole + (1 − hole)·t_r`, where `t_r` is the
+///   position of the radius between its limits (in decades on a log axis, and mirrored when y is reversed), at azimuth
+///   `φ = zero_deg + s·θ·2π/turn` with `s = −1` when x is reversed, as `(0.5·ρ·cos φ, 0.5·ρ·sin φ, n_z)`. In spherical
+///   axes x is the azimuth, y the polar angle and z the radius: `ρ = t_r` from z, the elevation `ε` is y, or a quarter
+///   turn less y for an inclination, and the point is `0.5·ρ·(cos ε cos φ, cos ε sin φ, sin ε)` with `φ = s·x·2π/turn`.
+///   A radius beyond the centre side of its limits has no position, as in polar axes, except at a pixel edge of an
+///   image, which is held at the lower limit. A fixed aspect of a cylinder gives its box the sides `[1, 1, h]`, `h = (z/y)·span_z·0.5·(1 − hole)/span_r`,
+///   scaled so that the longest side is 1, and never widens its limits; a spherical axes ignores its aspect. Series,
+///   contours, surfaces and quivers join their mapped points with straight chords. An image on any plane is drawn
+///   through a mesh whose nodes lie on its pixel edges, thinned to about a point apart and refined evenly along an
+///   angle so that no chord strays more than 0.05 pt from its arc; every node carries its depth less
+///   [`crate::maths::camera::FACE_DEPTH_BIAS`], and the image is sorted at the mean of those depths. The frame is made
+///   of circles instead of box edges: the floor rim, the hole, the central z axis and, with `box_`, the top rim of a
+///   cylinder; the equator, the meridian of azimuth 0 and the radial axis along azimuth 0 of a sphere. A line of the
+///   outer frame (rims, hole, sector edges, the z grid rings on the wall, equator, meridian) is split where it passes
+///   the depth of the centre of the box, the part behind painted before the depth group and the part in front after
+///   it. A line through the drawn volume or on the floor of a cylinder (its z axis and floor grid; the radial axis,
+///   spokes and inner grid circles of a sphere) is a primitive of the depth group, in pieces with a depth at each
+///   vertex, so that the artists in front of it hide it. What the axes draws is fitted by its own circumscribing
+///   sphere, of radius `√(s² + h²)/2` for a cylinder of diameter `s` and height `h` and 0.5 for a sphere, kept clear
+///   of the sides of the plot rectangle by the pad and the widest or tallest tick label placed outside the frame. Tick
+///   marks and tick labels are painted before or after the depth group by the depth of the point they label, except
+///   that a tick label is painted before it only when its box lies wholly inside the outline of the frame
+///   on the page, and the z tick labels of a cylinder are always painted after it.
 /// - **Determinism.** Compiling the same figure twice gives equal scenes.
 pub fn compile(figure: &Figure, text: &TextEngine) -> Scene {
     compile_with(figure, text, &CompileOptions::default())
@@ -697,8 +739,14 @@ pub fn compile_with(figure: &Figure, text: &TextEngine, options: &CompileOptions
         };
         match axes.projection {
             Projection::TwoD => axes2d::emit(&mut ctx, &input, &mut items, &mut hit_map),
+            Projection::Polar { polar } => {
+                axes_polar::emit(&mut ctx, &input, polar, &mut items, &mut hit_map)
+            }
             Projection::ThreeD { view3d } => {
                 axes3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
+            }
+            Projection::Cylindrical { view3d, .. } | Projection::Spherical { view3d, .. } => {
+                axes_curved3d::emit(&mut ctx, &input, view3d, &mut items, &mut hit_map)
             }
         }
     }
@@ -756,6 +804,7 @@ fn scale_lines(items: &mut [Item], scale: f64) {
             ItemKind::Markers(markers) => markers.edge_width *= scale,
             ItemKind::Group { items, .. }
             | ItemKind::Dense { items, .. }
+            | ItemKind::SectorClip { items, .. }
             | ItemKind::Depth { items } => scale_lines(items, scale),
             ItemKind::Glyphs(_) | ItemKind::Image(_) => {}
         }
@@ -829,8 +878,11 @@ fn lay_out(
         .iter()
         .zip(&decorations)
         .map(|(axes, d)| match axes.projection {
-            Projection::TwoD => axes2d::margins(ctx, d),
-            Projection::ThreeD { .. } => axes3d::margins(ctx, d),
+            Projection::TwoD => axes2d::margins(ctx, axes, d),
+            Projection::Polar { .. } => axes_polar::margins(ctx, d),
+            Projection::ThreeD { .. }
+            | Projection::Cylindrical { .. }
+            | Projection::Spherical { .. } => axes3d::margins(ctx, axes, d),
         })
         .collect();
     (outer, ranges, targets, decorations, margins)

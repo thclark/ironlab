@@ -6,9 +6,10 @@
 //! actually built.
 
 use ironlab::ir::{
-    Artist, Axes, Bar, BarOffset, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement, ImagePlane, Interpreter,
-    Limits, MarkerShape, NodeId, Orientation, OutOfRange, PerBar, Projection, Scale, TickLabels,
+    AngleUnits, Artist, Axes, AxisSide, Bar, BarOffset, ColorScale, ColorScaleKind,
+    ColorScaleLevels, ColorScaleNorm, ColorSpec, ContourPlacement, Dimension, Figure, Grid,
+    ImagePlacement, ImagePlane, Interpreter, Limits, MarkerShape, NodeId, Orientation, OutOfRange,
+    PerBar, PolarView, Projection, Scale, TickLabels,
 };
 use ironlab_gallery::{all, find};
 
@@ -350,6 +351,230 @@ fn every_required_chart_type_is_present() {
     );
 }
 
+/// Returns the polar view of an axes, when the axes is polar.
+fn polar_view(axes: &Axes) -> Option<PolarView> {
+    match axes.projection {
+        Projection::Polar { polar } => Some(polar),
+        _ => None,
+    }
+}
+
+/// WHY: polar axes (#122) are drawn by a separate layout and decoration path, a sector clip in every backend, and a
+/// mapping that bends representing shapes (bar wedges, cell and pixel sectors) while joining data points with chords.
+/// Each row names a branch of that path that the defaults never reach, so that the PDF, viewer and documentation
+/// tests that iterate the gallery exercise it: a direct artist, a bar wedge, an image warped into a partial sector
+/// (manual angular limits, so the radial edges of the frame and the clamp to the sector are drawn), a logarithmic
+/// radius, a hole, a clockwise direction with a zero direction other than east, and the two direct 2D-field artists.
+#[test]
+fn polar_axes_are_covered() {
+    let requirements: [(&str, Predicate); 9] = [
+        ("polar line", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Series(l) if l.draws_line())
+        }),
+        ("polar scatter coloured by data", |_, axes, artist| {
+            polar_view(axes).is_some()
+                && matches!(artist, Artist::Series(s) if !s.draws_line() && s.draws_markers() && s.color_data.is_some())
+        }),
+        ("bars in polar axes", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Bar(_))
+        }),
+        (
+            "scalar image in a partial polar sector",
+            |_, axes, artist| {
+                polar_view(axes).is_some()
+                    && matches!(axes.x.limits, Limits::Manual { .. })
+                    && matches!(artist, Artist::ScalarImage(_))
+            },
+        ),
+        ("logarithmic radius", |_, axes, _| {
+            polar_view(axes).is_some() && axes.y.scale == Scale::Log
+        }),
+        ("polar axes with a hole", |_, axes, _| {
+            polar_view(axes).is_some_and(|view| view.hole > 0.0)
+        }),
+        (
+            "clockwise polar axes with angle 0 away from east",
+            |_, axes, _| {
+                polar_view(axes).is_some_and(|view| view.zero_deg != 0.0) && axes.x.reverse
+            },
+        ),
+        ("filled contour in polar axes", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Contour(c) if c.fill)
+        }),
+        ("surface in polar axes", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Surface(_))
+        }),
+    ];
+
+    let figures = figures();
+    let missing: Vec<&str> = requirements
+        .iter()
+        .filter(|(_, predicate)| {
+            !figures.iter().any(|(_, figure)| {
+                figure.axes.iter().any(|axes| {
+                    axes.artists
+                        .iter()
+                        .any(|artist| predicate(figure, axes, artist))
+                })
+            })
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no gallery figure demonstrates: {missing:?}"
+    );
+}
+
+/// WHY: radar charts, polar histograms and wind roses (#123, #124) are built by facade helpers from the series fill,
+/// histograms and stacked bars in polar axes, and each reaches a branch of the compiler that the other polar figures
+/// do not: a series filled down to the centre in angle units of one per spoke, bars binned over a turn as wedges and
+/// as stairs whose runs are arcs, and stacked wedges in clockwise axes with north up. Each row names one of those
+/// branches, so that the PDF, viewer and documentation tests that iterate the gallery exercise it.
+#[test]
+fn radar_charts_polar_histograms_and_wind_roses_are_covered() {
+    let requirements: [(&str, Predicate); 4] = [
+        ("radar chart filled down to its base", |_, axes, artist| {
+            polar_view(axes).is_some_and(|view| matches!(view.angle_units, AngleUnits::PerTurn(_)))
+                && matches!(axes.x.tick_labels, TickLabels::Text(_))
+                && matches!(artist, Artist::Series(s)
+                    if s.base.is_some() && s.fill != ColorSpec::None && s.draws_markers())
+        }),
+        ("polar histogram drawn as bars", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Bar(b) if b.binning.is_some())
+        }),
+        ("polar histogram drawn as stairs", |_, axes, artist| {
+            polar_view(axes).is_some() && matches!(artist, Artist::Stairs(s) if s.binning.is_some())
+        }),
+        ("wind rose of stacked classes", |_, axes, artist| {
+            let stacked =
+                |a: &Artist| matches!(a, Artist::Bar(b) if matches!(b.base, PerBar::Data(_)));
+            polar_view(axes).is_some_and(|view| view.zero_deg == 90.0)
+                && axes.x.reverse
+                && stacked(artist)
+                && axes.artists.iter().filter(|a| stacked(a)).count() >= 4
+        }),
+    ];
+
+    let figures = figures();
+    let missing: Vec<&str> = requirements
+        .iter()
+        .filter(|(_, predicate)| {
+            !figures.iter().any(|(_, figure)| {
+                figure.axes.iter().any(|axes| {
+                    axes.artists
+                        .iter()
+                        .any(|artist| predicate(figure, axes, artist))
+                })
+            })
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no gallery figure demonstrates: {missing:?}"
+    );
+}
+
+/// WHY: cylindrical and spherical axes (#122) are drawn by their own coordinate stage, their own decorations (the
+/// floor frame and the central z axis of a cylinder, the equator and meridian of a sphere) and images wrapped on discs,
+/// walls and spheres. Each row names a branch that no Cartesian or polar figure reaches, so that the PDF, viewer and
+/// documentation tests that iterate the gallery exercise it: a surface over an angle–radius grid in a cylinder, a
+/// series and a quiver up a cylinder, a surface on a sphere coloured by data with a colourbar, and an image on the
+/// sphere with a series over it. The four entries named by the plan must exist under their slugs.
+#[test]
+fn cylindrical_and_spherical_axes_are_covered() {
+    fn is_cylindrical(axes: &Axes) -> bool {
+        matches!(axes.projection, Projection::Cylindrical { .. })
+    }
+    fn is_spherical(axes: &Axes) -> bool {
+        matches!(axes.projection, Projection::Spherical { .. })
+    }
+    let requirements: [(&str, Predicate); 6] = [
+        ("surface in cylindrical axes", |_, axes, artist| {
+            is_cylindrical(axes) && matches!(artist, Artist::Surface(_))
+        }),
+        ("line in cylindrical axes", |_, axes, artist| {
+            is_cylindrical(axes)
+                && matches!(artist, Artist::Series(s) if s.z.is_some() && s.draws_line())
+        }),
+        ("quiver in cylindrical axes", |_, axes, artist| {
+            is_cylindrical(axes) && matches!(artist, Artist::Quiver(q) if q.w.is_some())
+        }),
+        (
+            "surface in spherical axes with a colourbar",
+            |figure, axes, artist| {
+                is_spherical(axes)
+                    && (axes.colorbar.is_some()
+                        || figure
+                            .panels
+                            .iter()
+                            .any(|p| matches!(p.content, ironlab::ir::PanelContent::Colorbar(_))))
+                    && matches!(artist, Artist::Surface(_))
+            },
+        ),
+        ("image wrapped on a sphere", |_, axes, artist| {
+            is_spherical(axes)
+                && image_placement(artist)
+                    .is_some_and(|p| matches!(p.plane, ImagePlane::Xy { z: Some(_) }))
+        }),
+        ("line over an image on a sphere", |_, axes, artist| {
+            is_spherical(axes)
+                && matches!(artist, Artist::Series(s) if s.z.is_some() && s.draws_line())
+                && axes.artists.iter().any(|a| image_placement(a).is_some())
+        }),
+    ];
+
+    let figures = figures();
+    let missing: Vec<&str> = requirements
+        .iter()
+        .filter(|(_, predicate)| {
+            !figures.iter().any(|(_, figure)| {
+                figure.axes.iter().any(|axes| {
+                    axes.artists
+                        .iter()
+                        .any(|artist| predicate(figure, axes, artist))
+                })
+            })
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "no gallery figure demonstrates: {missing:?}"
+    );
+    for slug in [
+        "cylindrical_surface",
+        "antenna_balloon",
+        "globe_image",
+        "helix",
+    ] {
+        assert!(find(slug).is_some(), "the gallery has no entry {slug}");
+    }
+}
+
+/// WHY: a reader browsing the gallery for a radar chart, a wind rose or a polar histogram searches by the name of the
+/// chart, which no structural tag read from the IR can supply; each of the three entries must therefore exist under
+/// its slug and carry the tag of its chart kind as well as `polar`.
+#[test]
+fn the_radar_wind_rose_and_polar_histogram_entries_carry_their_chart_tags() {
+    for (slug, tag) in [
+        ("radar_chart", "radar"),
+        ("wind_rose", "wind-rose"),
+        ("polar_histogram", "polar-histogram"),
+    ] {
+        let entry = find(slug).unwrap_or_else(|| panic!("the gallery has no entry {slug}"));
+        let figure = (entry.build)();
+        let tags = figure.tags();
+        for wanted in [tag, "polar"] {
+            assert!(
+                tags.iter().any(|t| t == wanted),
+                "{slug} is not tagged {wanted}: {tags:?}"
+            );
+        }
+    }
+}
+
 /// WHY: axes titles and figure titles are laid out differently, and both must be exercised.
 #[test]
 fn axes_titles_are_present() {
@@ -506,5 +731,70 @@ fn log_axes_has_one_tile_per_variant() {
             (Scale::Log, Scale::Linear),
             (Scale::Linear, Scale::Log)
         ]
+    );
+}
+
+/// WHY: every side of every axis that honours it takes its own layout branch: in 2D the line, tick marks, labels and
+/// margin move to the right, the top or the middle of the plot; in 3D the axis is placed on the highest or rightmost
+/// box edge, or on the centre of the floor; and the z axis of cylindrical axes stands on the left wall, the right wall
+/// or the axis of the cylinder. A reader comparing them, and the exported gallery that reviews the drawing, need them
+/// side by side in one figure, so the `axis_sides` entry must hold, in tiles of its own: a 2D axes with each side on
+/// x and each side on y, 3D axes with x, y and z on the high side and z through the middle, and cylindrical axes with
+/// z on each of the three sides. Every tile must draw something, so that its axes are laid out round real data.
+#[test]
+fn the_axis_sides_entry_shows_every_side_in_every_projection_that_honours_it() {
+    let figure = (find("axis_sides")
+        .expect("the gallery has an entry axis_sides")
+        .build)()
+    .into_ir();
+    for axes in &figure.axes {
+        assert!(
+            !axes.artists.is_empty(),
+            "the axes in row {} column {} draws nothing",
+            axes.cell.row,
+            axes.cell.col
+        );
+    }
+    let is_cylindrical = |axes: &Axes| matches!(axes.projection, Projection::Cylindrical { .. });
+    let sides = [AxisSide::Low, AxisSide::Centre, AxisSide::High];
+    let mut missing = Vec::new();
+    let mut require = |what: String, shown: bool| {
+        if !shown {
+            missing.push(what);
+        }
+    };
+    for side in sides {
+        require(
+            format!("2D x on the {side:?} side"),
+            figure.axes.iter().any(|a| is_2d(a) && a.x.side == side),
+        );
+        require(
+            format!("2D y on the {side:?} side"),
+            figure.axes.iter().any(|a| is_2d(a) && a.y.side == side),
+        );
+        require(
+            format!("cylindrical z on the {side:?} side"),
+            figure
+                .axes
+                .iter()
+                .any(|a| is_cylindrical(a) && a.z.side == side),
+        );
+    }
+    type Shows = fn(&Axes) -> bool;
+    let three_d: [(&str, Shows); 4] = [
+        ("3D x on the high side", |a| a.x.side == AxisSide::High),
+        ("3D y on the high side", |a| a.y.side == AxisSide::High),
+        ("3D z on the high side", |a| a.z.side == AxisSide::High),
+        ("3D z through the middle", |a| a.z.side == AxisSide::Centre),
+    ];
+    for (what, predicate) in three_d {
+        require(
+            what.to_owned(),
+            figure.axes.iter().any(|a| is_3d(a) && predicate(a)),
+        );
+    }
+    assert!(
+        missing.is_empty(),
+        "the axis_sides entry does not show: {missing:?}"
     );
 }

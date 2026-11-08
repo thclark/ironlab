@@ -3,12 +3,16 @@
 //!
 //! Pages are rasterised at 72 dpi, so one pixel is one point. Every image pixel is magnified to tens of points and
 //! sampled at its centre, so that neither engine's handling of the boundaries between pixels affects the samples.
-//! The scene compiler emits an image artist in exactly this form: an image item in pixel space beneath one group
-//! whose transform places it in the axes.
+//! The scene compiler emits an image artist on linear axes in exactly this form: an image item in pixel space beneath
+//! one group whose transform places it in the axes. On a logarithmic axis it emits an image drawn through a mesh of
+//! its pixel edges in figure space, which the exporter writes as one filled path per pixel.
 
 use std::sync::Arc;
 
-use ironlab_scene::display::{ImageItem, Item, ItemKind, Rect, Transform};
+use ironlab_pdf::PdfOptions;
+use ironlab_scene::display::{
+    DisplayList, ImageGeometry, ImageItem, ImageMesh, Item, ItemKind, Point, Rect, Transform,
+};
 
 use crate::common::*;
 use crate::require_tools;
@@ -23,7 +27,7 @@ const QUAD: [[u8; 3]; 4] = [RED_PX, GREEN_PX, BLUE_PX, YELLOW_PX];
 /// An image item of `width` by `height` pixels with `channels` channels per pixel, drawn into `rect`.
 fn image(rect: Rect, width: u32, height: u32, channels: u8, samples: Vec<u8>) -> Item {
     item(ItemKind::Image(ImageItem {
-        rect,
+        geometry: ImageGeometry::Rect(rect),
         width,
         height,
         channels,
@@ -260,4 +264,127 @@ fn an_image_is_embedded_once_at_its_own_pixel_size_with_a_soft_mask_only_when_it
             .any(|i| i.kind == "smask" && (i.width, i.height) == (5, 3)),
         "the soft mask has the image's dimensions: {images:?}"
     );
+}
+
+/// The figure-space x of the column edges of [`mesh_page`], unequally spaced as a logarithmic axis spaces them.
+const MESH_X: [f64; 4] = [20.0, 60.0, 160.0, 280.0];
+/// The figure-space y of the row edges of [`mesh_page`], row 0 at the top.
+const MESH_Y: [f64; 3] = [40.0, 100.0, 180.0];
+
+/// A 300 by 200 point page holding a 3 by 2 image with alpha drawn through a lattice with a node at every pixel edge,
+/// at [`MESH_X`] and [`MESH_Y`]: red, green and blue on the top row, and yellow, a fully transparent pixel and a
+/// half-transparent red beneath. The image lies inside a dense group of six cells, as the scene compiler emits it.
+pub(crate) fn mesh_page() -> DisplayList {
+    let points = MESH_Y
+        .iter()
+        .flat_map(|y| MESH_X.iter().map(move |x| Point::new(*x, *y)))
+        .collect();
+    let image = Item {
+        source: Some(SURFACE),
+        kind: ItemKind::Image(ImageItem {
+            geometry: ImageGeometry::Mesh(ImageMesh {
+                u: vec![0.0, 1.0, 2.0, 3.0],
+                v: vec![0.0, 1.0, 2.0],
+                points,
+                depths: None,
+            }),
+            width: 3,
+            height: 2,
+            channels: ImageItem::RGBA,
+            samples: Arc::from(vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, //
+                255, 255, 0, 255, 0, 0, 0, 0, 255, 0, 0, 128,
+            ]),
+            depth: None,
+        }),
+    };
+    let mut list = page(300.0, 200.0);
+    list.items.push(dense(6, vec![image]));
+    list
+}
+
+/// Asserts that a raster of [`mesh_page`] shows every pixel of its image between the drawn positions of its own
+/// edges.
+#[track_caller]
+pub(crate) fn assert_mesh_drawn(engine: Engine, image: &image::RgbImage) {
+    let centre = |i: usize, j: usize| {
+        (
+            0.5 * (MESH_X[i] + MESH_X[i + 1]),
+            0.5 * (MESH_Y[j] + MESH_Y[j + 1]),
+        )
+    };
+    /// A pixel by its column and row, its expected colour, the tolerance and what it shows.
+    type Expected<'a> = ((usize, usize), [u8; 3], u8, &'a str);
+    let expected: [Expected; 6] = [
+        ((0, 0), RED_PX, 3, "pixel (0, 0)"),
+        ((1, 0), GREEN_PX, 3, "pixel (0, 1)"),
+        ((2, 0), BLUE_PX, 3, "pixel (0, 2)"),
+        ((0, 1), YELLOW_PX, 3, "pixel (1, 0)"),
+        (
+            (1, 1),
+            WHITE_PX,
+            3,
+            "the transparent pixel (1, 1) shows the page",
+        ),
+        (
+            (2, 1),
+            [255, 128, 128],
+            4,
+            "the half-transparent pixel (1, 2) blends with the page",
+        ),
+    ];
+    for ((i, j), colour, tolerance, what) in expected {
+        let (x, y) = centre(i, j);
+        assert_pixel(engine, image, x + 0.5, y + 0.5, colour, tolerance, what);
+    }
+    // At x = 90 the lattice puts column 1, whose edges are drawn at 60 and 160; a rectangle stretched over the
+    // lattice's bounds would put column 0 there, which spans 20 to 106.7 when columns are equally wide.
+    assert_pixel(
+        engine,
+        image,
+        90.5,
+        70.5,
+        GREEN_PX,
+        3,
+        "column 1 begins at its own edge, not at an equal division of the image",
+    );
+    for (x, y, what) in [
+        (10.5, 70.5, "left of the image"),
+        (290.5, 70.5, "right of the image"),
+        (100.5, 20.5, "above the image"),
+        (100.5, 190.5, "below the image"),
+    ] {
+        assert_pixel(engine, image, x, y, WHITE_PX, 3, what);
+    }
+}
+
+// WHY: an image on a logarithmic axis reaches the exporter drawn through a mesh, and the PDF must show each pixel
+// exactly between its own drawn edges, which a single raster under an affine transform cannot do. The exporter
+// writes one filled path per pixel, in the pixel's colour with its alpha as the fill's alpha, and skips a fully
+// transparent pixel; a small image, below the dense threshold, must therefore embed no image at all and ask no
+// rasteriser for anything, so that the figure stays vector and every pixel edge lands where the axis says.
+#[test]
+fn a_small_mesh_image_is_written_as_one_filled_path_per_pixel() {
+    require_tools!(RASTER_TOOLS[0], RASTER_TOOLS[1], IMAGE_TOOL);
+    let ws = Workspace::new("image-mesh");
+    let list = mesh_page();
+    let (mut stub, calls) = Stub::flat([0, 0, 0, 255]);
+    let rendered = render_reporting(&list, &PdfOptions::default(), Some(&mut stub));
+    let pdf = ws.write_pdf("figure", &rendered.bytes);
+    assert!(
+        calls.borrow().is_empty(),
+        "six pixels are far below the dense threshold, so no raster is requested"
+    );
+    assert!(
+        pdfimages(&pdf).is_empty(),
+        "the pixels are paths, not an embedded image"
+    );
+    assert!(
+        rendered.warnings.is_empty(),
+        "nothing was rasterised: {:?}",
+        rendered.warnings
+    );
+    for engine in ENGINES {
+        assert_mesh_drawn(engine, &rasterise(&pdf, engine));
+    }
 }

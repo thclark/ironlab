@@ -92,8 +92,9 @@ pub use artist::{
     StepAt, Surface,
 };
 pub use axes::{
-    Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
-    Projection, Scale, TickLabels, Ticks, TitleAlign, View3d,
+    AngleUnits, Aspect, AspectAdjust, Axes, Axis, AxisSide, ColormapName, InsideColorbar,
+    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 pub use color_scale::{
     CategoricalColorScale, ColorCategory, ColorMapping, ColorScale, ColorScaleClass,

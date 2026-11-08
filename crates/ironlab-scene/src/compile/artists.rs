@@ -13,12 +13,13 @@ use ironlab_ir::{
 };
 
 use crate::display::{
-    Depth, DepthPlane, ImageItem, Item, ItemKind, Point, Rect, Rgba, Stroke, Transform,
+    Depth, DepthPlane, ImageGeometry, ImageItem, ImageMesh, Item, ItemKind, Point, Rect, Rgba,
+    Stroke, Transform,
 };
-use crate::hit::{ArtistHit, AxisMap, BarHit, CellHit, ImageHit, StepHit};
+use crate::hit::{ArtistHit, AxisMap, BarHit, CellHit, ImageHit, PixelMap, StepHit};
 use crate::maths::camera::{
-    Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane, back_planes, clamp_elevation, depth_plane,
-    fit_to_rect, normalise_box, wrap_azimuth,
+    Camera, EDGE_DEPTH_LIFT, FACE_DEPTH_BIAS, Plane as BoxFace, back_planes, clamp_elevation,
+    depth_plane, fit_to_rect, normalise_box, wrap_azimuth,
 };
 use crate::maths::contour::{self, Coords, GridRef};
 use crate::maths::decimate::{self, Sample};
@@ -30,6 +31,7 @@ use super::decor::Decor;
 use super::image;
 use super::limits::Range;
 use super::paths::{self, PathBuilder};
+use super::plane::{Plane, Warp};
 use super::style::{self, ColourScales, Paint, ResolvedScale};
 
 /// Everything needed to draw one axes.
@@ -46,9 +48,110 @@ pub(crate) struct AxesInput<'a> {
     pub page: Rect,
 }
 
+/// How a 3D axes places a data point in its normalised box before the camera projects it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Stage {
+    /// Cartesian axes: each axis is mapped linearly (or by decades) along its own edge of the box.
+    Box,
+    /// Cylindrical axes: x is the angle about the z axis, y the distance from it and z the height. The disc of radial
+    /// fraction 1 has unit diameter, and the radial fraction runs from `hole` at the lower radial limit to 1 at the
+    /// upper.
+    Cylinder {
+        /// The azimuth in the box of angle 0, in radians anticlockwise from +X seen from +Z.
+        zero: f64,
+        /// The number of radians in the box per unit of angle, negative when the angle runs clockwise.
+        per_unit: f64,
+        /// The radial fraction of the lower radial limit, in [0, 1).
+        hole: f64,
+    },
+    /// Spherical axes: x is the azimuth, y the polar angle and z the distance from the centre. The sphere of radial
+    /// fraction 1 has unit diameter.
+    Sphere {
+        /// The number of radians in the box per unit of azimuth, negative when the azimuth runs clockwise.
+        per_unit: f64,
+        /// The number of radians per unit of polar angle.
+        polar_per_unit: f64,
+        /// Whether the polar angle is measured down from +Z rather than up from the X–Y plane.
+        inclination: bool,
+    },
+}
+
+impl Stage {
+    /// Returns the stage of an axes, from its projection and the direction of its angle axis.
+    pub fn of(axes: &Axes) -> Self {
+        let per_turn = |units: ironlab_ir::AngleUnits| {
+            let turn = units.turn();
+            if turn.is_finite() && turn > 0.0 {
+                std::f64::consts::TAU / turn
+            } else {
+                std::f64::consts::TAU / 360.0
+            }
+        };
+        let sign = if axes.x.reverse { -1.0 } else { 1.0 };
+        match axes.projection {
+            ironlab_ir::Projection::Cylindrical { polar, .. } => Stage::Cylinder {
+                zero: if polar.zero_deg.is_finite() {
+                    polar.zero_deg.to_radians()
+                } else {
+                    0.0
+                },
+                per_unit: sign * per_turn(polar.angle_units),
+                hole: if polar.hole.is_finite() {
+                    polar.hole.clamp(0.0, 0.99)
+                } else {
+                    0.0
+                },
+            },
+            ironlab_ir::Projection::Spherical { spherical, .. } => Stage::Sphere {
+                per_unit: sign * per_turn(spherical.angle_units),
+                polar_per_unit: per_turn(spherical.angle_units),
+                inclination: spherical.polar_angle == ironlab_ir::PolarAngle::Inclination,
+            },
+            _ => Stage::Box,
+        }
+    }
+
+    /// Returns whether the stage bends straight data lines, so that images are drawn through an adaptive lattice and
+    /// the axes is framed by circles rather than by the edges of the box.
+    pub fn is_curved(&self) -> bool {
+        !matches!(self, Stage::Box)
+    }
+
+    /// Returns the radius, in normalised box units scaled by `sides`, of the sphere about the centre of the box that
+    /// circumscribes what the axes draws: half the diagonal of the box, `√(0.25·s² + 0.25·h²)` for a cylinder of
+    /// sides `[s, s, h]`, and 0.5 for a sphere.
+    pub fn bounding_radius(&self, sides: [f64; 3]) -> f64 {
+        match self {
+            Stage::Box => 0.5 * sides.iter().map(|s| s * s).sum::<f64>().sqrt(),
+            Stage::Cylinder { .. } => 0.5 * sides[0].max(sides[1]).hypot(sides[2]),
+            Stage::Sphere { .. } => 0.5,
+        }
+    }
+
+    /// Returns which axes of data carry an angle, along which the stage turns rather than stretches.
+    pub fn angular(&self) -> [bool; 3] {
+        match self {
+            Stage::Box => [false; 3],
+            Stage::Cylinder { .. } => [true, false, false],
+            Stage::Sphere { .. } => [true, true, false],
+        }
+    }
+
+    /// Returns the number of radians in the box per unit of data along an angular axis `dim`.
+    pub fn radians_per_unit(&self, dim: usize) -> f64 {
+        match (*self, dim) {
+            (Stage::Cylinder { per_unit, .. }, 0) | (Stage::Sphere { per_unit, .. }, 0) => per_unit,
+            (Stage::Sphere { polar_per_unit, .. }, 1) => polar_per_unit,
+            _ => 0.0,
+        }
+    }
+}
+
 /// An orthographic projection of the data box of a 3D axes into its plot rectangle.
 pub(crate) struct Projector {
     pub camera: Camera,
+    /// How data points are placed in the normalised box.
+    pub stage: Stage,
     lo: [f64; 3],
     hi: [f64; 3],
     log: [bool; 3],
@@ -56,7 +159,8 @@ pub(crate) struct Projector {
     reverse: [bool; 3],
     /// The relative lengths of the sides of the box along x, y and z, the longest being 1.
     sides: [f64; 3],
-    scale: f64,
+    /// The number of points on the page per unit of the normalised box, before the sides are applied.
+    pub scale: f64,
     centre: Point,
 }
 
@@ -66,10 +170,21 @@ impl Projector {
     /// right and down).
     ///
     /// The box has sides of the relative lengths `sides` along x, y and z, the longest being 1: a cube for an
-    /// automatic aspect, and the proportions of the aspect otherwise. It is fitted by the sphere that circumscribes it,
-    /// whose projection is the same disc in every view, so that rotating the view never changes the size or the
-    /// proportions of the box and every view of it fits the plot rectangle at a zoom of 1.
-    pub fn new(view: View3d, ranges: &[Range; 3], plot: Rect, sides: [f64; 3]) -> Self {
+    /// automatic aspect, and the proportions of the aspect otherwise. What the axes draws is fitted by the sphere that
+    /// circumscribes it (see [`Stage::bounding_radius`]), whose projection is the same disc in every view, so that
+    /// rotating the view never changes the size or the proportions of the drawing and every view of it fits the plot
+    /// rectangle at a zoom of 1. A curved stage leaves `inset[0]` points between its circumscribing sphere and the left
+    /// and right sides of the plot rectangle, and `inset[1]` points above and below it, for the tick labels placed
+    /// round its frame; a Cartesian box ignores
+    /// it, because its labels have margins of their own. Data points are placed in the box by `stage`.
+    pub fn new(
+        view: View3d,
+        ranges: &[Range; 3],
+        plot: Rect,
+        sides: [f64; 3],
+        stage: Stage,
+        inset: [f64; 2],
+    ) -> Self {
         let camera = Camera {
             azimuth_deg: wrap_azimuth(view.azimuth_deg),
             elevation_deg: clamp_elevation(view.elevation_deg),
@@ -84,12 +199,26 @@ impl Projector {
         let (fit, offset) = fit_to_rect(plot.width, plot.height);
         let usable = sides.iter().all(|s| s.is_finite() && *s > 0.0);
         let sides = if usable { sides } else { [1.0; 3] };
-        // The unit cube has a diagonal of √3, for which `fit_to_rect` is computed; a box of other sides is fitted by
-        // its own diagonal.
-        let diagonal = sides.iter().map(|s| s * s).sum::<f64>().sqrt();
-        let fit = fit * 3f64.sqrt() / diagonal;
+        // `fit_to_rect` fits the sphere of radius √3/2 that circumscribes the unit cube. What the axes draws is fitted
+        // by its own circumscribing sphere instead: the box of its sides, the cylinder of unit diameter (scaled across
+        // by the sides) and its height, or the sphere of unit diameter. Every orthographic view of a sphere is the
+        // same disc, so the size never changes as the view turns.
+        let fit = match stage {
+            // Half the diagonal, written as the whole diagonal over √3 so that Cartesian boxes keep their exact scale.
+            Stage::Box => fit * 3f64.sqrt() / sides.iter().map(|s| s * s).sum::<f64>().sqrt(),
+            // The circumscribing sphere fills the plot rectangle less `inset` across and down on each side, the room
+            // the tick labels placed round the frame take, but never less than a quarter of the shorter side.
+            _ => {
+                let half = fit * (0.5 * 3f64.sqrt());
+                let room = |v: f64| if v.is_finite() { v.max(0.0) } else { 0.0 };
+                let across = 0.5 * plot.width.max(0.0) - room(inset[0]);
+                let down = 0.5 * plot.height.max(0.0) - room(inset[1]);
+                across.min(down).max(0.25 * half) / stage.bounding_radius(sides)
+            }
+        };
         Self {
             camera,
+            stage,
             lo: ranges.map(|r| r.min),
             hi: ranges.map(|r| r.max),
             log: ranges.map(|r| r.log),
@@ -103,12 +232,81 @@ impl Projector {
         }
     }
 
-    /// Maps a data point into the normalised box `[-0.5, 0.5]³`, in which the lower limit of an axis is at −0.5 and
-    /// its upper limit at 0.5, or the other way round when the axis is reversed, so that every artist, tick, grid
-    /// line and label placed through the box is mirrored along a reversed axis alike.
-    pub fn normalise(&self, p: [f64; 3]) -> [f64; 3] {
+    /// Maps a data point along each axis into `[-0.5, 0.5]`, in which the lower limit of an axis is at −0.5 and its
+    /// upper limit at 0.5, or the other way round when the axis is reversed. In Cartesian axes this is the point in
+    /// the normalised box, so that every artist, tick, grid line and label placed through the box is mirrored along a
+    /// reversed axis alike.
+    pub fn along_axes(&self, p: [f64; 3]) -> [f64; 3] {
         let n = normalise_box(p, self.lo, self.hi, self.log);
         std::array::from_fn(|k| if self.reverse[k] { -n[k] } else { n[k] })
+    }
+
+    /// Maps a data point into the normalised box `[-0.5, 0.5]³` through the stage of the axes.
+    ///
+    /// In Cartesian axes this is [`Projector::along_axes`]. In cylindrical axes the point lies at radial fraction
+    /// `ρ = hole + (1 − hole)·t_r`, where `t_r` is the position of the radius between its limits (mirrored when y is
+    /// reversed), at azimuth `φ = zero + θ·per_unit`, as `(0.5·ρ·cos φ, 0.5·ρ·sin φ, n_z)`. In spherical axes the
+    /// radius on z gives `ρ = t_r` likewise, the polar angle gives the elevation `ε` (directly, or as `π/2` less an
+    /// inclination), and the point is `0.5·ρ·(cos ε cos φ, cos ε sin φ, sin ε)`. A radius beyond the centre side of
+    /// its limits (`t_r < 0`) has no position, as in polar axes, so every component is NaN and nothing is reflected
+    /// through the centre.
+    pub fn normalise(&self, p: [f64; 3]) -> [f64; 3] {
+        self.place(p, false)
+    }
+
+    /// Maps a data point into the normalised box as [`Projector::normalise`] does, except that a radius beyond the
+    /// centre side of its limits is placed at the lower limit, on the edge of the hole or at the centre, which is
+    /// where the pixel edges of an image that reach past the centre are drawn.
+    pub fn normalise_held(&self, p: [f64; 3]) -> [f64; 3] {
+        self.place(p, true)
+    }
+
+    fn place(&self, p: [f64; 3], hold: bool) -> [f64; 3] {
+        let radial = |t: f64| {
+            if t >= -1e-12 || hold {
+                t.max(0.0)
+            } else {
+                f64::NAN
+            }
+        };
+        match self.stage {
+            Stage::Box => self.along_axes(p),
+            Stage::Cylinder {
+                zero,
+                per_unit,
+                hole,
+            } => {
+                let n = self.along_axes(p);
+                let rho = hole + (1.0 - hole) * radial(n[1] + 0.5);
+                let phi = zero + p[0] * per_unit;
+                [0.5 * rho * phi.cos(), 0.5 * rho * phi.sin(), n[2]]
+            }
+            Stage::Sphere {
+                per_unit,
+                polar_per_unit,
+                inclination,
+            } => {
+                let n = self.along_axes(p);
+                let rho = radial(n[2] + 0.5);
+                let phi = p[0] * per_unit;
+                let angle = p[1] * polar_per_unit;
+                let eps = if inclination {
+                    std::f64::consts::FRAC_PI_2 - angle
+                } else {
+                    angle
+                };
+                [
+                    0.5 * rho * eps.cos() * phi.cos(),
+                    0.5 * rho * eps.cos() * phi.sin(),
+                    0.5 * rho * eps.sin(),
+                ]
+            }
+        }
+    }
+
+    /// Returns the relative lengths of the sides of the box along x, y and z.
+    pub fn sides(&self) -> [f64; 3] {
+        self.sides
     }
 
     /// Projects a point of the normalised box to figure space, returning its depth as well.
@@ -130,7 +328,8 @@ impl Projector {
 /// The mapping from data space to figure space.
 #[derive(Clone, Copy)]
 pub(crate) enum Space<'a> {
-    TwoD { x: AxisMap, y: AxisMap },
+    /// A two-dimensional axes, Cartesian or polar.
+    TwoD(Plane),
     ThreeD(&'a Projector),
 }
 
@@ -148,13 +347,7 @@ impl Space<'_> {
     /// Maps a data point to figure space and depth, or returns `None` when it cannot be placed.
     pub fn map(&self, p: [f64; 3]) -> Option<(Point, f64)> {
         match self {
-            Space::TwoD { x, y } => {
-                if !(p[0].is_finite() && p[1].is_finite()) {
-                    return None;
-                }
-                let q = Point::new(x.to_figure(p[0]), y.to_figure(p[1]));
-                paths::finite(q).then_some((q, 0.0))
-            }
+            Space::TwoD(plane) => plane.map([p[0], p[1]]).map(|q| (q, 0.0)),
             Space::ThreeD(projector) => projector.project(projector.normalise(p)),
         }
     }
@@ -169,12 +362,15 @@ impl Space<'_> {
     /// A fraction maps 0 to the left or bottom edge of `plot` and 1 to its right or top edge, linearly, whatever the
     /// limits, scale or direction of the axis, so it is an [`AxisMap`] over `[0, 1]` laid on the physical extent of
     /// the plot area. A data dimension keeps the axis's own map, which is the single place where the limits, scale
-    /// and direction of the axis are applied. A 3D axes has no plot area to take a fraction of, so its space is
-    /// returned unchanged (validation reports such an artist as an error).
+    /// and direction of the axis are applied. In polar axes a fraction is a fraction of the sector or of the radial
+    /// span, from the lower limit to the upper limit, so that a horizontal line at a fraction is a circle and a
+    /// vertical one a spoke. A 3D axes has no plot area to take a fraction of, so its space is returned unchanged
+    /// (validation reports such an artist as an error).
     pub fn blended(self, coords: [ArtistCoords; 2], plot: Rect) -> Self {
-        let Space::TwoD { x, y } = self else {
+        let Space::TwoD(plane) = self else {
             return self;
         };
+        let Plane { x, y, warp } = plane;
         let fraction = |start: f64, end: f64| AxisMap {
             min: 0.0,
             max: 1.0,
@@ -182,7 +378,18 @@ impl Space<'_> {
             start,
             end,
         };
-        Space::TwoD {
+        if let Warp::Polar { .. } = warp {
+            let along = |map: AxisMap, coords: ArtistCoords| match coords {
+                ArtistCoords::Data => map,
+                ArtistCoords::AxesFraction => fraction(map.start, map.end),
+            };
+            return Space::TwoD(Plane {
+                x: along(x, coords[0]),
+                y: along(y, coords[1]),
+                warp,
+            });
+        }
+        Space::TwoD(Plane {
             x: match coords[0] {
                 ArtistCoords::Data => x,
                 ArtistCoords::AxesFraction => fraction(plot.x, plot.right()),
@@ -191,7 +398,8 @@ impl Space<'_> {
                 ArtistCoords::Data => y,
                 ArtistCoords::AxesFraction => fraction(plot.bottom(), plot.y),
             },
-        }
+            warp,
+        })
     }
 }
 
@@ -889,6 +1097,46 @@ fn draw_series(
         _ => points.get(i),
     };
 
+    if let Some(base) = series.fill_base() {
+        let fill = match series.fill {
+            ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
+            // A colormapped fill is invalid, because the area under the line has no value to look a colour up by;
+            // it is drawn as an automatic one, in the colour of the series.
+            ColorSpec::Auto | ColorSpec::Colormapped => own,
+            ColorSpec::None => None,
+        };
+        let fill =
+            fill.map(|c| c.with_alpha_factor(style::unit_opacity(series.fill_opacity) as f32));
+        if let (Some(fill), Space::TwoD(plane)) = (fill, &draw.space) {
+            let runs = fill_runs(plane, &points, at, base, draw.target, draw.clip);
+            let runs = follow_fraction_angle(&draw.space, series, &points, runs);
+            let mut b = PathBuilder::new();
+            for run in &runs {
+                let (Some(first), Some(last)) = (run.first(), run.last()) else {
+                    continue;
+                };
+                let mut polygon = positions(run);
+                polygon.push(base_point(
+                    plane,
+                    points.get(last.source_index)[0],
+                    base,
+                    draw.clip,
+                ));
+                polygon.push(base_point(
+                    plane,
+                    points.get(first.source_index)[0],
+                    base,
+                    draw.clip,
+                ));
+                b.polyline(&polygon, true);
+            }
+            draw.push(
+                0.0,
+                paths::item(series.id, b.finish(), Some(paths::fill(fill)), None),
+            );
+        }
+    }
+
     let mut drawn: Vec<Sample> = Vec::new();
     let template = series
         .draws_line()
@@ -901,6 +1149,7 @@ fn draw_series(
             .flat_map(|run| thin_polyline(run, draw.target, clip))
             .collect();
         drawn.extend(runs.iter().flatten().copied());
+        let runs = follow_fraction_angle(&draw.space, series, &points, runs);
         let solid = |colour: Option<Rgba>| {
             colour.map(|colour| SegmentPaint {
                 from: colour,
@@ -978,6 +1227,123 @@ fn draw_series(
         drawn.extend(samples);
     }
     draw.record(series.id, drawn);
+}
+
+/// Returns the runs of a filled series through which its fill is drawn: the runs of its line, thinned exactly as the
+/// line thins them when the plot area is not too dense for them, so that the fill and the line share their points.
+///
+/// A run too dense for the plot area is cut into the stretches whose fill can paint inside `clip` (judged by the
+/// bounding box of each segment together with its two points on the base) and each stretch is thinned as the line
+/// is. The line cuts a dense run only where its segments leave the clip, which would leave the fill beneath a part
+/// of the line above the plot area undrawn; the fill keeps every segment whose strip down to the base is seen.
+fn fill_runs(
+    plane: &Plane,
+    points: &Points,
+    at: impl Fn(usize) -> [f64; 3],
+    base: f64,
+    target: usize,
+    clip: Rect,
+) -> Vec<Vec<Sample>> {
+    let space = Space::TwoD(*plane);
+    mapped_runs(&space, (0..points.len()).map(at))
+        .into_iter()
+        .flat_map(|run| {
+            if run.len() <= target {
+                return vec![run];
+            }
+            let foot = |s: &Sample| base_point(plane, points.get(s.source_index)[0], base, clip);
+            let mut stretches: Vec<Vec<Sample>> = Vec::new();
+            let mut current: Vec<Sample> = Vec::new();
+            for pair in run.windows(2) {
+                let (a, b) = (pair[0].position, pair[1].position);
+                let (fa, fb) = (foot(&pair[0]), foot(&pair[1]));
+                let meets = segment_meets(clip, a, b)
+                    || segment_meets(clip, fa, fb)
+                    || segment_meets(clip, a, fb)
+                    || segment_meets(clip, fa, b);
+                if meets {
+                    if current.is_empty() {
+                        current.push(pair[0]);
+                    }
+                    current.push(pair[1]);
+                } else if !current.is_empty() {
+                    stretches.push(std::mem::take(&mut current));
+                }
+            }
+            if !current.is_empty() {
+                stretches.push(current);
+            }
+            stretches
+                .into_iter()
+                .map(|stretch| decimate::largest_triangle_three_buckets(&stretch, target))
+                .collect()
+        })
+        .collect()
+}
+
+/// Returns the page point of the base of a fill at the data value `x`: the point (x, base), with a base that a
+/// logarithmic y axis cannot place at the low edge of the plot area, as the base of bars and stairs is. In polar axes
+/// a base on the centre side of the radial limits lies at the edge of the plot region nearest the centre, so that a
+/// base at or below the lower limit closes the fill at the centre rather than reflecting through it; in Cartesian
+/// axes the base is held within the clamping bounds of the plane, so that a distant base stays a reasonable number.
+fn base_point(plane: &Plane, x: f64, base: f64, clip: Rect) -> Point {
+    let along = plane.x.to_figure(x);
+    let level = if plane.y.log && base <= 0.0 {
+        plane.y.to_figure(plane.y.min)
+    } else {
+        plane.y.to_figure(base)
+    };
+    let bounds = plane.bounds(clip);
+    let level = if plane.is_polar() {
+        level.max(bounds.y)
+    } else {
+        level.clamp(bounds.y, bounds.bottom())
+    };
+    plane.place(Point::new(along, level))
+}
+
+/// Returns the runs of a series in polar axes whose x values are fractions of the sector, with every segment
+/// followed round the centre, and any other runs as they are.
+///
+/// A fraction of the sector names a place in the plot region rather than a data point, so a horizontal reference line
+/// (`hline`), which runs from fraction 0 to fraction 1 at one radius, is the arc of that radius across the sector, as
+/// a horizontal line across a Cartesian plot area is, rather than the chord between its ends. The vertices added
+/// between two points carry the source index of the first, and are not recorded as drawn points.
+fn follow_fraction_angle(
+    space: &Space,
+    series: &Series,
+    points: &Points,
+    runs: Vec<Vec<Sample>>,
+) -> Vec<Vec<Sample>> {
+    let Space::TwoD(plane) = space else {
+        return runs;
+    };
+    if !plane.is_polar() || series.x_coords != ArtistCoords::AxesFraction {
+        return runs;
+    }
+    runs.into_iter()
+        .map(|run| {
+            let mut followed: Vec<Sample> = Vec::with_capacity(run.len());
+            for pair in run.windows(2) {
+                let ends = [pair[0], pair[1]].map(|s| {
+                    let p = points.get(s.source_index);
+                    plane.axis_coords([p[0], p[1]])
+                });
+                let [Some(a), Some(b)] = ends else {
+                    followed.push(pair[0]);
+                    continue;
+                };
+                let outline = plane.outline(&[a, b], false);
+                let last = outline.len().saturating_sub(1);
+                followed.extend(outline[..last].iter().map(|&position| Sample {
+                    position,
+                    ..pair[0]
+                }));
+            }
+            followed.extend(run.last().copied());
+            followed
+        })
+        .collect()
 }
 
 /// Returns the finite range of a field's values.
@@ -1185,7 +1551,7 @@ fn draw_quiver(
         }
         let tip = [0, 1, 2].map(|a| base[a] + scale * v[a]);
         let arrow = match draw.space {
-            Space::TwoD { .. } => {
+            Space::TwoD(_) => {
                 let (Some((b, _)), Some((t, _))) = (draw.space.map(base), draw.space.map(tip))
                 else {
                     continue;
@@ -1393,7 +1759,7 @@ fn face_depth(projector: &Projector, third: usize, offset: f64) -> Option<f64> {
     }
     let back_is_min = matches!(
         back_planes(&projector.camera)[third],
-        Plane::XMin | Plane::YMin | Plane::ZMin
+        BoxFace::XMin | BoxFace::YMin | BoxFace::ZMin
     );
     Some(if on_min == back_is_min {
         f64::NEG_INFINITY
@@ -1455,33 +1821,416 @@ fn place_image(draw: &Draw, image: &ImageData) -> Option<(Transform, f64, Option
                 ),
             }
         }
-        Space::TwoD { .. } => (mean, None),
+        Space::TwoD(_) => (mean, None),
     };
     Some((transform, key, plane))
 }
 
-/// Draws an image of any kind as one image item in pixel space beneath one group whose transform places it in the
-/// axes, pushed as one primitive at the key [`place_image`] gives and carrying the plane of its depth in 3D, and
-/// records the placement in the hit map when the axes is two-dimensional.
+/// The shortest distance on the page, in points, between two lattice lines of an image drawn through a mesh.
+const MIN_LATTICE_CELL_PT: f64 = 1.0;
+
+/// Returns whether each axis of a space is logarithmic; a 2D axes draws nothing along z.
+fn logarithmic_axes(space: &Space) -> [bool; 3] {
+    match space {
+        Space::TwoD(plane) => [plane.x.log, plane.y.log, false],
+        Space::ThreeD(projector) => projector.log,
+    }
+}
+
+/// Returns whether the plane of an image cannot be placed affinely, so that the image is drawn through a mesh: when
+/// an axis of its plane is logarithmic, or the axes is polar, cylindrical or spherical.
+fn plane_is_warped(space: &Space, image: &ImageData) -> bool {
+    match space {
+        Space::TwoD(plane) if plane.is_polar() => return true,
+        Space::ThreeD(projector) if projector.stage.is_curved() => return true,
+        _ => {}
+    }
+    let log = logarithmic_axes(space);
+    image.plane_dims().iter().any(|&dim| log[dim])
+}
+
+/// Chooses the pixel edges at which the lattice of an image has lines along one axis of its plane.
+///
+/// `page` gives the page position of every pixel edge `0..=n`. Along a linear axis (`log` false) only the outer edges
+/// are needed. Along a logarithmic axis every edge is kept, except that an edge lying less than
+/// [`MIN_LATTICE_CELL_PT`] from the last edge kept is dropped, and the last edge is always kept (in place of the edge
+/// before it when the two lie too close), so that no lattice cell is shorter than a point and the number of lines is
+/// bounded by the page rather than by the image.
+fn lattice_edges(n: usize, log: bool, page: impl Fn(usize) -> Point) -> Vec<f64> {
+    if !log || n < 2 {
+        return vec![0.0, n as f64];
+    }
+    let apart = |a: Point, b: Point| (b.x - a.x).hypot(b.y - a.y);
+    thin_edges(n, |a, b| apart(page(a), page(b)))
+}
+
+/// Chooses, among the pixel edges `0..=n` along one axis of the plane of an image, those at which its lattice has
+/// lines: every edge, except that an edge lying less than [`MIN_LATTICE_CELL_PT`] from the last edge kept, by the
+/// distance `apart` gives between two edges, is dropped, and the last edge is always kept (in place of the edge before
+/// it when the two lie too close).
+fn thin_edges(n: usize, apart: impl Fn(usize, usize) -> f64) -> Vec<f64> {
+    if n < 2 {
+        return vec![0.0, n as f64];
+    }
+    let mut kept = vec![0usize];
+    for k in 1..n {
+        if apart(*kept.last().expect("kept is not empty"), k) >= MIN_LATTICE_CELL_PT {
+            kept.push(k);
+        }
+    }
+    if kept.len() > 1 && apart(*kept.last().expect("kept is not empty"), n) < MIN_LATTICE_CELL_PT {
+        kept.pop();
+    }
+    kept.push(n);
+    kept.into_iter().map(|k| k as f64).collect()
+}
+
+/// The number of positions across the other direction of the plane of an image at which a bent lattice measures the
+/// distance between two pixel edges and the reach of the plane from the centre of the box.
+const LATTICE_PROBES: usize = 17;
+
+/// Builds the lattice of an image in cylindrical or spherical axes, in figure space, with one depth per node.
+///
+/// Along both directions of the plane the lattice lines are the pixel edges, thinned by [`thin_edges`] so that no
+/// lattice cell is shorter than a point at any of [`LATTICE_PROBES`] positions across the plane, so that every pixel
+/// boundary is drawn where the axes put it. Along a direction that carries an angle the lines are then refined
+/// evenly in angle between the pixel edges, so that the chord of every lattice cell strays from its arc by at most
+/// [`super::plane::CHORD_ERROR_PT`] for an arc of the largest radius that the plane reaches from the centre of the box;
+/// an orthographic projection never lengthens the sagitta of an arc, so the bound holds on the page in every view.
+/// A direction along the radius or the height is a straight line in the box and needs no refinement. Every node is the
+/// data point of its pixel-space position on the plane's offset (the lower limit of the third axis when it has none),
+/// mapped through the axes with a radius beyond the centre side of its limits held at the lower limit, and carries its projected depth pushed back by `bias`. Returns `None` when a node cannot
+/// be placed.
+fn curved_image_mesh(
+    projector: &Projector,
+    image: &ImageData,
+    low: [f64; 3],
+    bias: f64,
+) -> Option<ImageMesh> {
+    let [columns, rows] = image.plane_dims();
+    let third = image.offset_dim();
+    let (x0, x1) = image::edges(image.placement.columns, image.nx);
+    let (y0, y1) = image::edges(image.placement.rows, image.ny);
+    let offset = image.placement.plane.offset().unwrap_or(low[third]);
+    let (nx, ny) = (image.nx as f64, image.ny as f64);
+    let data = |u: f64, v: f64| {
+        let mut p = [0.0; 3];
+        p[columns] = x0 + (x1 - x0) * u / nx;
+        p[rows] = y0 + (y1 - y0) * v / ny;
+        p[third] = offset;
+        p
+    };
+    // A point of the box scaled to points on the page, before the camera turns it.
+    let sides = projector.sides();
+    let scaled = |p: [f64; 3]| -> [f64; 3] {
+        let n = projector.normalise_held(p);
+        std::array::from_fn(|k| n[k] * sides[k] * projector.scale)
+    };
+    let distance = |a: [f64; 3], b: [f64; 3]| {
+        let d = (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f64>().sqrt();
+        if d.is_finite() { d } else { 0.0 }
+    };
+    let probes = |n: f64| -> Vec<f64> {
+        (0..LATTICE_PROBES)
+            .map(|k| n * k as f64 / (LATTICE_PROBES - 1) as f64)
+            .collect()
+    };
+    let (across_rows, across_columns) = (probes(ny), probes(nx));
+    let u = thin_edges(image.nx, |a, b| {
+        across_rows
+            .iter()
+            .map(|&v| distance(scaled(data(a as f64, v)), scaled(data(b as f64, v))))
+            .fold(0.0, f64::max)
+    });
+    let v = thin_edges(image.ny, |a, b| {
+        across_columns
+            .iter()
+            .map(|&u| distance(scaled(data(u, a as f64)), scaled(data(u, b as f64))))
+            .fold(0.0, f64::max)
+    });
+    let reach = across_columns
+        .iter()
+        .flat_map(|&u| across_rows.iter().map(move |&v| (u, v)))
+        .map(|(u, v)| distance(scaled(data(u, v)), [0.0; 3]))
+        .fold(0.0, f64::max);
+    let angular = projector.stage.angular();
+    let refine = |edges: Vec<f64>, dim: usize, span: f64, n: f64| {
+        if !angular[dim] {
+            return edges;
+        }
+        let per_pixel = (span / n * projector.stage.radians_per_unit(dim)).abs();
+        let mut refined = vec![edges[0]];
+        for pair in edges.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let pieces = super::plane::arc_pieces(per_pixel * (b - a), reach);
+            for j in 1..=pieces {
+                refined.push(if j == pieces {
+                    b
+                } else {
+                    a + (b - a) * j as f64 / pieces as f64
+                });
+            }
+        }
+        refined
+    };
+    let u = refine(u, columns, x1 - x0, nx);
+    let v = refine(v, rows, y1 - y0, ny);
+    let mut points = Vec::with_capacity(u.len() * v.len());
+    let mut depths = Vec::with_capacity(u.len() * v.len());
+    for vj in &v {
+        for ui in &u {
+            let (point, depth) = projector.project(projector.normalise_held(data(*ui, *vj)))?;
+            points.push(point);
+            depths.push(depth - bias);
+        }
+    }
+    Some(ImageMesh {
+        u,
+        v,
+        points,
+        depths: Some(depths),
+    })
+}
+
+/// Builds the lattice of an image whose plane has a logarithmic axis, in figure space, with one depth per node in 3D.
+///
+/// Along a logarithmic axis the lattice lines are the pixel edges, thinned by [`lattice_edges`]; along a linear one
+/// they are the two outer edges. Every node is the data point at its pixel edges, on the plane's offset, mapped
+/// through the axes, so each kept pixel edge is placed exactly. In 3D the depth of each node is its projected depth,
+/// pushed back by `bias` (see [`place_image`]). Returns `None` when a node cannot be placed.
+fn image_mesh(draw: &Draw, image: &ImageData, bias: f64) -> Option<ImageMesh> {
+    match draw.space {
+        Space::TwoD(plane) if plane.is_polar() => return polar_image_mesh(&plane, image),
+        Space::ThreeD(projector) if projector.stage.is_curved() => {
+            return curved_image_mesh(projector, image, draw.low, bias);
+        }
+        _ => {}
+    }
+    let [columns, rows] = image.plane_dims();
+    let third = image.offset_dim();
+    let (x0, x1) = image::edges(image.placement.columns, image.nx);
+    let (y0, y1) = image::edges(image.placement.rows, image.ny);
+    let offset = image.placement.plane.offset().unwrap_or(draw.low[third]);
+    let (nx, ny) = (image.nx as f64, image.ny as f64);
+    let data = |u: f64, v: f64| {
+        let mut p = [0.0; 3];
+        p[columns] = x0 + (x1 - x0) * u / nx;
+        p[rows] = y0 + (y1 - y0) * v / ny;
+        p[third] = offset;
+        p
+    };
+    let log = logarithmic_axes(&draw.space);
+    // Distances along one axis are measured with the other at its first edge; the projection of either kind of axes
+    // is affine in the normalised coordinates, so they are the same at any other.
+    let page = |p: [f64; 3]| {
+        draw.space
+            .map(p)
+            .map_or(Point::new(f64::NAN, f64::NAN), |m| m.0)
+    };
+    let u = lattice_edges(image.nx, log[columns], |k| page(data(k as f64, 0.0)));
+    let v = lattice_edges(image.ny, log[rows], |k| page(data(0.0, k as f64)));
+    let mut points = Vec::with_capacity(u.len() * v.len());
+    let mut depths = Vec::with_capacity(u.len() * v.len());
+    for vj in &v {
+        for ui in &u {
+            let (point, depth) = draw.space.map(data(*ui, *vj))?;
+            points.push(point);
+            depths.push(depth - bias);
+        }
+    }
+    Some(ImageMesh {
+        u,
+        v,
+        points,
+        depths: draw.space.is_3d().then_some(depths),
+    })
+}
+
+/// Builds the lattice of an image in polar axes, in figure space.
+///
+/// The angle depends on x alone and the radius on y alone, so the axis coordinates of every pixel edge are found along
+/// each axis separately. Along the radius the lattice lines are the pixel edges, thinned by [`lattice_edges`] so that
+/// no lattice cell is shorter than a point. Along the angle they are the pixel edges thinned likewise by their arc
+/// length at the outermost radius of the image, and then refined with lines between the pixel edges, evenly in angle,
+/// so that the chord of every lattice cell strays from its arc by at most [`super::plane::CHORD_ERROR_PT`] at that
+/// radius. A node below the radial lower limit lies at the edge of the hole or the centre rather than being reflected
+/// through it. Returns `None` when a pixel edge cannot be placed.
+fn polar_image_mesh(plane: &Plane, image: &ImageData) -> Option<ImageMesh> {
+    let [columns, rows] = image.plane_dims();
+    let (x0, x1) = image::edges(image.placement.columns, image.nx);
+    let (y0, y1) = image::edges(image.placement.rows, image.ny);
+    let (nx, ny) = (image.nx as f64, image.ny as f64);
+    // The data value of each lattice direction at a pixel-space coordinate, and the axis coordinate it maps to.
+    let value = |dim: usize, t: f64| {
+        if dim == columns {
+            x0 + (x1 - x0) * t / nx
+        } else {
+            y0 + (y1 - y0) * t / ny
+        }
+    };
+    let inner = plane.y.start.min(plane.y.end);
+    let coord = |dim: usize, t: f64| {
+        let v = value(dim, t);
+        let c = if dim == 0 {
+            plane.x.to_figure(v)
+        } else {
+            plane.y.to_figure(v).max(inner)
+        };
+        c.is_finite().then_some(c)
+    };
+    let edges_of = |dim: usize, n: usize| -> Option<Vec<f64>> {
+        (0..=n).map(|k| coord(dim, k as f64)).collect()
+    };
+    let column_coords = edges_of(columns, image.nx)?;
+    let row_coords = edges_of(rows, image.ny)?;
+    let radii = if columns == 0 {
+        &row_coords
+    } else {
+        &column_coords
+    };
+    let outer = radii.iter().copied().fold(0.0, f64::max);
+    let lattice = |dim: usize, n: usize, coords: &[f64]| {
+        let scale = if dim == 0 { outer } else { 1.0 };
+        let kept = lattice_edges(n, true, |k| Point::new(scale * coords[k], 0.0));
+        if dim != 0 {
+            return kept;
+        }
+        let mut refined = vec![kept[0]];
+        for pair in kept.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let swept = coords[b as usize] - coords[a as usize];
+            let pieces = super::plane::arc_pieces(swept, outer);
+            for j in 1..=pieces {
+                refined.push(if j == pieces {
+                    b
+                } else {
+                    a + (b - a) * j as f64 / pieces as f64
+                });
+            }
+        }
+        refined
+    };
+    let u = lattice(columns, image.nx, &column_coords);
+    let v = lattice(rows, image.ny, &row_coords);
+    let mut points = Vec::with_capacity(u.len() * v.len());
+    for vj in &v {
+        for ui in &u {
+            let (cu, cv) = (coord(columns, *ui)?, coord(rows, *vj)?);
+            let (phi, rho) = if columns == 0 { (cu, cv) } else { (cv, cu) };
+            points.push(plane.place(Point::new(phi, rho)));
+        }
+    }
+    Some(ImageMesh {
+        u,
+        v,
+        points,
+        depths: None,
+    })
+}
+
+/// Draws an image of any kind as one image item, pushed as one primitive at the key [`place_image`] gives, and
+/// records its placement in the hit map when the axes is two-dimensional.
+///
+/// When the axes of the plane of the image are linear, the image is drawn in pixel space beneath one group whose
+/// transform places it in the axes, carrying the plane of its depth in 3D. When an axis of its plane is logarithmic,
+/// it is drawn through the mesh of [`image_mesh`] in figure space, carrying a depth per node in 3D, and counts its
+/// pixels as dense content, because a backend that cannot draw a warped raster (the PDF exporter) writes it as one
+/// path per pixel. An image drawn over a rectangle is never wrapped in a dense group, since it is already a raster.
 ///
 /// The samples run in row order from row 0 and are never reordered: a range that runs backwards mirrors the image
-/// through the transform alone, so the row and column that a hit resolves to index the artist's array. The image is
-/// never wrapped in a dense group, since it is already a raster. A scalar image is coloured through `scale`, its
-/// colour scale. An image whose corners cannot be placed is skipped with a warning naming it.
+/// through its placement alone, so the row and column that a hit resolves to index the artist's array. A scalar
+/// image is coloured through `scale`, its colour scale. An image whose corners or lattice nodes cannot be placed is
+/// skipped with a warning naming it.
 fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData, scale: Option<&ResolvedScale>) {
-    let Some((transform, key, plane)) = place_image(draw, image) else {
+    let skip = |draw: &mut Draw| {
         draw.ctx.warn(
             Some(id),
             "The artist is not drawn because the corners of the image cannot be placed in the axes.",
         );
-        return;
     };
-    let raster = image::resolve(image, scale);
+    // A polar plane cannot be placed affinely, so only its mesh is placed, and it is sorted as a 2D artist. A plane
+    // bent by cylindrical or spherical axes is sorted at the mean depth of its lattice less the face bias, since it
+    // never lies flat on a face of the box.
+    let placed = match draw.space {
+        Space::TwoD(plane) if plane.is_polar() => Some((Transform::IDENTITY, 0.0, None)),
+        Space::ThreeD(projector) if projector.stage.is_curved() => {
+            Some((Transform::IDENTITY, 0.0, None))
+        }
+        _ => place_image(draw, image),
+    };
+    let curved = matches!(draw.space, Space::ThreeD(projector) if projector.stage.is_curved());
+    let Some((transform, key, plane)) = placed else {
+        return skip(draw);
+    };
     let (nx, ny) = (image.nx, image.ny);
+    if plane_is_warped(&draw.space, image) {
+        // An image inside the box is sorted, and its depths pushed back, by the face bias; one on a face is not.
+        let bias = if draw.space.is_3d() && key.is_finite() {
+            FACE_DEPTH_BIAS
+        } else {
+            0.0
+        };
+        let Some(mesh) = image_mesh(draw, image, bias) else {
+            return skip(draw);
+        };
+        // The depths of a bent lattice are already pushed back by the bias, so their mean is the key.
+        let key = match mesh.depths.as_deref() {
+            Some(depths) if curved && !depths.is_empty() => {
+                depths.iter().sum::<f64>() / depths.len() as f64
+            }
+            _ => key,
+        };
+        let raster = image::resolve(image, scale);
+        draw.out.push((
+            key,
+            Item {
+                source: Some(id),
+                kind: ItemKind::Image(ImageItem {
+                    geometry: ImageGeometry::Mesh(mesh),
+                    width: nx as u32,
+                    height: ny as u32,
+                    channels: raster.channels,
+                    samples: raster.samples,
+                    depth: None,
+                }),
+            },
+        ));
+        *draw.dense.entry(id).or_default() += (nx as u64) * (ny as u64);
+        if let Space::TwoD(Plane { x, y, warp }) = draw.space {
+            let columns = <[f64; 2]>::from(image::edges(image.placement.columns, nx));
+            let rows = <[f64; 2]>::from(image::edges(image.placement.rows, ny));
+            let to_pixel = match warp {
+                Warp::None => PixelMap::Axes {
+                    x,
+                    y,
+                    columns,
+                    rows,
+                    pixels: [nx, ny],
+                },
+                Warp::Polar { centre } => PixelMap::Polar {
+                    centre,
+                    x,
+                    y,
+                    columns,
+                    rows,
+                    pixels: [nx, ny],
+                },
+            };
+            draw.images.push(ImageHit {
+                axes: draw.axes,
+                artist: id,
+                to_pixel,
+                columns: nx,
+                rows: ny,
+            });
+        }
+        return;
+    }
+    let raster = image::resolve(image, scale);
     let item = Item {
         source: Some(id),
         kind: ItemKind::Image(ImageItem {
-            rect: Rect::new(0.0, 0.0, nx as f64, ny as f64),
+            geometry: ImageGeometry::Rect(Rect::new(0.0, 0.0, nx as f64, ny as f64)),
             // The data stage refuses an image with more pixels along an axis than fit in 32 bits.
             width: nx as u32,
             height: ny as u32,
@@ -1507,7 +2256,7 @@ fn draw_image(draw: &mut Draw, id: NodeId, image: &ImageData, scale: Option<&Res
         draw.images.push(ImageHit {
             axes: draw.axes,
             artist: id,
-            to_pixel,
+            to_pixel: PixelMap::Affine(to_pixel),
             columns: nx,
             rows: ny,
         });

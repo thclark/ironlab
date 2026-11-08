@@ -23,8 +23,9 @@ use crate::artist::{
     StepAt, Surface,
 };
 use crate::axes::{
-    Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide, Limits,
-    Projection, Scale, TickLabels, Ticks, TitleAlign, View3d,
+    AngleUnits, Aspect, AspectAdjust, Axes, Axis, AxisSide, ColormapName, InsideColorbar,
+    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels,
@@ -549,6 +550,8 @@ ir_leaf! {
     Interpreter => Interpreter;
     FontSetId => FontSetId;
     Embolden => Embolden;
+    PolarAngle => PolarAngle;
+    AxisSide => AxisSide;
     Scale => Scale;
     ColormapName => ColormapName;
     ColorScaleNorm => ColorScaleNorm;
@@ -734,6 +737,12 @@ ir_node! {
             "How the y values are placed: as data along the y axis, or as fractions of the plot area's height.";
         plain "clip" => clip: bool =
             "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
+        optional "base" => base: f64 =
+            "The value of y, read in the coordinates of y, down to which the area under the line is filled, or absent for no base.";
+        plain "fill" => fill: ColorSpec =
+            "The colour of the area between the line and the base, or none; a fill needs a base, is invalid in three-dimensional axes and cannot be colormapped, and an automatic fill takes the colour of the series.";
+        plain "fill_opacity" => fill_opacity: f64 =
+            "The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
     }
 
     Contour {
@@ -946,6 +955,23 @@ ir_value! {
         plain "col_span" => col_span: u32 = "The number of columns occupied; at least one.";
     }
 
+    PolarView as PolarView {
+        plain "angle_units" => angle_units: AngleUnits = "The data units of the angle carried by x.";
+        plain "zero_deg" => zero_deg: f64 =
+            "The direction on the page in which angle 0 points, in degrees anticlockwise from east in polar axes, or from the +X edge of the box in cylindrical axes; any finite number.";
+        plain "hole" => hole: f64 =
+            "The fraction of the rim radius left empty at the centre, at least 0 and less than 1. The lower radial limit lies on the edge of the hole.";
+        optional "radial_axis_angle" => radial_axis_angle: f64 =
+            "The angle, in the data units of x, of the spoke along which the radial tick labels are drawn; when absent, they are drawn halfway between the first two angular ticks.";
+    }
+
+    SphericalView as SphericalView {
+        plain "angle_units" => angle_units: AngleUnits =
+            "The data units of the azimuth carried by x and of the polar angle carried by y.";
+        plain "polar_angle" => polar_angle: PolarAngle =
+            "Whether the polar angle is measured up from the X–Y plane or down from +Z.";
+    }
+
     View3d as View3d {
         plain "azimuth_deg" => azimuth_deg: f64 =
             "The rotation about the vertical axis in degrees, measured counterclockwise from the negative y axis when viewed from above.";
@@ -975,6 +1001,8 @@ ir_value! {
             "Whether the axis is drawn; a hidden axis draws no spine, ticks, tick labels or label and reserves no space for them, while its grid lines still follow the grid setting.";
         plain "tick_label_angle" => tick_label_angle: f64 =
             "The angle of every tick label in degrees anticlockwise from horizontal, about the end of the label nearest its tick; ignored by three-dimensional axes.";
+        plain "side" => side: AxisSide =
+            "The side of the plot on which the axis draws its line, tick marks, tick labels and label: low (left or bottom), centre (through the middle) or high (right or top); honoured by Cartesian axes and by the z axis of cylindrical axes.";
     }
 
     InsideLegend as InsideLegend {
@@ -1229,6 +1257,27 @@ ir_tagged! {
         TwoD {}
         ThreeD {
             plain "view3d" => view3d: View3d = "The camera view.";
+        }
+        Polar {
+            plain "polar" => polar: PolarView =
+                "How angles are measured and where the sector and the hole lie on the page.";
+        }
+        Cylindrical {
+            plain "view3d" => view3d: View3d = "The camera view.";
+            plain "polar" => polar: PolarView =
+                "How angles are measured and where angle 0 points.";
+        }
+        Spherical {
+            plain "view3d" => view3d: View3d = "The camera view.";
+            plain "spherical" => spherical: SphericalView = "How the two angles are measured.";
+        }
+    }
+
+    AngleUnits as AngleUnits {
+        Degrees {}
+        Radians {}
+        PerTurn {
+            plain "per_turn" => 0: f64 = "The number of units in one turn; finite and positive.";
         }
     }
 

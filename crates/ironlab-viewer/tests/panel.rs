@@ -613,6 +613,7 @@ fn the_properties_of_a_node_are_grouped_by_the_first_segment_of_their_path() {
             "limits",
             "reverse",
             "scale",
+            "side",
             "tick_label_angle",
             "tick_labels",
             "ticks",
@@ -1210,8 +1211,9 @@ struct PanelHarnessState {
 }
 
 /// The size of the window the panel is driven in, which is that of a window a user would
-/// work in rather than one just big enough for the panel.
-const WINDOW: egui::Vec2 = egui::vec2(520.0, 700.0);
+/// work in rather than one just big enough for the panel. It is tall enough to show every
+/// row of the inspector of a series, the node with the most rows, without scrolling.
+const WINDOW: egui::Vec2 = egui::vec2(520.0, 800.0);
 
 fn panel_harness(figure: Figure, selected: Option<NodeId>) -> Harness<'static, PanelHarnessState> {
     let mut state = FigureState::new(figure);

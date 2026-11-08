@@ -4,8 +4,8 @@
 use ironlab_ir::NodeId;
 use ironlab_scene::Scene;
 use ironlab_scene::display::{
-    Depth, DepthPlane, GlyphsItem, ImageItem, ItemKind, MarkerInstance, MarkersItem, PathItem,
-    PathSegment, Point, Rect, Rgba, Transform,
+    Depth, DepthPlane, GlyphsItem, ImageGeometry, ImageItem, ItemKind, MarkerInstance, MarkersItem,
+    PathItem, PathSegment, Point, Rect, Rgba, Transform,
 };
 use ironlab_scene::hit::{AxesHit, AxesHitKind, AxisMap, LegendHit, LegendOwner};
 use ironlab_text::FontId;
@@ -263,19 +263,27 @@ impl Leaf {
                 }
                 bbox_of(corners)
             }
-            ItemKind::Image(image) => {
-                let r = image.rect;
-                let corners = [
-                    Point::new(r.x, r.y),
-                    Point::new(r.right(), r.y),
-                    Point::new(r.x, r.bottom()),
-                    Point::new(r.right(), r.bottom()),
-                ];
-                bbox_of(corners.map(|p| self.to_figure(p)))
-            }
+            ItemKind::Image(image) => match &image.geometry {
+                ImageGeometry::Rect(r) => {
+                    let corners = [
+                        Point::new(r.x, r.y),
+                        Point::new(r.right(), r.y),
+                        Point::new(r.x, r.bottom()),
+                        Point::new(r.right(), r.bottom()),
+                    ];
+                    bbox_of(corners.map(|p| self.to_figure(p)))
+                }
+                // The lattice is drawn piecewise affinely between its nodes, so its nodes bound it.
+                ImageGeometry::Mesh(mesh) => {
+                    bbox_of(mesh.points.iter().map(|p| self.to_figure(*p)))
+                }
+            },
             // Groups, dense and depth ones included, are descended into by `visit_leaves` and never become
             // leaves.
-            ItemKind::Group { .. } | ItemKind::Dense { .. } | ItemKind::Depth { .. } => None,
+            ItemKind::Group { .. }
+            | ItemKind::Dense { .. }
+            | ItemKind::Depth { .. }
+            | ItemKind::SectorClip { .. } => None,
         }
     }
 
@@ -307,7 +315,8 @@ impl Leaf {
             ItemKind::Image(_)
             | ItemKind::Group { .. }
             | ItemKind::Dense { .. }
-            | ItemKind::Depth { .. } => Vec::new(),
+            | ItemKind::Depth { .. }
+            | ItemKind::SectorClip { .. } => Vec::new(),
         }
     }
 
@@ -490,6 +499,7 @@ pub fn axis_maps(scene: &Scene, id: NodeId) -> (AxisMap, AxisMap) {
     match axes_hit(scene, id).kind {
         AxesHitKind::TwoD { x, y } => (x, y),
         AxesHitKind::ThreeD => panic!("axes {id} is three-dimensional"),
+        AxesHitKind::Polar { .. } => panic!("axes {id} is polar"),
     }
 }
 
@@ -499,6 +509,22 @@ pub fn assert_close(actual: f64, expected: f64, tol: f64) {
         (actual - expected).abs() <= tol,
         "expected {expected} ± {tol}, got {actual}"
     );
+}
+
+/// The rectangle of an image drawn as a rectangle, for the many tests that sample images on linear axes and in
+/// legends and colour bars, where every image is one.
+pub trait ImageRect {
+    /// Returns the rectangle the image is stretched over, panicking when it is drawn through a mesh.
+    fn rect(&self) -> Rect;
+}
+
+impl ImageRect for ImageItem {
+    #[track_caller]
+    fn rect(&self) -> Rect {
+        self.geometry.rect().unwrap_or_else(|| {
+            panic!("the image is drawn as a rectangle, not through a mesh: {self:?}")
+        })
+    }
 }
 
 /// Returns the red, green, blue and alpha of the pixel in row `row` and column `column` of an image,

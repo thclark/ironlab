@@ -1,5 +1,5 @@
-//! The visibility of each axis and the angle of its tick labels: the setters of each coordinate axis, and what
-//! validation says of them.
+//! The visibility of each axis, the angle of its tick labels and the side of the plot it is drawn on: the setters of
+//! each coordinate axis, and what validation says of them.
 
 mod common;
 
@@ -124,6 +124,62 @@ fn an_angle_on_a_3d_axes_is_stored_and_warned_of() {
             .warnings
             .iter()
             .any(|w| w.kind == IssueKind::TickLabelAngleIgnored && w.node == Some(id)),
+        "{report:?}"
+    );
+}
+
+// WHY: each side setter must reach its own axis; a mix-up moves the wrong axis without any visible error in code
+// review. Every axis starts on the low side, where every chart drawn before the side existed puts it, and a side can be
+// changed again, so that a figure built in steps can undo an earlier call.
+#[test]
+fn side_setters_set_the_side_of_their_own_axis() {
+    let mut fig = Figure::new();
+    let id = fig.axes(0, 0).id();
+    let a = axes(&fig, id);
+    assert_eq!(
+        [a.x.side, a.y.side, a.z.side],
+        [AxisSide::Low; 3],
+        "axes are on the low side by default"
+    );
+
+    let id = fig
+        .axes(0, 0)
+        .xaxis_side(AxisSide::High)
+        .yaxis_side(AxisSide::Centre)
+        .id();
+    let a = axes(&fig, id);
+    assert_eq!(
+        [a.x.side, a.y.side, a.z.side],
+        [AxisSide::High, AxisSide::Centre, AxisSide::Low]
+    );
+
+    let id = fig
+        .axes(0, 0)
+        .zaxis_side(AxisSide::High)
+        .xaxis_side(AxisSide::Low)
+        .id();
+    let a = axes(&fig, id);
+    assert_eq!(
+        [a.x.side, a.y.side, a.z.side],
+        [AxisSide::Low, AxisSide::Centre, AxisSide::High]
+    );
+}
+
+// WHY: polar axes draw the angle round the rim and the radius along a spoke, so they ignore the side, and an author who
+// sets one must be told so rather than wonder why the axis did not move; the setter stores the side all the same, so
+// that converting the axes back to Cartesian honours it.
+#[test]
+fn a_side_on_polar_axes_is_stored_and_warned_of() {
+    let mut fig = Figure::new();
+    let id = fig.axes(0, 0).make_polar().yaxis_side(AxisSide::High).id();
+    assert_eq!(axes(&fig, id).y.side, AxisSide::High);
+    let report = fig.validate();
+    assert!(report.is_valid(), "{report:?}");
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.kind == IssueKind::AxisSideIgnored && w.node == Some(id)),
         "{report:?}"
     );
 }

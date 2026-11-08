@@ -322,8 +322,10 @@ pub fn manual_of(figure: &Figure, id: u64, dimension: Dimension) -> (f64, f64) {
 
 pub fn view_of(figure: &Figure, id: u64) -> View3d {
     match figure.axes(NodeId(id)).expect("axes exists").projection {
-        Projection::ThreeD { view3d } => view3d,
-        Projection::TwoD => panic!("axes {id} is not 3D"),
+        Projection::ThreeD { view3d }
+        | Projection::Cylindrical { view3d, .. }
+        | Projection::Spherical { view3d, .. } => view3d,
+        other => panic!("axes {id} is not 3D: {other:?}"),
     }
 }
 
@@ -547,6 +549,7 @@ pub fn find_image(items: &[Item]) -> Option<&ImageItem> {
         ItemKind::Image(image) => Some(image),
         ItemKind::Group { items, .. }
         | ItemKind::Dense { items, .. }
+        | ItemKind::SectorClip { items, .. }
         | ItemKind::Depth { items } => find_image(items),
         ItemKind::Path(_) | ItemKind::Glyphs(_) | ItemKind::Markers(_) => None,
     })

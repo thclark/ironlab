@@ -2,18 +2,24 @@
 //! limits, coloured on the CPU under out-of-range policies, with hit geometry, legend samples and warnings.
 //!
 //! Pixel space is `[0, nx] × [0, ny]`: pixel `(j, i)` covers `[i, i + 1] × [j, j + 1]` and its samples start at
-//! index `(j · nx + i) · channels`. The transform of the image leaf maps pixel space into figure space; the tests read
-//! that transform through the probes and compare it with the axis maps of a 2D axes, or with a projection rebuilt
-//! from the public camera for a 3D axes.
+//! index `(j · nx + i) · channels`. On linear axes the transform of the image leaf maps pixel space into figure space;
+//! the tests read that transform through the probes and compare it with the axis maps of a 2D axes, or with a
+//! projection rebuilt from the public camera for a 3D axes. On a logarithmic axis the image is drawn through a
+//! lattice whose nodes are its pixel edges, and the tests compare each node with the position computed from the
+//! definition of a logarithmic axis.
 
 use ironlab_ir::{
     Color, ColorScaleKind, ColorSpec, ColormapName, Dimension, ImagePlane, InsideLegend, Legend,
     LegendLocation, Limits, NodeId, OutOfRange, Scale, View3d,
 };
 use ironlab_scene::Scene;
-use ironlab_scene::display::{ImageItem, Item, ItemKind, Point, Rect, Transform};
-use ironlab_scene::hit::{ImageHit, LegendOwner};
-use ironlab_scene::maths::camera::{Camera, Plane, back_planes, fit_to_rect, normalise_box};
+use ironlab_scene::display::{
+    ImageGeometry, ImageItem, ImageMesh, Item, ItemKind, Point, Rect, Transform,
+};
+use ironlab_scene::hit::{ImageHit, LegendOwner, PixelMap};
+use ironlab_scene::maths::camera::{
+    Camera, FACE_DEPTH_BIAS, Plane, back_planes, fit_to_rect, normalise_box,
+};
 use ironlab_scene::maths::colormap::{Lut, MAGMA, VIRIDIS, normalise, sample};
 
 use crate::common::{
@@ -475,9 +481,9 @@ fn a_visible_image_is_one_image_item_under_a_transform_group_inside_the_axes_cli
     let leaf = image_leaf(&scene, image);
     let item = leaf.image().unwrap();
     assert_eq!(
-        item.rect,
-        Rect::new(0.0, 0.0, 3.0, 2.0),
-        "the rectangle is pixel space"
+        item.geometry,
+        ImageGeometry::Rect(Rect::new(0.0, 0.0, 3.0, 2.0)),
+        "on linear axes the image is stretched over a rectangle, which is pixel space"
     );
     assert_eq!((item.width, item.height), (3, 2));
     assert_eq!(item.channels, 3, "opaque pixels need no alpha channel");
@@ -2108,46 +2114,363 @@ fn alpha_and_non_finite_components_make_pixels_transparent_and_add_an_alpha_chan
 // Logarithmic axes
 // ---------------------------------------------------------------------------------------------------------------
 
-// WHY: flat pixels of one pitch cannot be placed on a logarithmic axis, where equal pitches are unequal distances.
-// Validation refuses such a figure with an error that points to a surface, but the compiler draws whatever it is
-// given, so it must still behave soundly: an image whose plane touches such an axis is skipped with one warning
-// naming it, while the other artists of the axes are still drawn and the skipped image contributes nothing to the
-// limits, as any skipped artist does; the third axis of the plane, which only sets the offset, may be logarithmic
-// without harm.
+/// Returns the lattice of an image item, which must be drawn through a mesh.
+#[track_caller]
+fn mesh_of(item: &ImageItem) -> &ImageMesh {
+    match &item.geometry {
+        ImageGeometry::Mesh(mesh) => mesh,
+        ImageGeometry::Rect(rect) => {
+            panic!("the image is drawn through a mesh, not stretched over {rect:?}")
+        }
+    }
+}
+
+/// The figure-space x of a data value on a logarithmic x axis with limits `min` to `max`, from the definition of such
+/// an axis (equal ratios are equal distances, the limits at the sides of the plot rectangle), not from the compiler's
+/// axis map.
+fn log_x(plot: Rect, min: f64, max: f64, value: f64) -> f64 {
+    plot.x + (value.log10() - min.log10()) / (max.log10() - min.log10()) * plot.width
+}
+
+/// The figure-space y of a data value on a logarithmic y axis with limits `min` to `max`; figure space runs down the
+/// page, so the lower limit is at the bottom of the plot rectangle.
+fn log_y(plot: Rect, min: f64, max: f64, value: f64) -> f64 {
+    plot.bottom() - (value.log10() - min.log10()) / (max.log10() - min.log10()) * plot.height
+}
+
+/// The figure-space y of a data value on a linear y axis with limits `min` to `max`.
+fn linear_y(plot: Rect, min: f64, max: f64, value: f64) -> f64 {
+    plot.bottom() - (value - min) / (max - min) * plot.height
+}
+
+/// Sets manual limits on the x and y axes of an axes.
+fn manual_xy_limits(fx: &mut Fx, ax: NodeId, x: (f64, f64), y: (f64, f64)) {
+    let axes = fx.ax(ax);
+    axes.x.limits = Limits::Manual { min: x.0, max: x.1 };
+    axes.y.limits = Limits::Manual { min: y.0, max: y.1 };
+}
+
+/// Asserts that every node of a lattice is drawn, through the transform of its leaf, at `expected(u, v)`.
+#[track_caller]
+fn assert_nodes_at(leaf: &Leaf, mesh: &ImageMesh, expected: impl Fn(f64, f64) -> Point) {
+    assert_eq!(
+        mesh.points.len(),
+        mesh.u.len() * mesh.v.len(),
+        "one point per node of the lattice"
+    );
+    for (j, v) in mesh.v.iter().enumerate() {
+        for (i, u) in mesh.u.iter().enumerate() {
+            let drawn = leaf.transform.apply(mesh.points[j * mesh.u.len() + i]);
+            let want = expected(*u, *v);
+            assert!(
+                points_close(drawn, want, 1e-6),
+                "the node at pixel-space ({u}, {v}) is drawn at {drawn:?}, expected {want:?}"
+            );
+        }
+    }
+}
+
+// WHY: on a logarithmic axis equal pitches in the data are unequal distances on the page, so an image there is drawn
+// through a lattice whose nodes are its pixel edges mapped through the axis: every pixel then lies exactly between
+// its own edges, which is what the reader reads the axis against. Here three columns centred on 10, 20 and 30 have
+// edges at 5, 15, 25 and 35, which a logarithmic axis draws ever closer together; the linear y axis needs only the
+// two outer row edges, because the map is affine along it. The samples are the user's pixels in row order, as for a
+// rectangle, and the image is clipped to the plot as every other artist of the axes is.
 #[test]
-fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning() {
-    // A 2D axes with a logarithmic x axis holding a line over [1, 100] × [1, 2] and, when asked, an image whose
-    // columns are centred on 2 and 4 (edges 1 and 5, all positive, so only the plane can be objected to) and whose
-    // rows are centred on 1 and 2 (edges 0.5 and 2.5, which would show as tight y limits against the line's [1, 2]
-    // if a skipped image still counted).
+fn an_image_on_a_logarithmic_axis_is_drawn_through_a_lattice_of_its_pixel_edges() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let line = fx.line(ax, &[1.0, 1000.0], &[0.0, 4.0], None, |_| {});
+    let (ny, nx) = (2, 3);
+    let image = fx.image(
+        ax,
+        vec![ny, nx, 3],
+        tagged_pixels(ny, nx),
+        xy(range(10.0, 30.0), range(1.0, 3.0)),
+        |_| {},
+    );
+    fx.ax(ax).x.scale = Scale::Log;
+    manual_xy_limits(&mut fx, ax, (1.0, 1000.0), (0.0, 4.0));
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    let leaf = image_leaf(&scene, image);
+    let item = leaf.image().unwrap();
+    let mesh = mesh_of(item);
+    assert_eq!(
+        mesh.u,
+        vec![0.0, 1.0, 2.0, 3.0],
+        "a node at every column edge along the logarithmic axis"
+    );
+    assert_eq!(
+        mesh.v,
+        vec![0.0, 2.0],
+        "only the outer row edges along the linear axis"
+    );
+    assert!(
+        mesh.depths.is_none() && item.depth.is_none(),
+        "an image in a 2D axes carries no depth"
+    );
+    let plot = axes_hit(&scene, ax).plot_rect;
+    assert_nodes_at(&leaf, mesh, |u, v| {
+        Point::new(
+            log_x(plot, 1.0, 1000.0, 5.0 + 10.0 * u),
+            linear_y(plot, 0.0, 4.0, 2.0 * v),
+        )
+    });
+    assert_eq!((item.width, item.height), (3, 2));
+    for j in 0..ny {
+        for i in 0..nx {
+            assert_eq!(pixel(item, j, i), opaque(tag(j, i)), "pixel ({j}, {i})");
+        }
+    }
+    let lines = from_source(&leaves(&scene), line);
+    assert!(leaf.clip.is_some(), "the image is clipped");
+    assert_eq!(
+        leaf.clip, lines[0].clip,
+        "clipped as the line in the same axes"
+    );
+}
+
+// WHY: a backwards pixel range is how a user flips an image, and it must flip on logarithmic axes as on linear ones:
+// pixel space still starts at the first pixel edge, so the lattice runs from the first edge to the last across the
+// page in the opposite direction, while the samples stay in the row order of the user's array. On log-log axes both
+// directions are lattices of pixel edges. Reordering the samples instead would show the right picture here but
+// break every consumer that indexes pixels by row and column, such as datatips.
+#[test]
+fn a_mirrored_image_on_log_log_axes_runs_its_lattice_backwards_and_keeps_its_samples() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let (ny, nx) = (2, 3);
+    // Columns centred on 30, 20 and 10 (edges 35, 25, 15 and 5); rows centred on 4 and 2 (edges 5, 3 and 1).
+    let image = fx.image(
+        ax,
+        vec![ny, nx, 3],
+        tagged_pixels(ny, nx),
+        xy(range(30.0, 10.0), range(4.0, 2.0)),
+        |_| {},
+    );
+    fx.ax(ax).x.scale = Scale::Log;
+    fx.ax(ax).y.scale = Scale::Log;
+    manual_xy_limits(&mut fx, ax, (1.0, 100.0), (0.5, 50.0));
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    let leaf = image_leaf(&scene, image);
+    let item = leaf.image().unwrap();
+    let mesh = mesh_of(item);
+    assert_eq!(mesh.u, vec![0.0, 1.0, 2.0, 3.0]);
+    assert_eq!(mesh.v, vec![0.0, 1.0, 2.0]);
+    let plot = axes_hit(&scene, ax).plot_rect;
+    assert_nodes_at(&leaf, mesh, |u, v| {
+        Point::new(
+            log_x(plot, 1.0, 100.0, 35.0 - 10.0 * u),
+            log_y(plot, 0.5, 50.0, 5.0 - 2.0 * v),
+        )
+    });
+    for j in 0..ny {
+        for i in 0..nx {
+            assert_eq!(
+                pixel(item, j, i),
+                opaque(tag(j, i)),
+                "pixel ({j}, {i}) keeps its place in the samples"
+            );
+        }
+    }
+}
+
+// WHY: a lattice with a node at every pixel edge would grow with the image, and an image of thousands of columns on a
+// logarithmic axis would become thousands of nodes squeezed into fractions of a point, which no reader can see and
+// every backend must still draw. Edges closer than one point on the page are therefore dropped, keeping the first
+// and last, so that the node count is bounded by the page. The test pins every half of that rule on 2000 columns
+// whose edges 0.5, 1.5, ..., 2000.5 span four decades of a five-decade axis: no lattice cell is shorter than one
+// point; the kept nodes are pixel edges, placed exactly; edges more than a point from both neighbours, at the
+// low end, are all kept; and no cell that merges pixels is longer than the rule needs (all the merged pixels are
+// narrower than a point, so a merged cell is shorter than three points even where the last edge is forced in). A
+// reversed axis draws the edges leftwards, so the rule must measure distances on the page whatever their sign; a
+// rule that compared signed differences would keep every edge, or none, there.
+#[test]
+fn a_lattice_drops_pixel_edges_closer_than_a_point_and_keeps_the_first_and_last() {
+    let n = 2000;
+    for reverse in [false, true] {
+        let mut fx = Fx::new();
+        let ax = fx.axes2d(0, 0);
+        let image = fx.imagesc(
+            ax,
+            vec![1, n],
+            ramp(n),
+            xy(range(1.0, n as f64), range(0.0, 0.0)),
+            |_| {},
+        );
+        fx.ax(ax).x.scale = Scale::Log;
+        fx.ax(ax).x.reverse = reverse;
+        manual_xy_limits(&mut fx, ax, (0.1, 10000.0), (-1.0, 1.0));
+        let scene = compile_figure(&fx.build());
+        assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+        let at = if reverse { "reversed" } else { "forwards" };
+        let leaf = image_leaf(&scene, image);
+        let mesh = mesh_of(leaf.image().unwrap());
+        let plot = axes_hit(&scene, ax).plot_rect;
+        let page = |edge: f64| {
+            let x = log_x(plot, 0.1, 10000.0, 0.5 + edge);
+            if reverse {
+                2.0 * plot.x + plot.width - x
+            } else {
+                x
+            }
+        };
+        let apart = |a: f64, b: f64| (page(b) - page(a)).abs();
+        assert_eq!(mesh.u.first(), Some(&0.0), "{at}: the first edge is kept");
+        assert_eq!(
+            mesh.u.last(),
+            Some(&(n as f64)),
+            "{at}: the last edge is kept"
+        );
+        assert!(
+            mesh.u.iter().all(|u| u.fract() == 0.0),
+            "{at}: every node is a pixel edge"
+        );
+        assert!(
+            mesh.u.windows(2).all(|w| w[0] < w[1]),
+            "{at}: the lattice increases"
+        );
+        assert!(
+            mesh.u.len() < n / 2,
+            "{at}: most of the {n} edges are dropped: {} kept",
+            mesh.u.len()
+        );
+        assert!(
+            (mesh.u.len() as f64) <= plot.width + 2.0,
+            "{at}: the node count is bounded by the width of the plot in points"
+        );
+        for w in mesh.u.windows(2) {
+            let length = apart(w[0], w[1]);
+            assert!(
+                length >= 1.0 - 1e-9,
+                "{at}: the cell from edge {} to edge {} is {length} pt long, shorter than a point",
+                w[0],
+                w[1]
+            );
+            if w[1] - w[0] > 1.0 {
+                assert!(
+                    length < 3.0,
+                    "{at}: the cell from edge {} to edge {} merges pixels over {length} pt, more than the rule \
+                     needs",
+                    w[0],
+                    w[1]
+                );
+            }
+        }
+        for k in 1..n {
+            let edge = k as f64;
+            if apart(edge - 1.0, edge) >= 1.0 && apart(edge, edge + 1.0) >= 1.0 {
+                assert!(
+                    mesh.u.contains(&edge),
+                    "{at}: edge {k} lies more than a point from both neighbours and is kept"
+                );
+            }
+        }
+        assert!(
+            (0..=5).all(|k| mesh.u.contains(&(k as f64))),
+            "{at}: the widely spaced low edges are kept: {:?}",
+            &mesh.u[..mesh.u.len().min(8)]
+        );
+        assert_nodes_at(&leaf, mesh, |u, v| {
+            Point::new(page(u), linear_y(plot, -1.0, 1.0, v - 0.5))
+        });
+    }
+}
+
+// WHY: the smallest lattices are where an off-by-one in the edges or the thinning shows. A single pixel has no pitch
+// to take from its range, so it is one unit wide about its centre, and on log-log axes its lattice is exactly its
+// four corners at the mapped edges 9.5 and 10.5. An image whose whole width is narrower than a point cannot satisfy
+// the one-point rule at all; it keeps its first and last edge, so that it is still drawn, as a single cell, rather
+// than vanishing or being refused.
+#[test]
+fn a_single_pixel_and_an_image_narrower_than_a_point_keep_exactly_their_outer_edges() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let single = fx.imagesc(
+        ax,
+        vec![1, 1],
+        vec![1.0],
+        xy(range(10.0, 10.0), range(10.0, 10.0)),
+        |_| {},
+    );
+    // Fifty columns centred on 1000 to 1000.49: edges from 999.995 to 1000.495, some 0.01 pt in all.
+    let narrow = fx.imagesc(
+        ax,
+        vec![1, 50],
+        ramp(50),
+        xy(range(1000.0, 1000.49), range(10.0, 10.0)),
+        |_| {},
+    );
+    fx.ax(ax).x.scale = Scale::Log;
+    fx.ax(ax).y.scale = Scale::Log;
+    manual_xy_limits(&mut fx, ax, (1.0, 10000.0), (1.0, 100.0));
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+    let plot = axes_hit(&scene, ax).plot_rect;
+
+    let leaf = image_leaf(&scene, single);
+    let mesh = mesh_of(leaf.image().unwrap());
+    assert_eq!(
+        (mesh.u.clone(), mesh.v.clone()),
+        (vec![0.0, 1.0], vec![0.0, 1.0])
+    );
+    assert_nodes_at(&leaf, mesh, |u, v| {
+        Point::new(
+            log_x(plot, 1.0, 10000.0, 9.5 + u),
+            log_y(plot, 1.0, 100.0, 9.5 + v),
+        )
+    });
+
+    let leaf = image_leaf(&scene, narrow);
+    let mesh = mesh_of(leaf.image().unwrap());
+    assert_eq!(
+        mesh.u,
+        vec![0.0, 50.0],
+        "an image narrower than a point keeps only its outer edges"
+    );
+    assert!(leaf.image().unwrap().is_valid(), "and is still drawable");
+}
+
+// WHY: a logarithmic axis has no place for zero or a negative coordinate, so an image whose first or last pixel edge
+// along a logarithmic axis of its plane is not positive cannot be placed. Validation refuses such a figure, but the
+// compiler draws whatever it is given and never fails, so it must leave the image out with one warning naming it,
+// draw the other artists of the axes, and let the skipped image contribute nothing to the limits, as any skipped
+// artist does. The default placement centres pixels on 0, 1, ..., so its first edge is at -0.5. Only the axes of the
+// plane impose this: the third axis, which only sets the offset, may be logarithmic with the image drawn as an
+// ordinary rectangle, exactly as before images could lie on logarithmic axes, and so may the z axis of a 2D axes.
+#[test]
+fn an_image_with_a_pixel_edge_off_a_logarithmic_axis_is_left_out_with_a_warning() {
+    // A 2D axes with a logarithmic x axis holding a line over [1, 100] × [1, 2] and, when asked, an image at the
+    // default columns (edges -0.5 and 1.5, so the first has no place on the axis) whose rows are centred on 1 and 2
+    // (edges 0.5 and 2.5, which would show as tight y limits against the line's [1, 2] if a skipped image still
+    // counted).
     let flat_axes = |fx: &mut Fx, with_image: bool| -> (NodeId, NodeId, Option<NodeId>) {
         let flat = fx.axes2d(0, 0);
         let line = fx.line(flat, &[1.0, 100.0], &[1.0, 2.0], None, |_| {});
-        let image = with_image.then(|| {
-            fx.imagesc(
-                flat,
-                vec![2, 2],
-                ramp(4),
-                xy(range(2.0, 4.0), range(1.0, 2.0)),
-                |_| {},
-            )
-        });
+        let image = with_image
+            .then(|| fx.imagesc(flat, vec![2, 2], ramp(4), xy(None, range(1.0, 2.0)), |_| {}));
         fx.ax(flat).x.scale = Scale::Log;
         (flat, line, image)
     };
 
     let mut fx = Fx::new();
-    fx.fig.layout.cols = 3;
+    fx.fig.layout.cols = 4;
     let (flat, line, on_log_x) = flat_axes(&mut fx, true);
     let on_log_x = on_log_x.expect("the image is added");
 
     let log_z = fx.axes3d(0, 1, View3d::default());
     fx.line(log_z, &[0.0, 1.0], &[0.0, 1.0], Some(&[1.0, 100.0]), |_| {});
+    // Rows along the logarithmic z axis at the default centres: edges -0.5 and 1.5.
     let wall_on_log_z = fx.imagesc(
         log_z,
         vec![2, 2],
         ramp(4),
-        placement(ImagePlane::Xz { y: None }, None, range(2.0, 4.0)),
+        placement(ImagePlane::Xz { y: None }, None, None),
         |_| {},
     );
     let floor_under_log_z = fx.imagesc(
@@ -2170,19 +2493,35 @@ fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning()
     );
     fx.ax(log_y).y.scale = Scale::Log;
 
+    let flat_log_z = fx.axes2d(0, 3);
+    let under_unused_z = fx.imagesc(flat_log_z, vec![2, 2], ramp(4), xy(None, None), |_| {});
+    fx.ax(flat_log_z).z.scale = Scale::Log;
+
     let scene = compile_figure(&fx.build());
-    assert_skipped_with_one_warning(&scene, on_log_x, "image on a logarithmic x axis");
+    let warning =
+        assert_skipped_with_one_warning(&scene, on_log_x, "image on a logarithmic x axis");
+    assert!(
+        warning.contains("logarithmic"),
+        "the warning says why: {warning}"
+    );
     assert_skipped_with_one_warning(&scene, wall_on_log_z, "xz image on a logarithmic z axis");
-    assert_drawn_without_warning(
-        &scene,
-        floor_under_log_z,
-        "xy image whose third axis is logarithmic",
-    );
-    assert_drawn_without_warning(
-        &scene,
-        wall_beside_log_y,
-        "xz image whose third axis is logarithmic",
-    );
+    for (id, what) in [
+        (
+            floor_under_log_z,
+            "xy image whose third axis is logarithmic",
+        ),
+        (
+            wall_beside_log_y,
+            "xz image whose third axis is logarithmic",
+        ),
+        (under_unused_z, "2D image under a logarithmic z axis"),
+    ] {
+        assert_drawn_without_warning(&scene, id, what);
+        assert!(
+            matches!(image_item(&scene, id).geometry, ImageGeometry::Rect(_)),
+            "the {what} has no logarithmic axis in its plane and is drawn as a rectangle"
+        );
+    }
     assert!(
         !from_source(&leaves(&scene), line).is_empty(),
         "the line beside the skipped image is still drawn"
@@ -2190,7 +2529,7 @@ fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning()
 
     // The same axes without the skipped image takes the same limits: the line's alone.
     let mut alone = Fx::new();
-    alone.fig.layout.cols = 3;
+    alone.fig.layout.cols = 4;
     let (flat_alone, _, _) = flat_axes(&mut alone, false);
     let alone = compile_figure(&alone.build());
     let ((x, y), (xa, ya)) = (axis_maps(&scene, flat), axis_maps(&alone, flat_alone));
@@ -2198,6 +2537,320 @@ fn an_image_whose_plane_touches_a_logarithmic_axis_is_not_drawn_with_a_warning()
         (x.min, x.max, y.min, y.max),
         (xa.min, xa.max, ya.min, ya.max),
         "the skipped image contributes nothing to the limits"
+    );
+}
+
+// WHY: a datatip over an image on a logarithmic axis must report the pixel the reader sees under the pointer, and the
+// reader sees each pixel between its edges mapped through the axis. The hit map therefore inverts the axes rather
+// than an affine placement: a point maps to data through the axis maps, then linearly in the data to pixel space.
+// Three columns with edges at 5, 15, 25 and 35 tell the two apart: x = 14 lies in column 0 and x = 16 in column 1,
+// but on the page x = 14 is past the middle of the image (log 14/5 over log 7 is 0.53), so a page-linear inverse
+// would put it in column 1. Points beyond the outer edges lie over nothing.
+#[test]
+fn the_hit_map_resolves_the_pixel_under_a_point_through_a_logarithmic_axis() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let image = fx.imagesc(
+        ax,
+        vec![2, 3],
+        ramp(6),
+        xy(range(10.0, 30.0), range(1.0, 3.0)),
+        |_| {},
+    );
+    fx.ax(ax).x.scale = Scale::Log;
+    manual_xy_limits(&mut fx, ax, (1.0, 1000.0), (-1.0, 5.0));
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let at = |x: f64, y: f64| Point::new(log_x(plot, 1.0, 1000.0, x), linear_y(plot, -1.0, 5.0, y));
+    assert_eq!(
+        scene.hit_map.images.len(),
+        1,
+        "the drawn image has an entry"
+    );
+    let hit = image_hit(&scene, image);
+    assert_eq!((hit.axes, hit.columns, hit.rows), (ax, 3, 2));
+    assert!(
+        matches!(hit.to_pixel, PixelMap::Axes { .. }),
+        "an image drawn through the axes is inverted through them: {:?}",
+        hit.to_pixel
+    );
+    for (x, column) in [
+        (6.0, 0),
+        (14.0, 0),
+        (16.0, 1),
+        (24.0, 1),
+        (26.0, 2),
+        (34.0, 2),
+    ] {
+        for (y, row) in [(0.5, 0), (1.9, 0), (2.1, 1), (3.5, 1)] {
+            let (found, r, c) = scene
+                .hit_map
+                .pixel_at(at(x, y))
+                .unwrap_or_else(|| panic!("({x}, {y}) lies over the image"));
+            assert_eq!(
+                (found.artist, r, c),
+                (image, row, column),
+                "the data point ({x}, {y})"
+            );
+        }
+    }
+    for (x, y) in [(4.0, 1.0), (36.0, 1.0), (20.0, -0.5), (20.0, 4.5)] {
+        assert!(
+            scene.hit_map.pixel_at(at(x, y)).is_none(),
+            "({x}, {y}) lies beyond the pixel edges"
+        );
+    }
+    for ((x, y), expected) in [
+        ((5.0, 0.0), Point::new(0.0, 0.0)),
+        ((20.0, 1.0), Point::new(1.5, 0.5)),
+        ((35.0, 4.0), Point::new(3.0, 2.0)),
+    ] {
+        let found = hit.to_pixel.to_pixel(at(x, y));
+        assert!(
+            points_close(found, expected, 1e-6),
+            "the data point ({x}, {y}) maps to pixel space at {found:?}, expected {expected:?}"
+        );
+        // The forward map, which the canvas uses to outline the pixel under a datatip, takes pixel space back to the
+        // page through the axis, so that the outline is drawn between the pixel's mapped edges.
+        let back = hit
+            .to_pixel
+            .from_pixel(expected)
+            .unwrap_or_else(|| panic!("pixel space at {expected:?} has a place on the page"));
+        assert!(
+            points_close(back, at(x, y), 1e-6),
+            "pixel space at {expected:?} maps forward to {back:?}, expected {:?}",
+            at(x, y)
+        );
+    }
+}
+
+// WHY: a datatip must also be right for a flipped image on flipped axes, the combination in which a hit map that
+// assumed increasing edges or an unreversed axis would report the mirror-image pixel. Columns centred on 30, 20 and
+// 10 (edges 35 to 5) along a reversed logarithmic x axis and rows centred on 4 and 2 (edges 5 to 1) along a
+// logarithmic y axis: column 0, the data from 25 to 35, must be found wherever the data lie there, whichever side
+// of the page that is, and the forward map must invert the backward one.
+#[test]
+fn the_hit_map_resolves_a_mirrored_image_on_reversed_log_log_axes_by_its_data() {
+    let mut fx = Fx::new();
+    let ax = fx.axes2d(0, 0);
+    let image = fx.imagesc(
+        ax,
+        vec![2, 3],
+        ramp(6),
+        xy(range(30.0, 10.0), range(4.0, 2.0)),
+        |_| {},
+    );
+    fx.ax(ax).x.scale = Scale::Log;
+    fx.ax(ax).x.reverse = true;
+    fx.ax(ax).y.scale = Scale::Log;
+    manual_xy_limits(&mut fx, ax, (1.0, 100.0), (0.5, 50.0));
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    let plot = axes_hit(&scene, ax).plot_rect;
+    let at = |x: f64, y: f64| {
+        Point::new(
+            2.0 * plot.x + plot.width - log_x(plot, 1.0, 100.0, x),
+            log_y(plot, 0.5, 50.0, y),
+        )
+    };
+    for (x, column) in [
+        (34.0, 0),
+        (26.0, 0),
+        (24.0, 1),
+        (16.0, 1),
+        (14.0, 2),
+        (6.0, 2),
+    ] {
+        for (y, row) in [(4.9, 0), (3.1, 0), (2.9, 1), (1.1, 1)] {
+            let (found, r, c) = scene
+                .hit_map
+                .pixel_at(at(x, y))
+                .unwrap_or_else(|| panic!("({x}, {y}) lies over the image"));
+            assert_eq!(
+                (found.artist, r, c),
+                (image, row, column),
+                "the data point ({x}, {y})"
+            );
+        }
+    }
+    for (x, y) in [(4.0, 3.0), (36.0, 3.0), (20.0, 0.9), (20.0, 5.1)] {
+        assert!(
+            scene.hit_map.pixel_at(at(x, y)).is_none(),
+            "({x}, {y}) lies beyond the pixel edges"
+        );
+    }
+    let hit = image_hit(&scene, image);
+    for local in [
+        Point::new(0.0, 0.0),
+        Point::new(1.5, 0.5),
+        Point::new(3.0, 2.0),
+    ] {
+        let page = hit
+            .to_pixel
+            .from_pixel(local)
+            .unwrap_or_else(|| panic!("pixel space at {local:?} has a place on the page"));
+        let back = hit.to_pixel.to_pixel(page);
+        assert!(
+            points_close(back, local, 1e-6),
+            "pixel space at {local:?} goes forward to {page:?} and back to {back:?}"
+        );
+    }
+    let corner = hit.to_pixel.from_pixel(Point::new(0.0, 0.0)).unwrap();
+    assert!(
+        points_close(corner, at(35.0, 5.0), 1e-6),
+        "the first corner of pixel space is drawn at the first edges, 35 and 5: {corner:?}"
+    );
+}
+
+/// The projection of a 3D axes at the default view with limits `lo` to `hi` and the given logarithmic axes, rebuilt
+/// from the public camera and the documented fit, giving the figure-space position and the depth of a data point.
+fn log_projection(
+    scene: &Scene,
+    ax: NodeId,
+    lo: [f64; 3],
+    hi: [f64; 3],
+    log: [bool; 3],
+) -> impl Fn([f64; 3]) -> (Point, f64) {
+    let plot = axes_hit(scene, ax).plot_rect;
+    let (scale, offset) = fit_to_rect(plot.width, plot.height);
+    let centre = Point::new(plot.x + offset[0], plot.y + offset[1]);
+    move |p: [f64; 3]| {
+        let projected = Camera::default().project(normalise_box(p, lo, hi, log));
+        (
+            Point::new(
+                centre.x + scale * projected.screen[0],
+                centre.y - scale * projected.screen[1],
+            ),
+            projected.depth,
+        )
+    }
+}
+
+// WHY: in a 3D axes an image on a logarithmic axis is drawn through the same lattice of pixel edges, each node
+// projected by the camera from its data position, and a backend depth-tests every pixel from depths interpolated
+// between the nodes as the points are, so each node must carry the projected depth of its own data point (pushed
+// back by the face bias for an image inside the box, like a face's fill, so that lines on it show). A plane over
+// pixel space cannot describe these depths, because pixel space no longer maps affinely to the page. 3D images keep
+// no hit geometry.
+#[test]
+fn a_three_dimensional_image_on_a_logarithmic_axis_carries_a_projected_depth_at_every_node() {
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, View3d::default());
+    // Columns centred on 2, 4, 6 and 8 (edges 1, 3, 5, 7 and 9) along the logarithmic x axis, rows centred on -0.5
+    // and 0.5 (edges -1 and 1) along y, at z = 0.5 inside the box.
+    let image = fx.imagesc(
+        ax,
+        vec![2, 4],
+        ramp(8),
+        placement(
+            ImagePlane::Xy { z: Some(0.5) },
+            range(2.0, 8.0),
+            range(-0.5, 0.5),
+        ),
+        |_| {},
+    );
+    manual_unit_limits(&mut fx, ax);
+    fx.ax(ax).x.scale = Scale::Log;
+    fx.ax(ax).x.limits = Limits::Manual {
+        min: 1.0,
+        max: 100.0,
+    };
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    let leaf = image_leaf(&scene, image);
+    let item = leaf.image().unwrap();
+    let mesh = mesh_of(item);
+    assert_eq!(mesh.u, vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+    assert_eq!(mesh.v, vec![0.0, 2.0]);
+    assert!(
+        item.depth.is_none(),
+        "a mesh carries its depths at its nodes, not as a plane"
+    );
+    let depths = mesh
+        .depths
+        .as_ref()
+        .expect("an image inside a depth group carries node depths");
+    assert_eq!(depths.len(), mesh.points.len(), "one depth per node");
+    let project = log_projection(
+        &scene,
+        ax,
+        [1.0, -1.0, -1.0],
+        [100.0, 1.0, 1.0],
+        [true, false, false],
+    );
+    let data = |u: f64, v: f64| [1.0 + 2.0 * u, -1.0 + v, 0.5];
+    assert_nodes_at(&leaf, mesh, |u, v| project(data(u, v)).0);
+    for (j, v) in mesh.v.iter().enumerate() {
+        for (i, u) in mesh.u.iter().enumerate() {
+            assert_close(
+                depths[j * mesh.u.len() + i],
+                project(data(*u, *v)).1 - FACE_DEPTH_BIAS,
+                1e-9,
+            );
+        }
+    }
+    assert!(
+        scene.hit_map.images.is_empty(),
+        "a 3D image records no hit geometry"
+    );
+}
+
+// WHY: drawing an image through a mesh must not change where the depth sort places it. A floor image lies on a back
+// face of the box, so it must be painted before every face of a surface above it, whatever the depths of its nodes;
+// a key taken from its nodes or corners would interleave it with the faces of the surface behind its centre. The
+// surface's grid is the straddling grid of the linear tests carried onto the logarithmic axis, so that its faces lie
+// on both sides of the mean depth of the floor in exactly the same way, and only the face rule orders them all.
+#[test]
+fn a_floor_image_on_a_logarithmic_axis_is_still_painted_before_every_face_above_it() {
+    let camera = Camera::default();
+    let plane = ImagePlane::Xy { z: None };
+    assert_faces_straddle(
+        camera,
+        0.0,
+        image_mean_depth(camera, plane, -1.0, (-1.0, 1.0), (-1.0, 1.0)),
+    );
+    let mut fx = Fx::new();
+    let ax = fx.axes3d(0, 0, View3d::default());
+    // Two columns with edges at 1, 50.5 and 100, the limits of the logarithmic x axis, and two rows with edges at
+    // -1 and 1, so that the floor covers the whole face of the box.
+    let image = fx.imagesc(
+        ax,
+        vec![2, 2],
+        ramp(4),
+        placement(plane, range(25.75, 75.25), range(-0.5, 0.5)),
+        |_| {},
+    );
+    // A normalised coordinate n of the box lies at x = 10^(2 (n + 0.5)) on an axis from 1 to 100.
+    let xs: Vec<f64> = straddling_grid()
+        .iter()
+        .map(|n| 10f64.powf(2.0 * (n + 0.5)))
+        .collect();
+    let surface = fx.surface(ax, &xs, &straddling_grid(), |_, _| 0.0, |_| {});
+    manual_unit_limits(&mut fx, ax);
+    fx.ax(ax).x.scale = Scale::Log;
+    fx.ax(ax).x.limits = Limits::Manual {
+        min: 1.0,
+        max: 100.0,
+    };
+    let scene = compile_figure(&fx.build());
+    assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
+
+    let mesh = mesh_of(&image_item(&scene, image)).clone();
+    assert_eq!(
+        mesh.depths.as_ref().map(Vec::len),
+        Some(mesh.points.len()),
+        "one depth per node"
+    );
+    assert_image_painted(
+        &scene,
+        image,
+        surface,
+        true,
+        "floor on a logarithmic x axis",
     );
 }
 
@@ -2237,10 +2890,15 @@ fn the_hit_map_records_a_drawn_two_dimensional_image_and_resolves_the_pixel_unde
                 panic!("the centre of pixel ({j}, {i}) at {centre:?} lies over the image")
             });
             assert_eq!((found.artist, row, column), (image, j, i));
-            let back = hit.to_pixel.apply(centre);
+            let back = hit.to_pixel.to_pixel(centre);
             assert!(
                 points_close(back, local, 1e-6),
                 "to_pixel maps the centre of pixel ({j}, {i}) back to {local:?}, not {back:?}"
+            );
+            let forward = hit.to_pixel.from_pixel(local);
+            assert!(
+                forward.is_some_and(|p| points_close(p, centre, 1e-6)),
+                "from_pixel maps the centre of pixel ({j}, {i}) forward to {centre:?}, not {forward:?}"
             );
         }
     }
@@ -2333,7 +2991,10 @@ fn the_last_painted_image_wins_where_images_overlap_and_a_mirrored_image_resolve
     assert_eq!((hit.artist, row, column), (first, 1, 1));
 
     let leaf = image_leaf(&scene, mirrored);
-    let inverted = leaf.transform.then(image_hit(&scene, mirrored).to_pixel);
+    let PixelMap::Affine(to_pixel) = &image_hit(&scene, mirrored).to_pixel else {
+        panic!("an image on linear axes records the inverse of its affine placement");
+    };
+    let inverted = leaf.transform.then(*to_pixel);
     assert!(
         transforms_close(inverted, Transform::IDENTITY),
         "to_pixel inverts the placement of the mirrored image: {inverted:?}"
@@ -2353,10 +3014,10 @@ fn the_last_painted_image_wins_where_images_overlap_and_a_mirrored_image_resolve
     }
 }
 
-// WHY: the hit map serves datatips in 2D axes, where a pixel is found by inverting an affine placement; a hidden
-// image is not on the page, a 3D image has no such inverse (3D picking is future work), and an image the compiler
-// skipped has nothing under the pointer, so none of them may record an entry that would point at pixels nobody
-// sees.
+// WHY: the hit map serves datatips in 2D axes, where a pixel is found by inverting the placement of the image; a
+// hidden image is not on the page, a 3D image has no such inverse (3D picking is future work), and an image the
+// compiler skipped (for a strict category, or for a pixel edge with no place on a logarithmic axis) has nothing under
+// the pointer, so none of them may record an entry that would point at pixels nobody sees.
 #[test]
 fn hidden_three_dimensional_and_undrawn_images_have_no_hit_entry() {
     let mut fx = Fx::new();
@@ -2383,7 +3044,8 @@ fn hidden_three_dimensional_and_undrawn_images_have_no_hit_entry() {
     fx.scale_mut(flat_scale).non_finite = out_of_range(OutOfRange::Strict);
     let log = fx.axes2d(0, 1);
     fx.line(log, &[1.0, 100.0], &[0.0, 1.0], None, |_| {});
-    let on_log = fx.imagesc(log, vec![2, 2], ramp(4), xy(range(2.0, 4.0), None), |_| {});
+    // At the default centres the first column edge is at -0.5, which has no place on the logarithmic x axis.
+    let on_log = fx.imagesc(log, vec![2, 2], ramp(4), xy(None, None), |_| {});
     fx.ax(log).x.scale = Scale::Log;
     let solid = fx.axes3d(0, 2, View3d::default());
     let floor = fx.imagesc(solid, vec![2, 2], ramp(4), xy(None, None), |_| {});

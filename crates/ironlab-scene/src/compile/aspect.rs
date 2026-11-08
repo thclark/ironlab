@@ -29,9 +29,21 @@ impl Request {
     }
 }
 
+/// Returns whether an axes draws its data at a fixed shape whatever its aspect: a polar axes is always round and a
+/// spherical one always a sphere, so validation warns that their aspect is ignored.
+fn ignores_aspect(axes: &Axes) -> bool {
+    matches!(
+        axes.projection,
+        ironlab_ir::Projection::Polar { .. } | ironlab_ir::Projection::Spherical { .. }
+    )
+}
+
 /// Returns the fixed aspect of an axes, or `None` when its aspect is automatic or its ratios are not finite and
 /// positive.
 fn request_of(axes: &Axes) -> Option<Request> {
+    if ignores_aspect(axes) {
+        return None;
+    }
     let [y, z] = axes.aspect.ratios()?;
     let usable = |r: f64| r.is_finite() && r > 0.0;
     (usable(y) && usable(z)).then_some(Request {
@@ -52,6 +64,9 @@ pub(super) fn requests(ctx: &mut Ctx) -> Vec<Option<Request>> {
         .axes
         .iter()
         .map(|axes| {
+            if ignores_aspect(axes) {
+                return None;
+            }
             let [y, z] = axes.aspect.ratios()?;
             let request = request_of(axes);
             if request.is_none() {
@@ -136,8 +151,11 @@ pub(super) fn widen_limits(
 ) -> (Vec<[Range; 3]>, bool) {
     let figure = ctx.figure;
     let count = figure.axes.len();
+    // The aspect of a cylinder relates its height to its radius, and its angle cannot widen, so it is always kept by
+    // the shape of its box.
     let limited: Vec<usize> = (0..count)
         .filter(|&i| matches!(requests[i], Some(r) if r.adjust == AspectAdjust::Limits))
+        .filter(|&i| !is_cylindrical(&figure.axes[i]))
         .collect();
     if limited.is_empty() {
         return (base.to_vec(), true);
@@ -210,7 +228,7 @@ pub(super) fn widen_limits(
 pub(super) fn warn_unsettled(ctx: &mut Ctx, requests: &[Option<Request>]) {
     let figure = ctx.figure;
     for (axes, request) in figure.axes.iter().zip(requests) {
-        if matches!(request, Some(r) if r.adjust == AspectAdjust::Limits) {
+        if matches!(request, Some(r) if r.adjust == AspectAdjust::Limits) && !is_cylindrical(axes) {
             ctx.warn(
                 Some(axes.id),
                 "Linked axes ask for different shapes, so the aspect cannot be kept by widening their shared limits \
@@ -233,9 +251,34 @@ pub(super) fn fit_plots(plots: &mut [Rect], ranges: &[[Range; 3]], requests: &[O
     }
 }
 
+/// Returns whether an axes is cylindrical, whose aspect relates its height to its radius.
+fn is_cylindrical(axes: &Axes) -> bool {
+    matches!(axes.projection, ironlab_ir::Projection::Cylindrical { .. })
+}
+
+/// Returns the relative lengths of the sides of the box of cylindrical axes with a fixed aspect.
+///
+/// The disc keeps its unit diameter, across which the radial span is drawn from the edge of the hole to the rim, so a
+/// unit of radius is `0.5·(1 − hole)/span_r` of the diameter. A unit of height is drawn `z/y` times as long as a unit
+/// of radius, so the box takes the sides `[1, 1, h]` with `h = (z/y)·span_z·0.5·(1 − hole)/span_r`, scaled so that the
+/// longest side is 1. Spans are in scale space; spans or ratios that are not finite and positive give a cube.
+fn cylinder_sides(hole: f64, ratios: [f64; 3], ranges: &[Range; 3]) -> [f64; 3] {
+    let hole = if hole.is_finite() {
+        hole.clamp(0.0, 0.99)
+    } else {
+        0.0
+    };
+    let h = ratios[2] / ratios[1] * span(&ranges[2]) * 0.5 * (1.0 - hole) / span(&ranges[1]);
+    if !(h.is_finite() && h > 0.0) {
+        return [1.0; 3];
+    }
+    let longest = h.max(1.0);
+    [1.0 / longest, 1.0 / longest, h / longest]
+}
+
 /// Returns the relative lengths of the sides of the box of a 3D axes along x, y and z, the longest being 1.
 ///
-/// An automatic aspect gives a cube. A fixed aspect gives sides proportional to the scale-space spans of the limits
+/// An automatic aspect gives a cube; cylindrical axes take the sides of [`cylinder_sides`]. A fixed aspect gives sides proportional to the scale-space spans of the limits
 /// scaled by the ratios, so that the box draws one unit along each axis at the aspect. Limits widened for `Limits`
 /// already have equal scaled spans, so they give a cube to within rounding; limits that could not be widened give the
 /// box that keeps the aspect instead.
@@ -243,6 +286,9 @@ pub(super) fn box_sides(axes: &Axes, ranges: &[Range; 3]) -> [f64; 3] {
     let Some(request) = request_of(axes) else {
         return [1.0; 3];
     };
+    if let ironlab_ir::Projection::Cylindrical { polar, .. } = axes.projection {
+        return cylinder_sides(polar.hole, request.ratios, ranges);
+    }
     let scaled: [f64; 3] = std::array::from_fn(|k| span(&ranges[k]) * request.ratios[k]);
     let longest = scaled.iter().copied().fold(0.0, f64::max);
     if !(longest.is_finite() && longest > 0.0) || scaled.iter().any(|s| s.is_nan() || *s <= 0.0) {
