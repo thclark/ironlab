@@ -12,6 +12,7 @@ use crate::text::Text;
 
 /// A plotting region placed in one or more cells of the figure's tile layout.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Axes {
     /// The node identifier of the axes, unique within the figure.
     pub id: NodeId,
@@ -19,7 +20,8 @@ pub struct Axes {
     pub cell: Cell,
     /// Whether the axes is two- or three-dimensional, with its 3D view.
     pub projection: Projection,
-    /// The title drawn above the axes.
+    /// The title drawn above the axes, or `null` for none.
+    #[schemars(default)]
     pub title: Option<Text>,
     /// How the title is aligned with the plot area: centred over it, or with its left or
     /// right edge on the left or right edge of the plot area.
@@ -38,6 +40,7 @@ pub struct Axes {
     pub aspect_adjust: AspectAdjust,
     /// The colourbar drawn inside the plot area along one of its edges, or `null` when the
     /// axes shows none.
+    #[schemars(default)]
     pub colorbar: Option<InsideColorbar>,
     /// Whether the full outline of the plot box is drawn, rather than only the
     /// edges that carry tick labels: all twelve edges of a three-dimensional box,
@@ -46,6 +49,7 @@ pub struct Axes {
     #[serde(rename = "box")]
     pub box_: bool,
     /// The legend, or `null` when no legend is shown.
+    #[schemars(default)]
     pub legend: Option<Legend>,
     /// The artists drawn in this axes, in drawing order.
     pub artists: Vec<Artist>,
@@ -75,6 +79,7 @@ impl Default for Axes {
 /// A colourbar drawn inside the plot area of an axes, along one of its edges, over the
 /// artists. It takes no margin: the plot area keeps its size whether or not the bar is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct InsideColorbar {
     /// The colour scale that the bar shows.
     pub scale: NodeId,
@@ -122,6 +127,7 @@ pub enum InsideColorbarSide {
 /// On a logarithmic axis the data unit is one decade, so `Equal` on log–log axes draws a
 /// decade of x and a decade of y at the same length. A 2D axes uses the ratio of y alone.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Aspect {
     /// The plot area, or the box of a 3D axes, keeps its own shape and the limits are those
@@ -193,6 +199,7 @@ pub enum TitleAlign {
 
 /// The projection of an axes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Projection {
     /// A two-dimensional Cartesian axes.
@@ -300,6 +307,7 @@ impl Projection {
 /// How the angles of a polar or cylindrical axes are measured, and where its sector and
 /// hole lie on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PolarView {
     /// The data units of the angle carried by x.
     pub angle_units: AngleUnits,
@@ -312,6 +320,7 @@ pub struct PolarView {
     pub hole: f64,
     /// The angle, in the data units of x, of the spoke along which the radial tick labels
     /// are drawn, or `null` to draw them halfway between the first two angular ticks.
+    #[schemars(default)]
     pub radial_axis_angle: Option<f64>,
 }
 
@@ -330,6 +339,7 @@ impl Default for PolarView {
 
 /// How the two angles of a spherical axes are measured.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct SphericalView {
     /// The data units of the azimuth carried by x and of the polar angle carried by y.
     pub angle_units: AngleUnits,
@@ -339,6 +349,7 @@ pub struct SphericalView {
 
 /// The data units of an angle.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum AngleUnits {
     /// 360 to a turn; tick labels carry a degree sign.
@@ -376,6 +387,7 @@ pub enum PolarAngle {
 
 /// The orthographic camera view of a three-dimensional axes.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct View3d {
     /// The rotation about the vertical axis in degrees, measured counterclockwise
     /// from the negative y axis when viewed from above.
@@ -406,8 +418,10 @@ impl Default for View3d {
 
 /// One coordinate axis of an axes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Axis {
-    /// The axis label.
+    /// The label drawn beside the axis, or `null` for none.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// The mapping from data values to positions along the axis.
     pub scale: Scale,
@@ -432,6 +446,7 @@ pub struct Axis {
     ///
     /// The property is omitted from JSON when it is true, and is true when JSON omits it.
     #[serde(default = "shown", skip_serializing_if = "is_shown")]
+    #[schemars(!skip_serializing_if)]
     pub visible: bool,
     /// The angle of every tick label of the axis, in degrees anticlockwise from
     /// horizontal, about the end of the label nearest its tick; any finite number. A
@@ -439,6 +454,7 @@ pub struct Axis {
     ///
     /// The property is omitted from JSON when it is 0, and is 0 when JSON omits it.
     #[serde(default, skip_serializing_if = "is_level")]
+    #[schemars(!skip_serializing_if)]
     pub tick_label_angle: f64,
     /// The side of the plot on which the axis draws its line, tick marks, tick labels and
     /// label. Two-dimensional and three-dimensional Cartesian axes honour it on every
@@ -448,6 +464,7 @@ pub struct Axis {
     /// The property is omitted from JSON when it is [`AxisSide::Low`], and is Low when
     /// JSON omits it.
     #[serde(default, skip_serializing_if = "AxisSide::is_low")]
+    #[schemars(!skip_serializing_if)]
     pub side: AxisSide,
 }
 
@@ -524,6 +541,7 @@ fn is_level(angle: &f64) -> bool {
 /// Ticks never change the limits of an axis: automatic limits are computed as they are
 /// for automatic ticks, and a tick that lies outside the limits is not drawn.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Ticks {
     /// The ticks are chosen at round values from the limits and the length of the axis.
@@ -544,6 +562,7 @@ pub enum Ticks {
 
 /// What is written at the major ticks of an axis.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum TickLabels {
     /// Each tick is labelled with its value, formatted for the scale of the axis.
@@ -570,6 +589,7 @@ pub enum Scale {
 
 /// A range of data values.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Limits {
     /// The range is computed from the data. Axis limits are rounded outwards to ticks, except where only the grid of a

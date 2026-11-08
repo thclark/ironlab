@@ -41,11 +41,13 @@ use crate::text::Text;
 /// In JSON the kind is an object whose `type` names the kind and whose `value` holds it,
 /// such as `{"type": "continuous", "value": {"colormap": ..., "limits": ...}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct ColorScale {
     /// The node identifier of the scale, unique within the figure.
     pub id: NodeId,
     /// The title drawn with the scale: above a colourbar that shows it, and as the label
-    /// of a bar item that shows it in a legend.
+    /// of a bar item that shows it in a legend. It is `null` when the scale has no title.
+    #[schemars(default)]
     pub title: Option<Text>,
     /// How values become colours and how the scale is drawn.
     pub kind: ColorScaleKind,
@@ -76,6 +78,7 @@ impl Default for ColorScale {
 /// clamping below and above, strict outside the entries, and transparent for non-finite
 /// values. [`ColorScaleOutOfRange::new`] builds a category of a given policy.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct ColorScaleOutOfRange {
     /// What is drawn for a value of the category.
     pub policy: OutOfRange,
@@ -85,6 +88,7 @@ pub struct ColorScaleOutOfRange {
     /// The label of the key square, or `None` for the default label: `> upper` above
     /// the range, `< lower` below it, `NaN / Inf` for non-finite values and
     /// `Out of range` outside the entries, with the limits formatted as the ticks are.
+    #[schemars(default)]
     pub label: Option<Text>,
 }
 
@@ -107,6 +111,7 @@ impl ColorScaleOutOfRange {
 /// so that, for example, non-finite values may be tolerated while values outside the
 /// range are refused, or the reverse.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OutOfRange {
     /// Such a value is a validation error, so the figure is refused until the data is
@@ -137,6 +142,7 @@ impl From<Color> for OutOfRange {
 
 /// How a colour scale turns values into colours, which also fixes how it is drawn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum ColorScaleKind {
     /// A colormap interpolated between limits, drawn as a smooth bar.
@@ -163,6 +169,7 @@ impl Default for ColorScaleKind {
 ///
 /// A value exactly at a limit lies inside the range.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct ContinuousColorScale {
     /// The palette that the scale interpolates.
     pub colormap: Colormap,
@@ -209,6 +216,7 @@ impl Default for ContinuousColorScale {
 /// or last edge lies inside the range. Every artist that names the scale is banded, a
 /// smooth surface included, so that the bar that shows the scale is truthful.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct DiscreteColorScale {
     /// The palette from which the bands take their colours.
     pub colormap: Colormap,
@@ -246,6 +254,7 @@ impl Default for DiscreteColorScale {
 
 /// The edges of the bands of a discrete colour scale.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ColorScaleLevels {
     /// Edges at nice values from the lower limit to the upper limit, which are the first
@@ -281,6 +290,7 @@ impl Default for ColorScaleLevels {
 /// Any other finite value, a fractional one included, lies outside the entries and
 /// follows `outside`. An array of 8-bit values holds whole numbers only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct IndexedColorScale {
     /// The entries of the palette; at least one.
     pub colors: Vec<Color>,
@@ -313,6 +323,7 @@ impl Default for IndexedColorScale {
 /// Any other finite value, a fractional one included, lies outside the categories and
 /// follows `outside`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct CategoricalColorScale {
     /// The categories; at least one.
     pub categories: Vec<ColorCategory>,
@@ -334,6 +345,7 @@ impl Default for CategoricalColorScale {
 /// One category of a categorical colour scale: its colour and its label, which every key
 /// that shows the scale draws beside the colour.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct ColorCategory {
     /// The colour of the category.
     pub color: Color,
@@ -344,6 +356,7 @@ pub struct ColorCategory {
 
 /// The palette that a continuous or discrete colour scale interpolates.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Colormap {
     /// A bundled colormap.

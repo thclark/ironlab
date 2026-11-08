@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 /// row or column without a size, because the list of sizes is shorter than the number of
 /// rows or columns, has a weight of one, so that empty lists give plot areas of equal size.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct TileLayout {
     /// The number of rows; at least one.
     pub rows: u32,
@@ -25,6 +26,7 @@ pub struct TileLayout {
     ///
     /// The property is omitted from JSON when there are no sizes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(!skip_serializing_if)]
     pub row_weights: Vec<TrackSize>,
     /// The sizes of the columns, from the left: a finite positive weight, or fitted to the
     /// panels in the column. A column without a size has a weight of one, and there
@@ -32,6 +34,7 @@ pub struct TileLayout {
     ///
     /// The property is omitted from JSON when there are no sizes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(!skip_serializing_if)]
     pub col_weights: Vec<TrackSize>,
 }
 
@@ -52,6 +55,7 @@ impl TileLayout {
 /// In JSON a size is an object whose `type` names the variant, such as
 /// `{"type": "weight", "value": 2.0}` or `{"type": "fit"}`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum TrackSize {
     /// A share of the height or width that the fitted rows or columns leave, in
@@ -89,6 +93,7 @@ impl Default for TileLayout {
 ///
 /// Rows and columns are numbered from zero, starting at the top-left cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Cell {
     /// The zero-based index of the top row occupied.
     pub row: u32,

@@ -29,6 +29,7 @@ pub enum Dimension {
 /// For each dimension, the groups of a figure are disjoint: an axes belongs to at
 /// most one group per dimension.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct AxisLink {
     /// The dimension whose limits are linked.
     pub dimension: Dimension,

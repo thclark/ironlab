@@ -49,7 +49,7 @@ The JSON encoding follows these conventions.
 - **Non-finite numbers.** JSON cannot represent NaN or an infinity. In a data array of floating-point values, every non-finite value is written as `null` and read back as NaN. A non-finite value in any other numeric field cannot be represented, so a figure saved as JSON must have finite limits, sizes, view angles and number parameters, as [validation](#validation) requires.
 - **Data arrays.** An array of 8-bit values carries `"element": "u8"` and writes its values as integers. An array of floating-point values has no `element` property, and an `element` of `null` or `"f64"` is read in the same way, so a file written before the element existed still loads. Under `"u8"`, every value must be an integer from 0 to 255: a whole number written with a fraction, such as `1.0`, is accepted as the byte it denotes, and `null`, a fraction, a number outside the range, a string and any other element name are refused.
 - **Colours.** A Color is a string of eight bits per component, as described in [colours](#colours), so a colour that is not a multiple of 1/255 is rounded when it is saved as JSON.
-- **Unknown properties.** A property that the build does not know is ignored, so a file written by a later patch release still loads.
+- **Unknown properties.** A property that the build does not know is ignored, so a file written by a later patch release still loads. The JSON Schema nevertheless rejects it, so that a validator catches a misspelt key, as [versioning](#versioning) explains.
 
 A complete JSON file is shown in [a minimal JSON file](#a-minimal-json-file).
 
@@ -61,11 +61,15 @@ The Protocol Buffers definition is written, together with a `buf.yaml` that conf
 cargo run -p ironlab-ir --bin generate-proto
 ```
 
-The JSON Schema of the JSON encoding, which uses JSON Schema draft 2020-12 and is split into one file per module of `ironlab-ir`, is written to `target/ironlab-schema/` by:
+The JSON Schema of the JSON encoding, which uses JSON Schema draft 2020-12, is written to `target/ironlab-schema/` by:
 
 ```sh
 cargo run -p ironlab-ir --bin generate-schema
 ```
+
+The command writes the schema in two forms. The first is one file per module of `ironlab-ir`, named `<module>.schema.json`, whose definitions refer to those of other modules by relative references; of these, `figure.schema.json` describes a figure and `edit.schema.json` describes a transaction of the edit protocol. The second is `ironlab.schema.json`, which holds the whole figure schema as one self-contained document, for tools that load a single file. No module is named `ironlab`, so the single document never replaces a module file.
+
+The schema is also published with this documentation, where a validator or an editor can load it by URL: the single document is [ironlab.schema.json](../schema/ironlab.schema.json), and the module files sit beside it, such as [figure.schema.json](../schema/figure.schema.json) and [edit.schema.json](../schema/edit.schema.json). Every object in the schema rejects keys that it does not declare, and every property that a file may omit states the default that the reader uses in its absence, so the schema can be reviewed as a complete statement of the model.
 
 Both commands write to the directory named by `CARGO_TARGET_DIR` when it is set, and replace any files from an earlier run. Other languages generate their own types from the `.proto` files, for example with `buf generate` or `protoc`.
 
@@ -1144,7 +1148,9 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.9.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`. The version implemented by a build is the constant `SCHEMA_VERSION` of `ironlab-ir`, which is the first entry of the list of versions below. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+
+The JSON Schema is stricter than the reader: every object in it sets `additionalProperties` to `false`, so a key that the schema does not declare makes a file invalid. The reader still ignores such a key, so that a file from a later patch release loads in an older build, while a validator catches a misspelt key that the reader would silently ignore. Closed objects are also what make the rules below sound. If an object admitted undeclared keys, a valid file of an older version could already hold a key that a later version adds, with any value, so even a new optional property could make an old file invalid against the new schema, and every addition would be a breaking change. Because every object is closed, a valid file of an older version holds no key that its version does not declare, so adding an optional property keeps every older file valid, and can therefore be a patch change. Protocol Buffers gives the equivalent guarantee through field numbers: a number is declared only by this schema and is never reused, because a removed field is declared `reserved` and `buf breaking` (category `PACKAGE`) rejects deleting a field or changing its type, so old data cannot hold a field whose number later gains a different meaning.
 
 The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch, unless a commit of the pull request declares a breaking change with a `BREAKING-CHANGE` paragraph, as the [commit conventions](../conventions/git-commits-and-versioning.md) require for any breaking change. Any incompatible change that no commit declares is reported as a mistake. A declared breaking change of the schema also requires a new major version, or, while the major version is 0, a new minor version, so that readers reject files of the other version before decoding them.
 

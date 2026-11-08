@@ -19,12 +19,14 @@ use crate::ids::NodeId;
 /// [`Edit::AppendData`](crate::Edit::AppendData)), and its name is its only settable
 /// property.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct DataArray {
     /// The node identifier of the array, unique within the figure.
     pub id: NodeId,
     /// The name that identifies the array to tools such as the inspector, or `None` when
     /// it has none. The name is never drawn and constrains nothing: two arrays may share
     /// a name, and a name may be empty.
+    #[schemars(default)]
     pub name: Option<String>,
     /// The values of the array.
     pub array: NdArray,
@@ -388,6 +390,8 @@ impl JsonSchema for NdArray {
              absent or null element means."
                 .into(),
         );
+        // An absent element reads as `None`, as an explicit `null` does.
+        element.insert("default".to_owned(), serde_json::Value::Null);
         let mut values = generator.subschema_for::<Vec<Option<f64>>>();
         values.insert(
             "description".to_owned(),
@@ -404,7 +408,8 @@ impl JsonSchema for NdArray {
                 "element": element,
                 "values": values
             },
-            "required": ["shape", "values"]
+            "required": ["shape", "values"],
+            "additionalProperties": false
         })
     }
 }

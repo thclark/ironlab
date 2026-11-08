@@ -50,6 +50,7 @@ use crate::text::{Interpreter, Text};
 /// `{"type": "limits", "value": {"type": "manual", "min": 0, "max": 1}}`; an unset value
 /// is `{"type": "unset"}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Value {
     /// No value: an optional property is cleared.

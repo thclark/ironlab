@@ -593,3 +593,352 @@ fn the_opacities_of_bars_stairs_and_cells_are_described_but_not_required() {
         );
     }
 }
+
+/// A schema found while walking a schema document, with the place where it was found.
+struct Visit<'a> {
+    /// The location of the schema, such as `Axis.properties.limits` or `Artist.oneOf[3]`,
+    /// which starts with the name of the definition (or the title of the root document)
+    /// that holds it.
+    path: String,
+    /// The schema itself.
+    schema: &'a Value,
+    /// How the schema is reached from its parent.
+    role: Role<'a>,
+}
+
+/// How a schema is reached from the schema that contains it.
+enum Role<'a> {
+    /// The schema is a root document or a definition under `$defs`.
+    Definition,
+    /// The schema is the value of the property `name` of the object schema `parent`.
+    Property { name: &'a str, parent: &'a Value },
+    /// The schema is a branch of the `oneOf` or `anyOf` of its parent.
+    Branch,
+    /// The schema is reached in any other way, such as through `items` or `allOf`.
+    Other,
+}
+
+/// Walks the root documents of a figure and of a transaction, calling `visit` once for
+/// each root, each definition under `$defs` and each schema nested within them through
+/// `properties`, `items`, `prefixItems`, `additionalProperties`, `oneOf`, `anyOf` or
+/// `allOf`.
+///
+/// The two roots share most of their definitions, which schemars generates identically,
+/// so a definition is walked only once, under its own name.
+fn walk_schemas(mut visit: impl FnMut(&Visit)) {
+    fn walk<'a>(visit: &mut impl FnMut(&Visit), visited: Visit<'a>) {
+        visit(&visited);
+        let Visit { path, schema, .. } = visited;
+        let Some(map) = schema.as_object() else {
+            return;
+        };
+        if let Some(Value::Object(properties)) = map.get("properties") {
+            for (name, inner) in properties {
+                walk(
+                    visit,
+                    Visit {
+                        path: format!("{path}.properties.{name}"),
+                        schema: inner,
+                        role: Role::Property {
+                            name,
+                            parent: schema,
+                        },
+                    },
+                );
+            }
+        }
+        for key in ["items", "additionalProperties"] {
+            if let Some(inner @ Value::Object(_)) = map.get(key) {
+                walk(
+                    visit,
+                    Visit {
+                        path: format!("{path}.{key}"),
+                        schema: inner,
+                        role: Role::Other,
+                    },
+                );
+            }
+        }
+        for key in ["prefixItems", "oneOf", "anyOf", "allOf"] {
+            if let Some(Value::Array(branches)) = map.get(key) {
+                for (index, inner) in branches.iter().enumerate() {
+                    let role = if key == "oneOf" || key == "anyOf" {
+                        Role::Branch
+                    } else {
+                        Role::Other
+                    };
+                    walk(
+                        visit,
+                        Visit {
+                            path: format!("{path}.{key}[{index}]"),
+                            schema: inner,
+                            role,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    let mut walked = BTreeSet::new();
+    for root in [
+        ironlab_ir::json_schema(),
+        ironlab_ir::transaction_json_schema(),
+    ] {
+        let title = root
+            .get("title")
+            .and_then(Value::as_str)
+            .expect("a root document has a title")
+            .to_owned();
+        let mut document = root.clone();
+        let definitions = document
+            .as_object_mut()
+            .and_then(|map| map.remove("$defs"))
+            .unwrap_or_else(|| json!({}));
+        walk(
+            &mut visit,
+            Visit {
+                path: title,
+                schema: &document,
+                role: Role::Definition,
+            },
+        );
+        for (name, definition) in definitions.as_object().into_iter().flatten() {
+            if walked.insert(name.clone()) {
+                walk(
+                    &mut visit,
+                    Visit {
+                        path: name.clone(),
+                        schema: definition,
+                        role: Role::Definition,
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// Collects the location of every schema for which `offends` returns true, and fails
+/// with all of them, sorted and one per line, so that one run gives a complete worklist.
+fn assert_no_offenders(rule: &str, mut offends: impl FnMut(&Visit) -> bool) {
+    let mut offenders = BTreeSet::new();
+    walk_schemas(|visited| {
+        if offends(visited) {
+            offenders.insert(visited.path.clone());
+        }
+    });
+    assert!(
+        offenders.is_empty(),
+        "{} locations break the rule that {rule}:\n{}",
+        offenders.len(),
+        offenders.into_iter().collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// Returns whether a schema has a non-empty `description`.
+fn has_description(schema: &Value) -> bool {
+    schema
+        .get("description")
+        .and_then(Value::as_str)
+        .is_some_and(|text| !text.trim().is_empty())
+}
+
+/// Returns whether a schema is the discriminator of a tagged enum variant: a `const`
+/// with at most a `type` beside it, such as `{"const": "bar", "type": "string"}`.
+fn is_discriminator(schema: &Value) -> bool {
+    schema.as_object().is_some_and(|map| {
+        map.contains_key("const") && map.keys().all(|key| key == "const" || key == "type")
+    })
+}
+
+/// Returns the names in the `required` list of an object schema.
+fn required_of(schema: &Value) -> Vec<&str> {
+    schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default()
+}
+
+// Why: the owner reviews the model by reading the generated schema, and other tools show
+// a definition's description as its documentation, so a definition without one is a part
+// of the model that nobody can review or understand from the schema alone. The roots of
+// the figure and transaction documents are checked as well, since they are definitions
+// in all but placement.
+#[test]
+fn every_definition_has_a_description() {
+    assert_no_offenders("every definition has a description", |visited| {
+        matches!(visited.role, Role::Definition) && !has_description(visited.schema)
+    });
+}
+
+// Why: a key without a description leaves the reader of the schema to guess what it
+// means, its units and its effect, which defeats reviewing the model from the schema. A
+// property whose schema is a bare `$ref` is not exempt, because the referenced definition
+// says what the type is, not what this key is for. Two kinds of property are exempt,
+// because the description of the variant that contains them already says everything:
+// the discriminator of a tagged enum variant, whose schema is only a `const` (such as
+// `"type": {"const": "bar"}`) naming the variant; and the `value` key of an adjacently
+// tagged variant, whose object holds only the discriminator and `value`, when that
+// variant object itself has a description, since `value` is then exactly the content
+// that the variant describes.
+#[test]
+fn every_property_has_a_description() {
+    assert_no_offenders(
+        "every property has a description, except a variant's discriminator and the value \
+         of a described adjacently tagged variant",
+        |visited| {
+            let Role::Property { name, parent } = visited.role else {
+                return false;
+            };
+            if has_description(visited.schema) || is_discriminator(visited.schema) {
+                return false;
+            }
+            let adjacent_content = name == "value"
+                && has_description(parent)
+                && parent
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .is_some_and(|properties| {
+                        properties.len() == 2
+                            && properties
+                                .iter()
+                                .any(|(key, schema)| key != "value" && is_discriminator(schema))
+                    });
+            !adjacent_content
+        },
+    );
+}
+
+// Why: each variant of an enum is a distinct choice in the model, such as a kind of
+// artist or a placement of a legend, and the reader must know what each choice means.
+// A branch of a `oneOf` or `anyOf` that is only a `$ref` is exempt, since the referenced
+// definition is checked on its own, and so is the `{"type": "null"}` branch of an
+// optional value, which only says that the value may be absent. An `enum` array of more
+// than one value is refused outright, because schemars emits that form only for unit
+// variants without doc comments, so it always means undescribed variants.
+#[test]
+fn every_enum_variant_is_described() {
+    assert_no_offenders(
+        "every non-null branch of a oneOf or anyOf that is not a bare $ref has a \
+         description, and no enum array lists more than one value",
+        |visited| {
+            let schema = visited.schema;
+            let undescribed_enum = schema
+                .get("enum")
+                .and_then(Value::as_array)
+                .is_some_and(|values| values.len() > 1);
+            let undescribed_branch = matches!(visited.role, Role::Branch)
+                && !has_description(schema)
+                && !schema
+                    .as_object()
+                    .is_some_and(|map| map.len() == 1 && map.contains_key("$ref"))
+                && *schema != json!({ "type": "null" });
+            undescribed_enum || undescribed_branch
+        },
+    );
+}
+
+// Why: a property that a file may leave out takes a value that the reader supplies, and
+// a reviewer or a hand-writing user cannot know that value unless the schema states it;
+// without it the meaning of a figure file depends on code that the schema does not show.
+// A property is omittable exactly when its object does not list it in `required`. An
+// optional value that is left out when absent reads back as absent, so when its schema
+// admits `null` its stated default must be `null`, not some other value.
+#[test]
+fn every_omittable_property_states_its_default() {
+    /// Returns whether a schema admits the JSON value `null`.
+    fn admits_null(schema: &Value) -> bool {
+        let by_type = match schema.get("type") {
+            Some(Value::String(kind)) => kind == "null",
+            Some(Value::Array(kinds)) => kinds.contains(&json!("null")),
+            _ => false,
+        };
+        let by_branch = ["anyOf", "oneOf"].iter().any(|key| {
+            schema
+                .get(key)
+                .and_then(Value::as_array)
+                .is_some_and(|branches| branches.iter().any(admits_null))
+        });
+        by_type || by_branch
+    }
+
+    assert_no_offenders(
+        "every property missing from its object's required list states a default, which \
+         is null when the property admits null",
+        |visited| {
+            let Role::Property { name, parent } = visited.role else {
+                return false;
+            };
+            if required_of(parent).contains(&name) {
+                return false;
+            }
+            match visited.schema.get("default") {
+                None => true,
+                Some(default) => admits_null(visited.schema) && !default.is_null(),
+            }
+        },
+    );
+}
+
+// Why: a misspelt key in a hand-written figure (such as `colour_scale` for `color_scale`)
+// would otherwise validate against the schema and then be silently ignored, leaving the
+// author puzzled about why the figure looks wrong. Every object schema therefore states
+// `"additionalProperties": false`, or `"unevaluatedProperties": false` for an object
+// composed with `allOf`, where `additionalProperties` would reject the keys of the other
+// parts. This constrains the schema only: the reader deliberately still ignores unknown
+// keys so that a file from a later patch release loads (see "Versioning" in
+// `docs/reference/figure-schema.md`), which is why the implementation must use
+// `#[schemars(deny_unknown_fields)]` and never serde's attribute of the same name; the
+// next test pins that behaviour of the reader.
+#[test]
+fn every_object_schema_rejects_unknown_keys() {
+    assert_no_offenders(
+        "every schema with properties sets additionalProperties (or, when composed with \
+         allOf, unevaluatedProperties) to false",
+        |visited| {
+            let schema = visited.schema;
+            if schema.get("properties").is_none() {
+                return false;
+            }
+            let key = if schema.get("allOf").is_some() {
+                "unevaluatedProperties"
+            } else {
+                "additionalProperties"
+            };
+            schema.get(key) != Some(&Value::Bool(false))
+        },
+    );
+}
+
+// Why: the schema rejects unknown keys so that a validator catches misspellings, but
+// the reader must not, because a file written by a later patch release of the same minor
+// schema version may carry properties that this build does not know, and the versioning
+// policy promises that such a file loads. Making the schema strict must therefore never
+// be done with serde's `deny_unknown_fields`; this test fails if it is, at the root of a
+// figure or inside an axes and an axis.
+#[test]
+fn the_reader_ignores_unknown_keys_that_the_schema_rejects() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/decay.fig.json")).expect("the fixture is JSON");
+    let expected =
+        ironlab_ir::Figure::from_json(&fixture.to_string()).expect("the unmodified fixture loads");
+    for pointer in ["", "/axes/0", "/axes/0/x"] {
+        let mut document = fixture.clone();
+        document
+            .pointer_mut(pointer)
+            .and_then(Value::as_object_mut)
+            .unwrap_or_else(|| panic!("the fixture has an object at {pointer:?}"))
+            .insert(
+                "a_key_from_a_later_patch".to_owned(),
+                json!({ "novel": [1] }),
+            );
+        let figure = ironlab_ir::Figure::from_json(&document.to_string()).unwrap_or_else(|e| {
+            panic!("an unknown key at {pointer:?} stopped the figure from loading: {e}")
+        });
+        assert_eq!(
+            figure, expected,
+            "an unknown key at {pointer:?} changed the loaded figure"
+        );
+    }
+}

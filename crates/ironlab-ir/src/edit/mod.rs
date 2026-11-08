@@ -78,6 +78,7 @@ use walk::Step;
 /// A transaction is encoded as the Protocol Buffers message `Transaction` of
 /// `ironlab/ir/v0/edit.proto`, and as JSON with the same structure.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Transaction {
     /// The edits, in the order in which they are applied.
     pub edits: Vec<Edit>,
@@ -89,6 +90,7 @@ pub struct Transaction {
 /// alongside the fields of that kind, such as
 /// `{"type": "set", "node": 3, "path": "x.limits", "value": {"type": "limits", ...}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Edit {
     /// Replaces the value of a property of a node.
@@ -109,6 +111,7 @@ pub enum Edit {
         parent: NodeId,
         /// The position in the parent's list of the node's kind at which the node is
         /// inserted, from zero to the length of the list, or `None` to append it.
+        #[schemars(default)]
         index: Option<u32>,
         /// The node, whose identifier and whose descendants' identifiers must not be in
         /// use in the figure.
@@ -129,6 +132,7 @@ pub enum Edit {
         parent: NodeId,
         /// The position in the new parent's list after the node has been removed from
         /// its old position, from zero to the length of that list, or `None` to append.
+        #[schemars(default)]
         index: Option<u32>,
     },
     /// Replaces the values of an existing data array, which keeps its identifier and its
@@ -146,8 +150,10 @@ pub enum Edit {
         /// The entries to append, whose shape after the first dimension and whose
         /// element type must equal those of the existing array.
         array: NdArray,
-        /// When set, only the last `retain` entries along the first dimension are kept
-        /// after appending, which gives a rolling window for streamed data.
+        /// The number of entries along the first dimension to keep after appending, counted
+        /// from the end, which gives a rolling window for streamed data; `null` keeps every
+        /// entry.
+        #[schemars(default)]
         retain: Option<u64>,
     },
 }
