@@ -46,6 +46,8 @@ Before adding any plot type (or any new entity type), define its core data struc
 
 ## Development Cycle
 
+Before starting any new piece of work, run `cargo sweep --time 7` from the repository root. This deletes build artifacts in `target` that no build has used for seven days, which stops the directory from growing without limit while keeping recent artifacts so that the next build does not start from scratch. If `cargo sweep` is not installed, install it with `cargo install cargo-sweep`.
+
 Use subagents to undertake different stages of the work, and follow a test-driven pattern with these stages:
 1. Build tests for the functionality
 2. Review tests to determine whether they meaningfully capture intent (rather than mindlessly asserting that something works, ask why are we testing that thing?). Iterate with (1) until tests reflect reality and cover sensible edge cases.
