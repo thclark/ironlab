@@ -10,7 +10,7 @@
 //!   existing polar axes keeps its view, as `axes3` keeps a 3D view.
 //! - `AxesMut::make_polar()`, which converts a 2D axes to polar axes and keeps its artists.
 //! - The view setters `theta_zero(ThetaZero)`, `clockwise(bool)`, `angle_units(AngleUnits)`,
-//!   `hole(f64)` and `radial_labels_at(f64)`, which convert a 2D axes to polar axes and keep
+//!   `hole(f64)` and `radial_axis_angle(f64)`, which convert a 2D axes to polar axes and keep
 //!   a cylindrical axes cylindrical; `thetalim`, `rlim` and `rscale`, aliases of `xlim`, `ylim`
 //!   and `yscale`.
 //! - `AxesMut::polarplot(theta, r)` and `AxesMut::polarscatter(theta, r)`, which make the axes
@@ -95,7 +95,7 @@ fn the_default_polar_view_is_east_degrees_without_a_hole() {
     assert_eq!(view.zero_deg, 0.0);
     assert_eq!(view.hole, 0.0);
     assert_eq!(view.angle_units, AngleUnits::Degrees);
-    assert_eq!(view.radial_labels_at, None);
+    assert_eq!(view.radial_axis_angle, None);
 }
 
 // WHY: calling `polar_axes` again for the same tile returns the same axes, as `axes3` does; it
@@ -167,12 +167,12 @@ fn view_setters_reach_their_own_fields() {
         .polar_axes(0, 0)
         .angle_units(AngleUnits::Radians)
         .hole(0.3)
-        .radial_labels_at(1.25)
+        .radial_axis_angle(1.25)
         .id();
     let view = polar_view(&fig, id);
     assert_eq!(view.angle_units, AngleUnits::Radians);
     assert_eq!(view.hole, 0.3);
-    assert_eq!(view.radial_labels_at, Some(1.25));
+    assert_eq!(view.radial_axis_angle, Some(1.25));
     assert_eq!(view.zero_deg, 0.0);
 
     fig.polar_axes(0, 0).angle_units(AngleUnits::PerTurn(12.0));

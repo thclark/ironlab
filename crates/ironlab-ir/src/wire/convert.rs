@@ -410,7 +410,7 @@ fn encode_polar_view(view: PolarView) -> w::PolarView {
         angle_units: Some(encode_angle_units(view.angle_units)),
         zero_deg: Some(view.zero_deg),
         hole: Some(view.hole),
-        radial_labels_at: view.radial_labels_at,
+        radial_axis_angle: view.radial_axis_angle,
     }
 }
 
@@ -1804,7 +1804,7 @@ fn decode_polar_view(wire: w::PolarView, at: &str) -> Result<PolarView> {
         angle_units: decode_angle_units(wire.angle_units, &join(at, "angle_units"))?,
         zero_deg: wire.zero_deg.unwrap_or(default.zero_deg),
         hole: wire.hole.unwrap_or(default.hole),
-        radial_labels_at: wire.radial_labels_at,
+        radial_axis_angle: wire.radial_axis_angle,
     })
 }
 

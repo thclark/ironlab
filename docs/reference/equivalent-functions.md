@@ -178,7 +178,7 @@ In IronLAB a polar axes is an axes whose x carries the angle and y the radius, s
 | Give the data's angles in radians | the default of `polarplot` | the default | `polar=dict(angularaxis=dict(thetaunit="radians"))`, which changes only the labels | `angle_units(AngleUnits::Radians)` |
 | Divide the turn into a given number of units, such as the categories of a radar chart | no option | no option | `polar=dict(angularaxis=dict(period=n))` for categorical angles | `angle_units(AngleUnits::PerTurn(n))` |
 | Leave a hole at the centre | no option | `set_rorigin`, as a radius below the lower limit | `polar=dict(hole=f)` | `hole(f)` |
-| Move the radial tick labels to another spoke | `RAxisLocation` | `set_rlabel_position` | `polar=dict(radialaxis=dict(angle=a))` | `radial_labels_at(a)` |
+| Move the radial tick labels to another spoke | `RAxisLocation` | `set_rlabel_position` | `polar=dict(radialaxis=dict(angle=a))` | `radial_axis_angle(a)` |
 
 MATLAB's `polarplot` and matplotlib take the angles of the data in radians, whereas IronLAB, like Plotly, takes them in degrees unless the axes is given other angle units. The hole is a fraction of the rim radius, as Plotly's `hole` is; matplotlib's `set_rorigin` gives the radius that the centre would stand for instead.
 

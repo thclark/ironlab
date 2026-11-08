@@ -183,7 +183,7 @@ proto_file! {
         optional double hole = 3;
         /// The angle, in the data units of x, of the spoke along which the radial tick
         /// labels are drawn; absent means halfway between the first two angular ticks.
-        optional double radial_labels_at = 4;
+        optional double radial_axis_angle = 4;
     }
 
     /// How the two angles of a spherical axes are measured.

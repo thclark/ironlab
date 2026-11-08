@@ -961,7 +961,7 @@ ir_value! {
             "The direction on the page in which angle 0 points, in degrees anticlockwise from east in polar axes, or from the +X edge of the box in cylindrical axes; any finite number.";
         plain "hole" => hole: f64 =
             "The fraction of the rim radius left empty at the centre, at least 0 and less than 1. The lower radial limit lies on the edge of the hole.";
-        optional "radial_labels_at" => radial_labels_at: f64 =
+        optional "radial_axis_angle" => radial_axis_angle: f64 =
             "The angle, in the data units of x, of the spoke along which the radial tick labels are drawn; when absent, they are drawn halfway between the first two angular ticks.";
     }
 

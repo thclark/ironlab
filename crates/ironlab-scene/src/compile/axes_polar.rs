@@ -425,7 +425,7 @@ fn angular_label_centres(g: &Geometry, ticks: &AxisTicks, pad: f64) -> (Vec<Poin
 /// one halfway between the first two angular ticks, or, without two ticks, the one a sixteenth of the sector from its
 /// lower limit.
 fn radial_spoke(polar: PolarView, g: &Geometry, x: &AxisTicks) -> f64 {
-    let theta = match (polar.radial_labels_at, x.major.as_slice()) {
+    let theta = match (polar.radial_axis_angle, x.major.as_slice()) {
         (Some(theta), _) if theta.is_finite() => theta,
         (_, [a, b, ..]) => (a + b) / 2.0,
         _ => g.plane.x.min + (g.plane.x.max - g.plane.x.min) / 16.0,
