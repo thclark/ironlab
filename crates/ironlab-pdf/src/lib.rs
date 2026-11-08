@@ -411,7 +411,7 @@ impl Painter<'_, '_> {
         width: f32,
         height: f32,
     ) -> Result<(), PdfError> {
-        let background = clamp_color(list.background);
+        let background = clamp_colour(list.background);
         if background.a > 0.0
             && let Some(path) = rect_path(0.0, 0.0, width, height)
         {
@@ -774,8 +774,8 @@ impl Painter<'_, '_> {
         if !positions_finite {
             return Ok(());
         }
-        let color = clamp_color(run.color);
-        if color.a <= 0.0 {
+        let colour = clamp_colour(run.colour);
+        if colour.a <= 0.0 {
             return Ok(());
         }
 
@@ -828,23 +828,23 @@ impl Painter<'_, '_> {
         // A stroked run is filled and stroked in one text object, so that it stays selectable. A translucent one is
         // drawn opaque inside a group of the colour's opacity, so that the run composites as one shape and is not
         // darker where the stroke overlaps the fill.
-        let grouped = stroked && color.a < 1.0;
-        let paint_color = if grouped {
-            Rgba { a: 1.0, ..color }
+        let grouped = stroked && colour.a < 1.0;
+        let paint_colour = if grouped {
+            Rgba { a: 1.0, ..colour }
         } else {
-            color
+            colour
         };
         if grouped {
-            surface.push_opacity(opacity(color.a));
+            surface.push_opacity(opacity(colour.a));
         }
-        surface.set_fill(Some(fill(paint_color, FillRule::NonZero)));
+        surface.set_fill(Some(fill(paint_colour, FillRule::NonZero)));
         surface.set_stroke(stroked.then(|| Stroke {
-            paint: rgb_color(paint_color).into(),
+            paint: rgb_colour(paint_colour).into(),
             width: stroke_width,
             miter_limit: MITER_LIMIT,
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
-            opacity: opacity(paint_color.a),
+            opacity: opacity(paint_colour.a),
             dash: None,
         }));
         surface.draw_glyphs(
@@ -883,11 +883,11 @@ fn draw_path(surface: &mut Surface<'_>, item: &display::PathItem) {
     };
     let fill = item
         .fill
-        .map(|f| (clamp_color(f.color), f.rule))
-        .filter(|(color, _)| color.a > 0.0)
-        .map(|(color, rule)| {
+        .map(|f| (clamp_colour(f.colour), f.rule))
+        .filter(|(colour, _)| colour.a > 0.0)
+        .map(|(colour, rule)| {
             fill(
-                color,
+                colour,
                 match rule {
                     display::FillRule::NonZero => FillRule::NonZero,
                     display::FillRule::EvenOdd => FillRule::EvenOdd,
@@ -937,12 +937,12 @@ fn draw_markers(surface: &mut Surface<'_>, item: &display::MarkersItem) {
             .collect();
         let path = display::PathItem {
             segments,
-            fill: instance.face.map(|color| display::Fill {
-                color,
+            fill: instance.face.map(|colour| display::Fill {
+                colour,
                 rule: display::FillRule::NonZero,
             }),
-            stroke: instance.edge.map(|color| display::Stroke {
-                color,
+            stroke: instance.edge.map(|colour| display::Stroke {
+                colour,
                 width: item.edge_width,
                 dash: Vec::new(),
                 dash_offset: 0.0,
@@ -1078,29 +1078,29 @@ struct Samples {
     width: u32,
     height: u32,
     /// `width · height · 3` bytes of red, green and blue.
-    color: std::sync::Arc<[u8]>,
+    colour: std::sync::Arc<[u8]>,
     /// `width · height` bytes of straight alpha, or `None` when the image is opaque.
     alpha: Option<std::sync::Arc<[u8]>>,
 }
 
 impl Samples {
     fn new(item: &display::ImageItem) -> Self {
-        let (color, alpha) = if item.channels == display::ImageItem::RGB {
+        let (colour, alpha) = if item.channels == display::ImageItem::RGB {
             (item.samples.clone(), None)
         } else {
             let pixels = item.samples.len() / usize::from(display::ImageItem::RGBA);
-            let mut color = Vec::with_capacity(pixels * usize::from(display::ImageItem::RGB));
+            let mut colour = Vec::with_capacity(pixels * usize::from(display::ImageItem::RGB));
             let mut alpha = Vec::with_capacity(pixels);
             for pixel in item.samples.as_chunks::<4>().0 {
-                color.extend_from_slice(&pixel[..3]);
+                colour.extend_from_slice(&pixel[..3]);
                 alpha.push(pixel[3]);
             }
-            (color.into(), Some(alpha.into()))
+            (colour.into(), Some(alpha.into()))
         };
         Self {
             width: item.width,
             height: item.height,
-            color,
+            colour,
             alpha,
         }
     }
@@ -1108,7 +1108,7 @@ impl Samples {
 
 impl krilla::image::CustomImage for Samples {
     fn color_channel(&self) -> &[u8] {
-        &self.color
+        &self.colour
     }
 
     fn alpha_channel(&self) -> Option<&[u8]> {
@@ -1186,12 +1186,12 @@ fn convert_stroke(stroke: &display::Stroke) -> Option<Option<Stroke>> {
         }
         Some(StrokeDash { array, offset })
     };
-    let color = clamp_color(stroke.color);
-    if color.a <= 0.0 {
+    let colour = clamp_colour(stroke.colour);
+    if colour.a <= 0.0 {
         return Some(None);
     }
     Some(Some(Stroke {
-        paint: rgb_color(color).into(),
+        paint: rgb_colour(colour).into(),
         width,
         miter_limit: MITER_LIMIT,
         line_cap: match stroke.cap {
@@ -1204,7 +1204,7 @@ fn convert_stroke(stroke: &display::Stroke) -> Option<Option<Stroke>> {
             display::LineJoin::Round => LineJoin::Round,
             display::LineJoin::Bevel => LineJoin::Bevel,
         },
-        opacity: opacity(color.a),
+        opacity: opacity(colour.a),
         dash,
     }))
 }
@@ -1361,20 +1361,20 @@ fn text_range_is_valid(text: &str, range: &std::ops::Range<usize>) -> bool {
 }
 
 /// Clamps every channel of a colour to `[0, 1]`, treating NaN as 0.
-fn clamp_color(color: Rgba) -> Rgba {
+fn clamp_colour(colour: Rgba) -> Rgba {
     let clamp = |v: f32| if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) };
     Rgba::new(
-        clamp(color.r),
-        clamp(color.g),
-        clamp(color.b),
-        clamp(color.a),
+        clamp(colour.r),
+        clamp(colour.g),
+        clamp(colour.b),
+        clamp(colour.a),
     )
 }
 
 /// Converts the colour channels of a clamped colour to 8-bit RGB.
-fn rgb_color(color: Rgba) -> rgb::Color {
+fn rgb_colour(colour: Rgba) -> rgb::Color {
     let byte = |v: f32| (v * 255.0).round() as u8;
-    rgb::Color::new(byte(color.r), byte(color.g), byte(color.b))
+    rgb::Color::new(byte(colour.r), byte(colour.g), byte(colour.b))
 }
 
 /// Converts a clamped alpha to a krilla opacity.
@@ -1383,10 +1383,10 @@ fn opacity(alpha: f32) -> NormalizedF32 {
 }
 
 /// A fill in a clamped colour, with the colour's alpha as its opacity.
-fn fill(color: Rgba, rule: FillRule) -> Fill {
+fn fill(colour: Rgba, rule: FillRule) -> Fill {
     Fill {
-        paint: rgb_color(color).into(),
-        opacity: opacity(color.a),
+        paint: rgb_colour(colour).into(),
+        opacity: opacity(colour.a),
         rule,
     }
 }

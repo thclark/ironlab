@@ -44,31 +44,31 @@ const INDEXED_SCALE: NodeId = NodeId(901);
 /// that no artist names raises no issue, so the scales are added whether or not an
 /// artist uses them.
 fn give_scales(fig: &mut Figure) {
-    fig.color_scales.push(ColorScale {
+    fig.colour_scales.push(ColourScale {
         id: SCALE,
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
-    fig.color_scales.push(ColorScale {
+    fig.colour_scales.push(ColourScale {
         id: INDEXED_SCALE,
-        kind: ColorScaleKind::Indexed(IndexedColorScale {
-            colors: (0..=255u8)
+        kind: ColourScaleKind::Indexed(IndexedColourScale {
+            colours: (0..=255u8)
                 .map(|k| {
                     let v = f32::from(k) / 255.0;
-                    Color::rgb(v, v, v)
+                    Colour::rgb(v, v, v)
                 })
                 .collect(),
-            outside: ColorScaleOutOfRange::new(OutOfRange::Transparent),
-            ..IndexedColorScale::default()
+            outside: ColourScaleOutOfRange::new(OutOfRange::Transparent),
+            ..IndexedColourScale::default()
         }),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     for artist in fig.axes.iter_mut().flat_map(|axes| axes.artists.iter_mut()) {
         let reference = match artist {
-            Artist::ScalarImage(a) => &mut a.color_scale,
-            Artist::Contour(a) => &mut a.color_scale,
-            Artist::Surface(a) => &mut a.color_scale,
-            Artist::Cells(a) => &mut a.color_scale,
-            Artist::Series(a) if a.color_data.is_some() => &mut a.color_scale,
+            Artist::ScalarImage(a) => &mut a.colour_scale,
+            Artist::Contour(a) => &mut a.colour_scale,
+            Artist::Surface(a) => &mut a.colour_scale,
+            Artist::Cells(a) => &mut a.colour_scale,
+            Artist::Series(a) if a.colour_data.is_some() => &mut a.colour_scale,
             Artist::Series(_)
             | Artist::Quiver(_)
             | Artist::Image(_)
@@ -402,8 +402,8 @@ fn marker_size_or_colour_data_of_the_wrong_length_is_a_shape_mismatch() {
             id,
             x: d.p,
             y: d.q,
-            color_data: Some(d.short),
-            color_scale: Some(SCALE),
+            colour_data: Some(d.short),
+            colour_scale: Some(SCALE),
             ..markers()
         })
     });
@@ -1426,7 +1426,7 @@ fn log_axis_warning_ignores_data_not_plotted_along_that_axis() {
             id: scatter,
             x: positions,
             y: positions,
-            color_data: Some(components),
+            colour_data: Some(components),
             ..markers()
         }),
     );
@@ -1463,7 +1463,7 @@ fn log_axis_warning_ignores_data_not_plotted_along_that_axis() {
 #[test]
 fn invalid_manual_limits_are_errors_on_the_axes() {
     let scale_limits = |fig: &mut Figure, limits: Limits| {
-        fig.color_scales.push(continuous_scale(
+        fig.colour_scales.push(continuous_scale(
             SCALE,
             limits,
             [
@@ -1671,7 +1671,7 @@ fn indexed_at(id: NodeId, indices: NodeId, placement: ImagePlacement) -> Artist 
     Artist::ScalarImage(ScalarImage {
         id,
         values: indices,
-        color_scale: Some(INDEXED_SCALE),
+        colour_scale: Some(INDEXED_SCALE),
         placement,
         ..ScalarImage::default()
     })
@@ -1683,7 +1683,7 @@ fn mapped_at(id: NodeId, values: NodeId, placement: ImagePlacement) -> Artist {
     Artist::ScalarImage(ScalarImage {
         id,
         values,
-        color_scale: Some(SCALE),
+        colour_scale: Some(SCALE),
         placement,
         ..ScalarImage::default()
     })
@@ -1691,16 +1691,16 @@ fn mapped_at(id: NodeId, values: NodeId, placement: ImagePlacement) -> Artist {
 
 /// A 256-entry indexed scale whose policies outside its entries and for non-finite values
 /// are the given ones.
-fn indexed_scale(id: NodeId, [outside, non_finite]: [OutOfRange; 2]) -> ColorScale {
-    ColorScale {
+fn indexed_scale(id: NodeId, [outside, non_finite]: [OutOfRange; 2]) -> ColourScale {
+    ColourScale {
         id,
-        kind: ColorScaleKind::Indexed(IndexedColorScale {
-            colors: vec![Color::BLACK; 256],
-            outside: ColorScaleOutOfRange::new(outside),
-            ..IndexedColorScale::default()
+        kind: ColourScaleKind::Indexed(IndexedColourScale {
+            colours: vec![Colour::BLACK; 256],
+            outside: ColourScaleOutOfRange::new(outside),
+            ..IndexedColourScale::default()
         }),
-        non_finite: ColorScaleOutOfRange::new(non_finite),
-        ..ColorScale::default()
+        non_finite: ColourScaleOutOfRange::new(non_finite),
+        ..ColourScale::default()
     }
 }
 
@@ -1710,17 +1710,17 @@ fn continuous_scale(
     id: NodeId,
     limits: Limits,
     [below, above, non_finite]: [OutOfRange; 3],
-) -> ColorScale {
-    ColorScale {
+) -> ColourScale {
+    ColourScale {
         id,
-        kind: ColorScaleKind::Continuous(ContinuousColorScale {
+        kind: ColourScaleKind::Continuous(ContinuousColourScale {
             limits,
-            below: ColorScaleOutOfRange::new(below),
-            above: ColorScaleOutOfRange::new(above),
-            ..ContinuousColorScale::default()
+            below: ColourScaleOutOfRange::new(below),
+            above: ColourScaleOutOfRange::new(above),
+            ..ContinuousColourScale::default()
         }),
-        non_finite: ColorScaleOutOfRange::new(non_finite),
-        ..ColorScale::default()
+        non_finite: ColourScaleOutOfRange::new(non_finite),
+        ..ColourScale::default()
     }
 }
 
@@ -1729,11 +1729,11 @@ const OWN_SCALE: NodeId = NodeId(950);
 
 /// Makes the single scalar image of a fixture name the given scale, under the identifier
 /// [`OWN_SCALE`], which the fixture gains.
-fn with_scale(fx: &mut GridFixture, mut scale: ColorScale) {
+fn with_scale(fx: &mut GridFixture, mut scale: ColourScale) {
     scale.id = OWN_SCALE;
-    fx.fig.color_scales.push(scale);
+    fx.fig.colour_scales.push(scale);
     match &mut fx.fig.axes[0].artists[0] {
-        Artist::ScalarImage(a) => a.color_scale = Some(OWN_SCALE),
+        Artist::ScalarImage(a) => a.colour_scale = Some(OWN_SCALE),
         other => panic!("expected a scalar image, found {other:?}"),
     }
 }
@@ -1869,7 +1869,7 @@ fn image_pixels_must_be_three_dimensional_with_three_or_four_components() {
 // vector or a stack of matrices has no rows and columns to place; validation must refuse
 // them as shape mismatches only, and accept a matrix of floats or of bytes, because
 // 8-bit indices are the natural form of a colour-indexed image and 8-bit values map
-// through the colormap like any others. A matrix with no pixels along a dimension has
+// through the colourmap like any others. A matrix with no pixels along a dimension has
 // the right shape and is accepted too; that it is then reported as having nothing to
 // draw is pinned in
 // `an_image_with_no_rows_or_no_columns_is_a_warning_that_the_image_draws_nothing`.
@@ -2659,7 +2659,7 @@ fn lenient_policies_accept_every_pixel() {
         OutOfRange::Transparent,
         OutOfRange::Clamp,
         OutOfRange::Rgba {
-            color: Color::BLACK,
+            colour: Colour::BLACK,
         },
     ];
     // Below the entries or the limits, above them, non-finite, fractional, and inside.
@@ -3220,7 +3220,8 @@ fn an_explicit_legend_item_naming_an_artist_outside_its_scope_is_dangling() {
 #[test]
 fn a_repeated_legend_item_is_a_warning_and_the_figure_stays_valid() {
     let (base, axes, lines, panel) = two_axes_and_a_panel();
-    let swatch = |label: &str, color: Color| LegendItem::custom(LegendSample::swatch(color), label);
+    let swatch =
+        |label: &str, colour: Colour| LegendItem::custom(LegendSample::swatch(colour), label);
     let on_own_row = |item: LegendItem| LegendItem {
         full_row: true,
         ..item
@@ -3237,7 +3238,10 @@ fn a_repeated_legend_item_is_a_warning_and_the_figure_stays_valid() {
         ),
         (
             "a custom item",
-            vec![swatch("upper", Color::BLACK), swatch("upper", Color::BLACK)],
+            vec![
+                swatch("upper", Colour::BLACK),
+                swatch("upper", Colour::BLACK),
+            ],
         ),
     ] {
         let mut fig = base.clone();
@@ -3255,10 +3259,10 @@ fn a_repeated_legend_item_is_a_warning_and_the_figure_stays_valid() {
     // distinct items.
     let mut fig = base.clone();
     panel_legend_mut(&mut fig.panels[0]).entries = explicit([
-        swatch("upper", Color::BLACK),
-        swatch("lower", Color::BLACK),
-        swatch("upper", Color::WHITE),
-        LegendItem::custom(LegendSample::line(Color::BLACK), "upper"),
+        swatch("upper", Colour::BLACK),
+        swatch("lower", Colour::BLACK),
+        swatch("upper", Colour::WHITE),
+        LegendItem::custom(LegendSample::line(Colour::BLACK), "upper"),
     ]);
     assert_eq!(fig.validate().warnings, vec![], "distinct custom items");
 
@@ -3312,7 +3316,7 @@ fn an_explicit_item_naming_an_artist_without_a_label_is_a_warning() {
 fn a_panel_with_an_explicit_list_has_nothing_to_draw_only_when_the_list_is_empty() {
     let (mut fig, _, _, panel) = two_axes_and_a_panel();
     panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::custom(
-        LegendSample::marker(MarkerShape::Circle, Color::BLACK),
+        LegendSample::marker(MarkerShape::Circle, Colour::BLACK),
         "measured",
     )]);
     let report = fig.validate();
@@ -3346,7 +3350,7 @@ fn an_item_on_a_row_of_its_own_is_valid_with_automatic_columns() {
     let (mut fig, _, lines, _) = two_axes_and_a_panel();
     let full_row = LegendItem {
         full_row: true,
-        ..LegendItem::custom(LegendSample::swatch(Color::BLACK), "a long heading")
+        ..LegendItem::custom(LegendSample::swatch(Colour::BLACK), "a long heading")
     };
     let automatic = LegendEntryLayout {
         columns: LegendEntryColumns::Auto,
@@ -3997,7 +4001,7 @@ fn image_alpha_must_have_the_shape_of_the_indices_or_values_and_may_be_bytes() {
             Artist::ScalarImage(ScalarImage {
                 id,
                 values: data,
-                color_scale: Some(INDEXED_SCALE),
+                colour_scale: Some(INDEXED_SCALE),
                 alpha: Some(alpha),
                 ..ScalarImage::default()
             })
@@ -4006,7 +4010,7 @@ fn image_alpha_must_have_the_shape_of_the_indices_or_values_and_may_be_bytes() {
             Artist::ScalarImage(ScalarImage {
                 id,
                 values: data,
-                color_scale: Some(SCALE),
+                colour_scale: Some(SCALE),
                 alpha: Some(alpha),
                 ..ScalarImage::default()
             })

@@ -2,47 +2,47 @@
 //! colours, and the classification of a value against a scale that validation and the
 //! scene compiler share.
 //!
-//! A colour scale is a node of the figure, in [`Figure::color_scales`](crate::Figure),
-//! that artists name by its identifier. The axes hold no colormap or limits, and nothing
+//! A colour scale is a node of the figure, in [`Figure::colour_scales`](crate::Figure),
+//! that artists name by its identifier. The axes hold no colourmap or limits, and nothing
 //! is inherited: every artist that maps values to colours names its scale explicitly,
 //! and any artist that takes a scale accepts a scale of any kind. A scale's kind fixes
 //! both how values become colours and how the scale is drawn:
 //!
-//! - a [continuous](ContinuousColorScale) scale interpolates a colormap between its
+//! - a [continuous](ContinuousColourScale) scale interpolates a colourmap between its
 //!   limits and is drawn as a smooth bar;
-//! - a [discrete](DiscreteColorScale) scale gives every value the single colour of the
+//! - a [discrete](DiscreteColourScale) scale gives every value the single colour of the
 //!   band it falls in and is drawn as a bar of bands;
-//! - an [indexed](IndexedColorScale) scale is a palette, of which a whole number `i`
+//! - an [indexed](IndexedColourScale) scale is a palette, of which a whole number `i`
 //!   takes entry `i`, drawn as a bar of adjoining blocks;
-//! - a [categorical](CategoricalColorScale) scale maps a whole number `i` to category
+//! - a [categorical](CategoricalColourScale) scale maps a whole number `i` to category
 //!   `i`, drawn as separate outlined squares, each with its label.
 //!
 //! Values that a scale cannot place fall into categories, each with a policy of its own
-//! ([`ColorScaleOutOfRange`]): `below` and `above` the range of a continuous or discrete
+//! ([`ColourScaleOutOfRange`]): `below` and `above` the range of a continuous or discrete
 //! scale, `outside` the entries of an indexed or categorical scale, and `non_finite` on
-//! every kind. [`ColorScaleDomain::classify`] decides which category a value falls into,
-//! and [`ColorScale::category`] returns the category's policy, so that validation and
+//! every kind. [`ColourScaleDomain::classify`] decides which category a value falls into,
+//! and [`ColourScale::category`] returns the category's policy, so that validation and
 //! drawing apply the same rule.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::artist::Artist;
-use crate::axes::{ColormapName, Limits, TickLabels, Ticks};
+use crate::axes::{ColourmapName, Limits, TickLabels, Ticks};
 use crate::data::Values;
 use crate::figure::Figure;
 use crate::ids::NodeId;
-use crate::style::{Color, ColorSpec};
+use crate::style::{Colour, ColourSpec};
 use crate::text::Text;
 
 /// A colour scale: a node of the figure that turns numbers into colours, which
 /// colour-mapped artists name by its identifier.
 ///
 /// In JSON the kind is an object whose `type` names the kind and whose `value` holds it,
-/// such as `{"type": "continuous", "value": {"colormap": ..., "limits": ...}}`.
+/// such as `{"type": "continuous", "value": {"colourmap": ..., "limits": ...}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct ColorScale {
+pub struct ColourScale {
     /// The node identifier of the scale, unique within the figure.
     pub id: NodeId,
     /// The title drawn with the scale: above a colourbar that shows it, and as the label
@@ -50,22 +50,22 @@ pub struct ColorScale {
     #[schemars(default)]
     pub title: Option<Text>,
     /// How values become colours and how the scale is drawn.
-    pub kind: ColorScaleKind,
+    pub kind: ColourScaleKind,
     /// What is drawn for a value that is NaN or infinite, on every kind of scale. The
     /// policy is transparent by default, because a non-finite value is the author's way
     /// of saying that nothing is drawn there.
-    pub non_finite: ColorScaleOutOfRange,
+    pub non_finite: ColourScaleOutOfRange,
 }
 
-impl Default for ColorScale {
+impl Default for ColourScale {
     /// A continuous scale with the defaults of its kind, no title, and non-finite values
     /// drawn as nothing without a key.
     fn default() -> Self {
         Self {
             id: NodeId::default(),
             title: None,
-            kind: ColorScaleKind::default(),
-            non_finite: ColorScaleOutOfRange::new(OutOfRange::Transparent),
+            kind: ColourScaleKind::default(),
+            non_finite: ColourScaleOutOfRange::new(OutOfRange::Transparent),
         }
     }
 }
@@ -76,10 +76,10 @@ impl Default for ColorScale {
 ///
 /// The type has no single default, because the default policy differs by category:
 /// clamping below and above, strict outside the entries, and transparent for non-finite
-/// values. [`ColorScaleOutOfRange::new`] builds a category of a given policy.
+/// values. [`ColourScaleOutOfRange::new`] builds a category of a given policy.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct ColorScaleOutOfRange {
+pub struct ColourScaleOutOfRange {
     /// What is drawn for a value of the category.
     pub policy: OutOfRange,
     /// Whether a colourbar that shows the scale draws a key square for the category,
@@ -92,7 +92,7 @@ pub struct ColorScaleOutOfRange {
     pub label: Option<Text>,
 }
 
-impl ColorScaleOutOfRange {
+impl ColourScaleOutOfRange {
     /// Returns a category of the given policy, without a key and with the default label.
     #[must_use]
     pub fn new(policy: OutOfRange) -> Self {
@@ -107,7 +107,7 @@ impl ColorScaleOutOfRange {
 /// What is drawn for a value that a colour scale cannot place within its range: a value
 /// below or above the range, outside the entries, or not finite.
 ///
-/// Each category of such values holds a policy of its own (see [`ColorScaleOutOfRange`]),
+/// Each category of such values holds a policy of its own (see [`ColourScaleOutOfRange`]),
 /// so that, for example, non-finite values may be tolerated while values outside the
 /// range are refused, or the reverse.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -122,21 +122,21 @@ pub enum OutOfRange {
     Transparent,
     /// The value takes the nearest end colour of the scale: its first colour below the
     /// range and its last colour above it. An index outside the entries of an indexed or
-    /// categorical scale is truncated toward zero and then clamped to the first or last
+    /// categorical scale is truncated towards zero and then clamped to the first or last
     /// entry. A non-finite value has no nearest end, so at the `non_finite` category a
     /// clamp draws nothing.
     Clamp,
     /// The value is drawn in a fixed colour.
     Rgba {
         /// The colour in which the value is drawn.
-        color: Color,
+        colour: Colour,
     },
 }
 
-impl From<Color> for OutOfRange {
+impl From<Colour> for OutOfRange {
     /// A colour is the fixed-colour policy: such a value is drawn in that colour.
-    fn from(color: Color) -> Self {
-        OutOfRange::Rgba { color }
+    fn from(colour: Colour) -> Self {
+        OutOfRange::Rgba { colour }
     }
 }
 
@@ -144,91 +144,91 @@ impl From<Color> for OutOfRange {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
-pub enum ColorScaleKind {
-    /// A colormap interpolated between limits, drawn as a smooth bar.
-    Continuous(ContinuousColorScale),
-    /// Bands between edges, each in one colour of a colormap, drawn as a bar of bands.
-    Discrete(DiscreteColorScale),
+pub enum ColourScaleKind {
+    /// A colourmap interpolated between limits, drawn as a smooth bar.
+    Continuous(ContinuousColourScale),
+    /// Bands between edges, each in one colour of a colourmap, drawn as a bar of bands.
+    Discrete(DiscreteColourScale),
     /// A palette of which a whole number `i` takes entry `i`, drawn as a bar of adjoining
     /// blocks.
-    Indexed(IndexedColorScale),
+    Indexed(IndexedColourScale),
     /// Labelled categories of which a whole number `i` takes category `i`, drawn as
     /// separate outlined squares.
-    Categorical(CategoricalColorScale),
+    Categorical(CategoricalColourScale),
 }
 
-impl Default for ColorScaleKind {
+impl Default for ColourScaleKind {
     /// A continuous scale with the defaults of its kind.
     fn default() -> Self {
-        ColorScaleKind::Continuous(ContinuousColorScale::default())
+        ColourScaleKind::Continuous(ContinuousColourScale::default())
     }
 }
 
-/// A continuous colour scale: a colormap interpolated between two limits, in linear or
+/// A continuous colour scale: a colourmap interpolated between two limits, in linear or
 /// logarithmic space.
 ///
 /// A value exactly at a limit lies inside the range.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct ContinuousColorScale {
+pub struct ContinuousColourScale {
     /// The palette that the scale interpolates.
-    pub colormap: Colormap,
-    /// The values mapped to the first and last colours of the colormap. Automatic limits
+    pub colourmap: Colourmap,
+    /// The values mapped to the first and last colours of the colourmap. Automatic limits
     /// are the exact range of the finite values (the positive finite values under a
     /// logarithmic norm) of every artist that maps values through the scale, in every
     /// axes, hidden artists included. Manual limits must be finite and strictly
     /// increasing, and positive under a logarithmic norm.
     pub limits: Limits,
     /// Whether values are interpolated in linear or logarithmic space.
-    pub norm: ColorScaleNorm,
+    pub norm: ColourScaleNorm,
     /// What is drawn for a value below the lower limit; clamped by default. Under a
     /// logarithmic norm a value that is not positive lies below the range.
-    pub below: ColorScaleOutOfRange,
+    pub below: ColourScaleOutOfRange,
     /// What is drawn for a value above the upper limit; clamped by default.
-    pub above: ColorScaleOutOfRange,
+    pub above: ColourScaleOutOfRange,
     /// Where the ticks of a colourbar that shows the scale are placed.
     pub ticks: Ticks,
     /// What is written at the ticks of a colourbar that shows the scale.
     pub tick_labels: TickLabels,
 }
 
-impl Default for ContinuousColorScale {
+impl Default for ContinuousColourScale {
     /// Viridis between automatic limits in linear space, clamping values beyond them,
     /// with automatic ticks and tick labels.
     fn default() -> Self {
         Self {
-            colormap: Colormap::default(),
+            colourmap: Colourmap::default(),
             limits: Limits::Auto,
-            norm: ColorScaleNorm::Linear,
-            below: ColorScaleOutOfRange::new(OutOfRange::Clamp),
-            above: ColorScaleOutOfRange::new(OutOfRange::Clamp),
+            norm: ColourScaleNorm::Linear,
+            below: ColourScaleOutOfRange::new(OutOfRange::Clamp),
+            above: ColourScaleOutOfRange::new(OutOfRange::Clamp),
             ticks: Ticks::Auto,
             tick_labels: TickLabels::Auto,
         }
     }
 }
 
-/// A discrete colour scale: bands between edges, each drawn in one colour of a colormap.
+/// A discrete colour scale: bands between edges, each drawn in one colour of a colourmap.
 ///
-/// With k bands, band i takes the colour of the colormap at i / (k − 1), so both ends of
-/// the colormap are used; a single band takes the colour at the start. A value exactly on
+/// With k bands, band i takes the colour of the colourmap at i / (k − 1), so both ends of
+/// the colourmap are used; a single band takes the colour at the start. A value exactly on
 /// an edge between two bands belongs to the upper band, and a value exactly at the first
 /// or last edge lies inside the range. Every artist that names the scale is banded, a
 /// smooth surface included, so that the bar that shows the scale is truthful.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct DiscreteColorScale {
+pub struct DiscreteColourScale {
     /// The palette from which the bands take their colours.
-    pub colormap: Colormap,
+    pub colourmap: Colourmap,
     /// The edges of the bands.
-    pub levels: ColorScaleLevels,
-    /// Whether band edges are chosen, and the colormap sampled, in linear or logarithmic
+    pub levels: ColourScaleLevels,
+    /// Whether band edges are chosen, and the colourmap sampled, in linear or logarithmic
     /// space.
-    pub norm: ColorScaleNorm,
+    pub norm: ColourScaleNorm,
     /// What is drawn for a value below the first edge; clamped by default.
-    pub below: ColorScaleOutOfRange,
+    pub below: ColourScaleOutOfRange,
     /// What is drawn for a value above the last edge; clamped by default.
-    pub above: ColorScaleOutOfRange,
+    pub above: ColourScaleOutOfRange,
     /// Where the ticks of a colourbar that shows the scale are placed; automatic ticks
     /// are one per band edge.
     pub ticks: Ticks,
@@ -236,16 +236,16 @@ pub struct DiscreteColorScale {
     pub tick_labels: TickLabels,
 }
 
-impl Default for DiscreteColorScale {
+impl Default for DiscreteColourScale {
     /// Viridis in ten automatic bands between automatic limits in linear space, clamping
     /// values beyond them, with automatic ticks and tick labels.
     fn default() -> Self {
         Self {
-            colormap: Colormap::default(),
-            levels: ColorScaleLevels::default(),
-            norm: ColorScaleNorm::Linear,
-            below: ColorScaleOutOfRange::new(OutOfRange::Clamp),
-            above: ColorScaleOutOfRange::new(OutOfRange::Clamp),
+            colourmap: Colourmap::default(),
+            levels: ColourScaleLevels::default(),
+            norm: ColourScaleNorm::Linear,
+            below: ColourScaleOutOfRange::new(OutOfRange::Clamp),
+            above: ColourScaleOutOfRange::new(OutOfRange::Clamp),
             ticks: Ticks::Auto,
             tick_labels: TickLabels::Auto,
         }
@@ -256,7 +256,7 @@ impl Default for DiscreteColorScale {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum ColorScaleLevels {
+pub enum ColourScaleLevels {
     /// Edges at nice values from the lower limit to the upper limit, which are the first
     /// and last edges.
     Auto {
@@ -274,10 +274,10 @@ pub enum ColorScaleLevels {
     },
 }
 
-impl Default for ColorScaleLevels {
+impl Default for ColourScaleLevels {
     /// Ten bands between automatic limits.
     fn default() -> Self {
-        ColorScaleLevels::Auto {
+        ColourScaleLevels::Auto {
             count: 10,
             limits: Limits::Auto,
         }
@@ -291,12 +291,12 @@ impl Default for ColorScaleLevels {
 /// follows `outside`. An array of 8-bit values holds whole numbers only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct IndexedColorScale {
+pub struct IndexedColourScale {
     /// The entries of the palette; at least one.
-    pub colors: Vec<Color>,
+    pub colours: Vec<Colour>,
     /// What is drawn for a value that names no entry; strict by default, so that such a
     /// value is a validation error.
-    pub outside: ColorScaleOutOfRange,
+    pub outside: ColourScaleOutOfRange,
     /// Where the ticks of a colourbar that shows the scale are placed, at the centres of
     /// the entries; automatic ticks fall on whole numbers only.
     pub ticks: Ticks,
@@ -304,12 +304,12 @@ pub struct IndexedColorScale {
     pub tick_labels: TickLabels,
 }
 
-impl Default for IndexedColorScale {
+impl Default for IndexedColourScale {
     /// No entries, strict outside them, with automatic ticks and tick labels.
     fn default() -> Self {
         Self {
-            colors: Vec::new(),
-            outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+            colours: Vec::new(),
+            outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
             ticks: Ticks::Auto,
             tick_labels: TickLabels::Auto,
         }
@@ -324,20 +324,20 @@ impl Default for IndexedColorScale {
 /// follows `outside`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct CategoricalColorScale {
+pub struct CategoricalColourScale {
     /// The categories; at least one.
-    pub categories: Vec<ColorCategory>,
+    pub categories: Vec<ColourCategory>,
     /// What is drawn for a value that names no category; strict by default, so that such
     /// a value is a validation error.
-    pub outside: ColorScaleOutOfRange,
+    pub outside: ColourScaleOutOfRange,
 }
 
-impl Default for CategoricalColorScale {
+impl Default for CategoricalColourScale {
     /// No categories, strict outside them.
     fn default() -> Self {
         Self {
             categories: Vec::new(),
-            outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+            outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
         }
     }
 }
@@ -346,9 +346,9 @@ impl Default for CategoricalColorScale {
 /// that shows the scale draws beside the colour.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct ColorCategory {
+pub struct ColourCategory {
     /// The colour of the category.
-    pub color: Color,
+    pub colour: Colour,
     /// The label drawn beside the colour; required, so that every category can be told
     /// apart in a key.
     pub label: Text,
@@ -358,36 +358,36 @@ pub struct ColorCategory {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum Colormap {
-    /// A bundled colormap.
+pub enum Colourmap {
+    /// A bundled colourmap.
     Named {
-        /// The name of the colormap.
-        name: ColormapName,
-        /// Whether the colormap runs from its last colour to its first.
+        /// The name of the colourmap.
+        name: ColourmapName,
+        /// Whether the colourmap runs from its last colour to its first.
         reverse: bool,
     },
     /// A list of colours, interpolated linearly in sRGB from the first, at the start of
     /// the scale, to the last, at its end.
     Listed {
         /// The colours: from 2 to 1024.
-        colors: Vec<Color>,
+        colours: Vec<Colour>,
     },
 }
 
-impl Default for Colormap {
+impl Default for Colourmap {
     /// Viridis, not reversed.
     fn default() -> Self {
-        Colormap::Named {
-            name: ColormapName::Viridis,
+        Colourmap::Named {
+            name: ColourmapName::Viridis,
             reverse: false,
         }
     }
 }
 
-impl From<ColormapName> for Colormap {
-    /// A name is the bundled colormap of that name, not reversed.
-    fn from(name: ColormapName) -> Self {
-        Colormap::Named {
+impl From<ColourmapName> for Colourmap {
+    /// A name is the bundled colourmap of that name, not reversed.
+    fn from(name: ColourmapName) -> Self {
+        Colourmap::Named {
             name,
             reverse: false,
         }
@@ -398,7 +398,7 @@ impl From<ColormapName> for Colormap {
 /// limits.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ColorScaleNorm {
+pub enum ColourScaleNorm {
     /// Positions are proportional to values.
     #[default]
     Linear,
@@ -407,13 +407,13 @@ pub enum ColorScaleNorm {
     Log,
 }
 
-/// The fewest colours of a listed colormap, which interpolation between colours needs.
-pub const LISTED_COLORMAP_MIN: usize = 2;
+/// The fewest colours of a listed colourmap, which interpolation between colours needs.
+pub const LISTED_COLOURMAP_MIN: usize = 2;
 
-/// The most colours of a listed colormap.
-pub const LISTED_COLORMAP_MAX: usize = 1024;
+/// The most colours of a listed colourmap.
+pub const LISTED_COLOURMAP_MAX: usize = 1024;
 
-impl ColorScaleNorm {
+impl ColourScaleNorm {
     /// Returns the automatic limits of a scale of this norm over the given values: the
     /// least and greatest finite values, or, under a logarithmic norm, the least and
     /// greatest positive finite values. Returns `None` when there is no such value.
@@ -422,7 +422,7 @@ impl ColorScaleNorm {
     pub fn automatic_limits(self, values: impl IntoIterator<Item = f64>) -> Option<(f64, f64)> {
         values
             .into_iter()
-            .filter(|v| v.is_finite() && (self == ColorScaleNorm::Linear || *v > 0.0))
+            .filter(|v| v.is_finite() && (self == ColourScaleNorm::Linear || *v > 0.0))
             .fold(None, |range, v| match range {
                 None => Some((v, v)),
                 Some((min, max)) => Some((f64::min(min, v), f64::max(max, v))),
@@ -430,15 +430,17 @@ impl ColorScaleNorm {
     }
 }
 
-impl ColorScaleKind {
+impl ColourScaleKind {
     /// Returns the norm of the scale; an indexed or categorical scale, which has none,
     /// places its entries linearly.
     #[must_use]
-    pub fn norm(&self) -> ColorScaleNorm {
+    pub fn norm(&self) -> ColourScaleNorm {
         match self {
-            ColorScaleKind::Continuous(scale) => scale.norm,
-            ColorScaleKind::Discrete(scale) => scale.norm,
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => ColorScaleNorm::Linear,
+            ColourScaleKind::Continuous(scale) => scale.norm,
+            ColourScaleKind::Discrete(scale) => scale.norm,
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {
+                ColourScaleNorm::Linear
+            }
         }
     }
 
@@ -447,9 +449,9 @@ impl ColorScaleKind {
     #[must_use]
     pub fn entry_count(&self) -> Option<usize> {
         match self {
-            ColorScaleKind::Indexed(scale) => Some(scale.colors.len()),
-            ColorScaleKind::Categorical(scale) => Some(scale.categories.len()),
-            ColorScaleKind::Continuous(_) | ColorScaleKind::Discrete(_) => None,
+            ColourScaleKind::Indexed(scale) => Some(scale.colours.len()),
+            ColourScaleKind::Categorical(scale) => Some(scale.categories.len()),
+            ColourScaleKind::Continuous(_) | ColourScaleKind::Discrete(_) => None,
         }
     }
 
@@ -459,19 +461,19 @@ impl ColorScaleKind {
     #[must_use]
     pub fn limits(&self) -> Option<Limits> {
         match self {
-            ColorScaleKind::Continuous(scale) => Some(scale.limits),
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Auto { limits, .. },
+            ColourScaleKind::Continuous(scale) => Some(scale.limits),
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Auto { limits, .. },
                 ..
             }) => Some(*limits),
-            ColorScaleKind::Discrete(_)
-            | ColorScaleKind::Indexed(_)
-            | ColorScaleKind::Categorical(_) => None,
+            ColourScaleKind::Discrete(_)
+            | ColourScaleKind::Indexed(_)
+            | ColourScaleKind::Categorical(_) => None,
         }
     }
 }
 
-impl ColorScale {
+impl ColourScale {
     /// Returns whether the range of the scale depends on the values mapped through it,
     /// which it does when its limits, or the limits of its automatic band edges, are
     /// automatic.
@@ -481,19 +483,19 @@ impl ColorScale {
     }
 
     /// Returns the range of the scale, from the first value inside it to the last, with
-    /// automatic limits taken as `automatic` (as [`Figure::automatic_color_limits`]
+    /// automatic limits taken as `automatic` (as [`Figure::automatic_colour_limits`]
     /// returns them); `None` for an indexed or categorical scale, whose range is its
     /// entries, and for a scale with automatic limits when `automatic` is `None`.
     ///
     /// The range of a continuous scale is its limits, and that of a discrete scale is
     /// the limits of its automatic band edges or its first and last explicit edges.
     ///
-    /// [`Figure::automatic_color_limits`]: crate::Figure::automatic_color_limits
+    /// [`Figure::automatic_colour_limits`]: crate::Figure::automatic_colour_limits
     #[must_use]
     pub fn range(&self, automatic: Option<(f64, f64)>) -> Option<(f64, f64)> {
         match &self.kind {
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Explicit { values },
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Explicit { values },
                 ..
             }) => Some((*values.first()?, *values.last()?)),
             kind => match kind.limits()? {
@@ -509,31 +511,31 @@ impl ColorScale {
     /// Returns `None` for a scale with automatic limits, and for a discrete scale with
     /// automatic edges, whose edges the scene compiler chooses.
     #[must_use]
-    pub fn fixed_domain(&self) -> Option<ColorScaleDomain> {
+    pub fn fixed_domain(&self) -> Option<ColourScaleDomain> {
         match &self.kind {
-            ColorScaleKind::Continuous(ContinuousColorScale {
+            ColourScaleKind::Continuous(ContinuousColourScale {
                 limits: Limits::Manual { min, max },
                 norm,
                 ..
-            }) => Some(ColorScaleDomain::Continuous {
+            }) => Some(ColourScaleDomain::Continuous {
                 min: *min,
                 max: *max,
                 norm: *norm,
             }),
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Explicit { values },
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Explicit { values },
                 norm,
                 ..
-            }) => Some(ColorScaleDomain::Discrete {
+            }) => Some(ColourScaleDomain::Discrete {
                 edges: values.clone(),
                 norm: *norm,
             }),
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {
-                Some(ColorScaleDomain::Entries {
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {
+                Some(ColourScaleDomain::Entries {
                     count: self.kind.entry_count().unwrap_or_default(),
                 })
             }
-            ColorScaleKind::Continuous(_) | ColorScaleKind::Discrete(_) => None,
+            ColourScaleKind::Continuous(_) | ColourScaleKind::Discrete(_) => None,
         }
     }
 
@@ -546,18 +548,18 @@ impl ColorScale {
     /// never produces (below or above on an index-mapped scale, outside on a continuous or
     /// discrete one) takes the nearest equivalent, so that every class has a category.
     #[must_use]
-    pub fn category(&self, class: ColorScaleClass) -> Option<&ColorScaleOutOfRange> {
+    pub fn category(&self, class: ColourScaleClass) -> Option<&ColourScaleOutOfRange> {
         let (below, above) = match &self.kind {
-            ColorScaleKind::Continuous(scale) => (&scale.below, &scale.above),
-            ColorScaleKind::Discrete(scale) => (&scale.below, &scale.above),
-            ColorScaleKind::Indexed(scale) => (&scale.outside, &scale.outside),
-            ColorScaleKind::Categorical(scale) => (&scale.outside, &scale.outside),
+            ColourScaleKind::Continuous(scale) => (&scale.below, &scale.above),
+            ColourScaleKind::Discrete(scale) => (&scale.below, &scale.above),
+            ColourScaleKind::Indexed(scale) => (&scale.outside, &scale.outside),
+            ColourScaleKind::Categorical(scale) => (&scale.outside, &scale.outside),
         };
         match class {
-            ColorScaleClass::Inside(_) => None,
-            ColorScaleClass::NonFinite => Some(&self.non_finite),
-            ColorScaleClass::Below | ColorScaleClass::Outside => Some(below),
-            ColorScaleClass::Above => Some(above),
+            ColourScaleClass::Inside(_) => None,
+            ColourScaleClass::NonFinite => Some(&self.non_finite),
+            ColourScaleClass::Below | ColourScaleClass::Outside => Some(below),
+            ColourScaleClass::Above => Some(above),
         }
     }
 
@@ -565,31 +567,31 @@ impl ColorScale {
     /// when the kind of the scale has no such category: below or above on an indexed or
     /// categorical scale, and outside on a continuous or discrete one.
     ///
-    /// Unlike [`ColorScale::category`], which gives every class of value a category, this
+    /// Unlike [`ColourScale::category`], which gives every class of value a category, this
     /// never stands one category in for another, so that a colourbar draws each key of
     /// its scale once.
     #[must_use]
-    pub fn key(&self, key: ColorScaleKey) -> Option<&ColorScaleOutOfRange> {
+    pub fn key(&self, key: ColourScaleKey) -> Option<&ColourScaleOutOfRange> {
         match (&self.kind, key) {
-            (_, ColorScaleKey::NonFinite) => Some(&self.non_finite),
-            (ColorScaleKind::Continuous(scale), ColorScaleKey::Below) => Some(&scale.below),
-            (ColorScaleKind::Continuous(scale), ColorScaleKey::Above) => Some(&scale.above),
-            (ColorScaleKind::Discrete(scale), ColorScaleKey::Below) => Some(&scale.below),
-            (ColorScaleKind::Discrete(scale), ColorScaleKey::Above) => Some(&scale.above),
-            (ColorScaleKind::Indexed(scale), ColorScaleKey::Outside) => Some(&scale.outside),
-            (ColorScaleKind::Categorical(scale), ColorScaleKey::Outside) => Some(&scale.outside),
+            (_, ColourScaleKey::NonFinite) => Some(&self.non_finite),
+            (ColourScaleKind::Continuous(scale), ColourScaleKey::Below) => Some(&scale.below),
+            (ColourScaleKind::Continuous(scale), ColourScaleKey::Above) => Some(&scale.above),
+            (ColourScaleKind::Discrete(scale), ColourScaleKey::Below) => Some(&scale.below),
+            (ColourScaleKind::Discrete(scale), ColourScaleKey::Above) => Some(&scale.above),
+            (ColourScaleKind::Indexed(scale), ColourScaleKey::Outside) => Some(&scale.outside),
+            (ColourScaleKind::Categorical(scale), ColourScaleKey::Outside) => Some(&scale.outside),
             _ => None,
         }
     }
 }
 
 /// The out-of-range categories of a colour scale that a colourbar may show as key squares,
-/// separate from the bar; [`ColorScale::key`] returns the category behind each.
+/// separate from the bar; [`ColourScale::key`] returns the category behind each.
 ///
 /// The type is not part of the data model and is never serialised: it names a category in
 /// the scene compiler, the facade and the viewer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ColorScaleKey {
+pub enum ColourScaleKey {
     /// The values below the range of a continuous or discrete scale.
     Below,
     /// The values above the range of a continuous or discrete scale.
@@ -603,11 +605,11 @@ pub enum ColorScaleKey {
 /// The domain of a colour scale with its limits and band edges resolved to numbers, which
 /// classifies values.
 ///
-/// [`ColorScale::fixed_domain`] returns the domain of a scale that does not depend on
+/// [`ColourScale::fixed_domain`] returns the domain of a scale that does not depend on
 /// data. The scene compiler builds the domain of a scale with automatic limits or
 /// automatic band edges from the values mapped through it.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ColorScaleDomain {
+pub enum ColourScaleDomain {
     /// A continuous range from `min` to `max`, both inside it.
     Continuous {
         /// The lower limit.
@@ -615,14 +617,14 @@ pub enum ColorScaleDomain {
         /// The upper limit.
         max: f64,
         /// The space in which values are placed between the limits.
-        norm: ColorScaleNorm,
+        norm: ColourScaleNorm,
     },
     /// Bands between strictly increasing edges.
     Discrete {
         /// The edges of the bands, of which there is one fewer than edges.
         edges: Vec<f64>,
         /// The space in which the edges lie.
-        norm: ColorScaleNorm,
+        norm: ColourScaleNorm,
     },
     /// The entries 0 to `count − 1` of an indexed or categorical scale.
     Entries {
@@ -633,11 +635,11 @@ pub enum ColorScaleDomain {
 
 /// Where a value falls on a colour scale, which decides how it is coloured: inside the
 /// scale, at a slot of it, or in one of the categories of values that the scale cannot
-/// place, each of which follows the policy that [`ColorScale::category`] returns.
+/// place, each of which follows the policy that [`ColourScale::category`] returns.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ColorScaleClass {
+pub enum ColourScaleClass {
     /// The value lies inside the scale, at the given slot.
-    Inside(ColorScaleSlot),
+    Inside(ColourScaleSlot),
     /// The value lies below the range of a continuous or discrete scale: less than its
     /// lower limit or first edge, or, under a logarithmic norm, not positive.
     Below,
@@ -653,7 +655,7 @@ pub enum ColorScaleClass {
 
 /// Where a value inside a colour scale lies, from which its colour follows.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ColorScaleSlot {
+pub enum ColourScaleSlot {
     /// The position along a continuous scale, from 0 at the lower limit to 1 at the
     /// upper limit, measured in the space of the norm. A scale whose limits are equal,
     /// or do not span a finite positive distance in that space, places every value
@@ -665,10 +667,10 @@ pub enum ColorScaleSlot {
     Entry(usize),
 }
 
-impl ColorScaleDomain {
+impl ColourScaleDomain {
     /// Classifies a value against the domain.
     ///
-    /// A non-finite value is [non-finite](ColorScaleClass::NonFinite) on every domain.
+    /// A non-finite value is [non-finite](ColourScaleClass::NonFinite) on every domain.
     /// On a continuous or discrete domain, a value that is not positive under a
     /// logarithmic norm lies below the range, as does a value less than the lower limit or
     /// first edge, and a value greater than the upper limit or last edge lies above it.
@@ -676,23 +678,23 @@ impl ColorScaleDomain {
     /// exactly on an edge between two bands belongs to the upper band. On the entries of
     /// an indexed or categorical scale, a whole number from 0 to `count − 1` (negative
     /// zero included) takes that entry, and every other finite value lies
-    /// [outside](ColorScaleClass::Outside).
+    /// [outside](ColourScaleClass::Outside).
     #[must_use]
-    pub fn classify(&self, value: f64) -> ColorScaleClass {
+    pub fn classify(&self, value: f64) -> ColourScaleClass {
         if !value.is_finite() {
-            return ColorScaleClass::NonFinite;
+            return ColourScaleClass::NonFinite;
         }
         match self {
-            ColorScaleDomain::Continuous { min, max, norm } => {
-                if (*norm == ColorScaleNorm::Log && value <= 0.0) || value < *min {
-                    return ColorScaleClass::Below;
+            ColourScaleDomain::Continuous { min, max, norm } => {
+                if (*norm == ColourScaleNorm::Log && value <= 0.0) || value < *min {
+                    return ColourScaleClass::Below;
                 }
                 if value > *max {
-                    return ColorScaleClass::Above;
+                    return ColourScaleClass::Above;
                 }
                 let place = |v: f64| match norm {
-                    ColorScaleNorm::Linear => v,
-                    ColorScaleNorm::Log => v.log10(),
+                    ColourScaleNorm::Linear => v,
+                    ColourScaleNorm::Log => v.log10(),
                 };
                 let span = place(*max) - place(*min);
                 let position = if span.is_finite() && span > 0.0 {
@@ -700,27 +702,27 @@ impl ColorScaleDomain {
                 } else {
                     0.5
                 };
-                ColorScaleClass::Inside(ColorScaleSlot::Position(position))
+                ColourScaleClass::Inside(ColourScaleSlot::Position(position))
             }
-            ColorScaleDomain::Discrete { edges, norm } => {
+            ColourScaleDomain::Discrete { edges, norm } => {
                 let (Some(&first), Some(&last)) = (edges.first(), edges.last()) else {
-                    return ColorScaleClass::Below;
+                    return ColourScaleClass::Below;
                 };
-                if (*norm == ColorScaleNorm::Log && value <= 0.0) || value < first {
-                    return ColorScaleClass::Below;
+                if (*norm == ColourScaleNorm::Log && value <= 0.0) || value < first {
+                    return ColourScaleClass::Below;
                 }
                 if value > last {
-                    return ColorScaleClass::Above;
+                    return ColourScaleClass::Above;
                 }
                 // The number of edges at or below the value, less one, is the band whose
                 // lower edge the value reaches; the last edge closes the last band.
                 let reached = edges.partition_point(|&edge| edge <= value);
                 let bands = edges.len().saturating_sub(1).max(1);
-                ColorScaleClass::Inside(ColorScaleSlot::Band(
+                ColourScaleClass::Inside(ColourScaleSlot::Band(
                     reached.saturating_sub(1).min(bands - 1),
                 ))
             }
-            ColorScaleDomain::Entries { count } => {
+            ColourScaleDomain::Entries { count } => {
                 if value.fract() == 0.0 && value >= 0.0 && value < *count as f64 {
                     // The value is a whole number within the entries, so the conversion
                     // is exact.
@@ -730,9 +732,9 @@ impl ColorScaleDomain {
                         reason = "the value is a whole number from 0 to the number of entries"
                     )]
                     let entry = value as usize;
-                    ColorScaleClass::Inside(ColorScaleSlot::Entry(entry))
+                    ColourScaleClass::Inside(ColourScaleSlot::Entry(entry))
                 } else {
-                    ColorScaleClass::Outside
+                    ColourScaleClass::Outside
                 }
             }
         }
@@ -742,10 +744,10 @@ impl ColorScaleDomain {
 /// How an artist maps numbers to colours: the colour scale it names, if any, and the array
 /// of the numbers it maps through that scale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ColorMapping {
+pub struct ColourMapping {
     /// The colour scale that the artist names, or `None` when it names none, which makes
     /// the figure invalid.
-    pub color_scale: Option<NodeId>,
+    pub colour_scale: Option<NodeId>,
     /// The data array of the numbers that the artist maps: the values of a scalar image or
     /// of cells,
     /// the field of a contour, the colour data of a surface (or its field when it has
@@ -757,14 +759,14 @@ impl Artist {
     /// Returns the colour scale that the artist names, whether or not it maps any numbers
     /// through it, or `None` for an artist that names none or cannot name one.
     #[must_use]
-    pub fn color_scale(&self) -> Option<NodeId> {
+    pub fn colour_scale(&self) -> Option<NodeId> {
         match self {
-            Artist::ScalarImage(a) => a.color_scale,
-            Artist::Contour(a) => a.color_scale,
-            Artist::Surface(a) => a.color_scale,
-            Artist::Series(a) => a.color_scale,
-            Artist::Cells(a) => a.color_scale,
-            Artist::Bar(a) => a.color_scale,
+            Artist::ScalarImage(a) => a.colour_scale,
+            Artist::Contour(a) => a.colour_scale,
+            Artist::Surface(a) => a.colour_scale,
+            Artist::Series(a) => a.colour_scale,
+            Artist::Cells(a) => a.colour_scale,
+            Artist::Bar(a) => a.colour_scale,
             Artist::Quiver(_) | Artist::Image(_) | Artist::Stairs(_) => None,
         }
     }
@@ -777,27 +779,27 @@ impl Artist {
     /// map their colour data whenever they have some (a series per point or per segment,
     /// bars per bar), whatever their colours.
     /// On a contour's isolines, a surface's faces and edges and the outlines of cells, an
-    /// automatic colour is colour-mapped as an explicit `Colormapped` colour is, because none
+    /// automatic colour is colour-mapped as an explicit `Colourmapped` colour is, because none
     /// of these artists has a colour of its own for `Auto` to stand for. A series or bars without colour data, a
-    /// quiver and a true-colour image map nothing, even when a colour is colormapped: such
+    /// quiver and a true-colour image map nothing, even when a colour is colourmapped: such
     /// a colour has no number to map and is drawn in the middle colour of viridis (or, on
     /// markers and bars, as an automatic colour). Stairs map nothing either: they take
-    /// fixed colours or the colour order, and a colormapped colour on them is invalid.
+    /// fixed colours or the colour order, and a colourmapped colour on them is invalid.
     ///
     /// This is the one rule by which validation, automatic limits and the scene compiler
     /// decide whether an artist is colour-mapped.
     #[must_use]
-    pub fn color_mapping(&self) -> Option<ColorMapping> {
-        let mapped = |spec: ColorSpec| matches!(spec, ColorSpec::Auto | ColorSpec::Colormapped);
-        let (color_scale, values) = match self {
-            Artist::ScalarImage(a) => (a.color_scale, a.values),
-            Artist::Contour(a) if a.fill || mapped(a.line.color) => (a.color_scale, a.z),
+    pub fn colour_mapping(&self) -> Option<ColourMapping> {
+        let mapped = |spec: ColourSpec| matches!(spec, ColourSpec::Auto | ColourSpec::Colourmapped);
+        let (colour_scale, values) = match self {
+            Artist::ScalarImage(a) => (a.colour_scale, a.values),
+            Artist::Contour(a) if a.fill || mapped(a.line.colour) => (a.colour_scale, a.z),
             Artist::Surface(a) if mapped(a.face) || mapped(a.edge) => {
-                (a.color_scale, a.c.unwrap_or(a.z))
+                (a.colour_scale, a.c.unwrap_or(a.z))
             }
-            Artist::Series(a) => (a.color_scale, a.color_data?),
-            Artist::Bar(a) => (a.color_scale, a.color_data?),
-            Artist::Cells(a) => (a.color_scale, a.values),
+            Artist::Series(a) => (a.colour_scale, a.colour_data?),
+            Artist::Bar(a) => (a.colour_scale, a.colour_data?),
+            Artist::Cells(a) => (a.colour_scale, a.values),
             Artist::Contour(_)
             | Artist::Surface(_)
             | Artist::Quiver(_)
@@ -806,8 +808,8 @@ impl Artist {
                 return None;
             }
         };
-        Some(ColorMapping {
-            color_scale,
+        Some(ColourMapping {
+            colour_scale,
             values,
         })
     }
@@ -818,12 +820,12 @@ impl Figure {
     /// artist that maps numbers through it, in tree order; hidden artists are included,
     /// because a hidden artist still contributes to the automatic limits of its scale.
     #[must_use]
-    pub fn color_scale_values(&self, scale: NodeId) -> Vec<NodeId> {
+    pub fn colour_scale_values(&self, scale: NodeId) -> Vec<NodeId> {
         self.axes
             .iter()
             .flat_map(|axes| &axes.artists)
-            .filter_map(Artist::color_mapping)
-            .filter(|mapping| mapping.color_scale == Some(scale))
+            .filter_map(Artist::colour_mapping)
+            .filter(|mapping| mapping.colour_scale == Some(scale))
             .map(|mapping| mapping.values)
             .collect()
     }
@@ -831,17 +833,17 @@ impl Figure {
     /// Returns the automatic limits of a colour scale: the least and greatest finite
     /// numbers (positive finite numbers, under a logarithmic norm) that any artist maps
     /// through it, in every axes, hidden artists included, as
-    /// [`ColorScaleNorm::automatic_limits`] finds them. An 8-bit value counts as the
+    /// [`ColourScaleNorm::automatic_limits`] finds them. An 8-bit value counts as the
     /// whole number it denotes. Returns `None` when the figure has no colour scale of the
     /// identifier, or when no artist maps such a number through it.
     ///
     /// The limits are those of the scale whether or not its limits are automatic, so a
-    /// caller resolves manual limits first, as [`ColorScale::range`] does.
+    /// caller resolves manual limits first, as [`ColourScale::range`] does.
     #[must_use]
-    pub fn automatic_color_limits(&self, scale: NodeId) -> Option<(f64, f64)> {
-        let norm = self.color_scale(scale)?.kind.norm();
+    pub fn automatic_colour_limits(&self, scale: NodeId) -> Option<(f64, f64)> {
+        let norm = self.colour_scale(scale)?.kind.norm();
         let arrays: Vec<&Values> = self
-            .color_scale_values(scale)
+            .colour_scale_values(scale)
             .into_iter()
             .filter_map(|id| self.data_array(id))
             .map(|data| &data.array.values)

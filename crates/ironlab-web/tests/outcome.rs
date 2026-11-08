@@ -13,8 +13,8 @@ use std::sync::LazyLock;
 use emath::{Pos2, Rect, pos2, vec2};
 use ironlab_canvas::{DATATIP_RING_POINTS, FigureCanvas, MAX_TILE_SIDE, Tool};
 use ironlab_ir::{
-    Artist, Axes, Axis, Bar, BarWidth, Binning, Bins, CategoricalColorScale, CellEdges, CellGap,
-    Cells, Color, ColorCategory, ColorScale, ColorScaleKind, DataArray, Figure, FigureSize,
+    Artist, Axes, Axis, Bar, BarWidth, Binning, Bins, CategoricalColourScale, CellEdges, CellGap,
+    Cells, Colour, ColourCategory, ColourScale, ColourScaleKind, DataArray, Figure, FigureSize,
     HistNorm, Limits, NdArray, NodeId, PerBar, Series, Text, TickLabels, Ticks,
 };
 use ironlab_scene::display::Point;
@@ -426,7 +426,7 @@ fn hovering_a_bar_of_a_binned_histogram_names_the_count_and_density_of_its_bin()
             bins: Bins::Edges(vec![0.5, 3.5, 6.5, 9.5]),
             edges: NodeId(12),
             range: None,
-            normalization: HistNorm::Probability,
+            normalisation: HistNorm::Probability,
             total: 4.0,
             excluded_non_finite: 0,
             excluded_out_of_range: 0,
@@ -477,22 +477,22 @@ fn hovering_a_cell_gives_a_datatip_outlining_the_cell_and_naming_its_category_ro
             array,
         });
     }
-    figure.color_scales.push(ColorScale {
+    figure.colour_scales.push(ColourScale {
         id: scale,
-        kind: ColorScaleKind::Categorical(CategoricalColorScale {
+        kind: ColourScaleKind::Categorical(CategoricalColourScale {
             categories: [
-                (Color::rgb(0.0, 0.6, 0.3), "taken"),
-                (Color::rgb(0.8, 0.2, 0.1), "not taken"),
+                (Colour::rgb(0.0, 0.6, 0.3), "taken"),
+                (Colour::rgb(0.8, 0.2, 0.1), "not taken"),
             ]
             .into_iter()
-            .map(|(color, label)| ColorCategory {
-                color,
+            .map(|(colour, label)| ColourCategory {
+                colour,
                 label: Text::plain(label),
             })
             .collect(),
-            ..CategoricalColorScale::default()
+            ..CategoricalColourScale::default()
         }),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     let axes = &mut figure.axes[0];
     axes.x.ticks = Ticks::Values(vec![2.5, 5.5, 8.5]);
@@ -511,7 +511,7 @@ fn hovering_a_cell_gives_a_datatip_outlining_the_cell_and_naming_its_category_ro
         columns: CellEdges::Edges(columns),
         rows: CellEdges::Edges(rows),
         gap: CellGap { x: 0.2, y: 0.2 },
-        color_scale: Some(scale),
+        colour_scale: Some(scale),
         ..Cells::default()
     })];
     let mut canvas = fitted(figure);

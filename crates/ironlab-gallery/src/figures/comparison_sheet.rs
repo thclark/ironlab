@@ -11,11 +11,11 @@ pub const DESCRIPTION: &str = "A synthetic polar sweep of an aerofoil computed b
      bottom right panel neither code converged at any angle, so the ticks are all there is.";
 
 /// The colour of the reference code's series.
-const REFERENCE: Color = Color::rgb(0.0, 0.0, 0.0);
+const REFERENCE: Colour = Colour::rgb(0.0, 0.0, 0.0);
 /// The colour of the candidate code's series.
-const CANDIDATE: Color = Color::rgb(0.0, 0.45, 0.70);
+const CANDIDATE: Colour = Colour::rgb(0.0, 0.45, 0.70);
 /// The colour of the ticks that mark values that are not a number.
-const NOT_FINITE: Color = Color::rgb(0.90, 0.62, 0.0);
+const NOT_FINITE: Colour = Colour::rgb(0.90, 0.62, 0.0);
 
 /// The height of the ticks that mark values that are not a number, as a fraction of the panel height.
 const TICK_HEIGHT: f64 = 0.985;
@@ -46,7 +46,7 @@ fn mark_not_finite(ax: &mut AxesMut, alpha: &[f64], values: &[f64]) -> NodeId {
         .marker(Marker::VLine)
         .marker_size(5.0)
         .marker_edge(NOT_FINITE)
-        .color(NOT_FINITE)
+        .colour(NOT_FINITE)
         .id()
 }
 
@@ -60,11 +60,11 @@ fn compare(
 ) -> (NodeId, NodeId) {
     let ids = (
         ax.plot(alpha, reference)
-            .color(REFERENCE)
+            .colour(REFERENCE)
             .label("reference")
             .id(),
         ax.plot(alpha, candidate)
-            .color(CANDIDATE)
+            .colour(CANDIDATE)
             .dash(Dash::Dashed)
             .marker(Marker::Circle)
             .marker_size(2.5)
@@ -113,7 +113,7 @@ pub fn figure() -> Figure {
     // The ticks have no display name, because every panel draws them; one item that stands for no plot explains them.
     let tick = LegendSample::Line {
         line: ironlab::LineStyle {
-            color: ColorSpec::Rgba { color: NOT_FINITE },
+            colour: ColourSpec::Rgba { colour: NOT_FINITE },
             dash: Dash::None,
             ..ironlab::LineStyle::default()
         },
@@ -172,7 +172,7 @@ pub fn figure() -> Figure {
         .map(|(r, n)| (n - r).abs() / 2e-3)
         .collect();
     let mut ax = fig.axes(2, 0);
-    ax.semilogy(&alpha, &relative).color(CANDIDATE);
+    ax.semilogy(&alpha, &relative).colour(CANDIDATE);
     mark_not_finite(&mut ax, &alpha, &relative);
     ax.hline(1.0).dash(Dash::Dotted);
     ax.title("Lift difference over tolerance")
@@ -184,8 +184,8 @@ pub fn figure() -> Figure {
     // the logarithmic axis has no data to scale to and shows its default decade.
     let residual = vec![f64::NAN; alpha.len()];
     let mut ax = fig.axes(2, 1);
-    ax.semilogy(&alpha, &residual).color(REFERENCE);
-    ax.semilogy(&alpha, &residual).color(CANDIDATE).dash(Dash::Dashed);
+    ax.semilogy(&alpha, &residual).colour(REFERENCE);
+    ax.semilogy(&alpha, &residual).colour(CANDIDATE).dash(Dash::Dashed);
     mark_not_finite(&mut ax, &alpha, &residual);
     ax.title("Boundary-layer residual (no converged point)")
         .xlabel(r"$\alpha$ (deg)")

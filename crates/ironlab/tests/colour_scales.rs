@@ -3,62 +3,62 @@
 //!
 //! The API these tests assume, beyond the plan's "Facade" section:
 //!
-//! - `Figure::color_scale(&mut self) -> ColorScaleMut<'_>` adds a continuous scale with the
-//!   defaults of its kind. `ColorScaleMut` offers `colormap(&mut self, impl
-//!   Into<ir::Colormap>) -> &mut Self`, which accepts the facade's `Colormap` (the
-//!   re-exported `ColormapName`, converted to a named colormap that is not reversed) and an
-//!   `ir::Colormap` of either variant; `limits(&mut self, min: f64, max: f64) -> &mut
+//! - `Figure::colour_scale(&mut self) -> ColourScaleMut<'_>` adds a continuous scale with the
+//!   defaults of its kind. `ColourScaleMut` offers `colourmap(&mut self, impl
+//!   Into<ir::Colourmap>) -> &mut Self`, which accepts the facade's `Colourmap` (the
+//!   re-exported `ColourmapName`, converted to a named colourmap that is not reversed) and an
+//!   `ir::Colourmap` of either variant; `limits(&mut self, min: f64, max: f64) -> &mut
 //!   Self`, which sets manual limits; `title(&mut self, impl Into<Text>) -> &mut Self`;
-//!   `norm(&mut self, ir::ColorScaleNorm) -> &mut Self`; `discrete(&mut self, edges: impl
+//!   `norm(&mut self, ir::ColourScaleNorm) -> &mut Self`; `discrete(&mut self, edges: impl
 //!   AsRef<[f64]>) -> &mut Self`, which makes the scale discrete with those explicit band
-//!   edges and keeps its colormap and norm; `bands(&mut self, count: u32) -> &mut Self`,
-//!   which makes the scale discrete with `ColorScaleLevels::Auto { count, limits }`, keeping
-//!   its colormap, norm and limits; and `id(&self) -> NodeId`. On a discrete scale with
+//!   edges and keeps its colourmap and norm; `bands(&mut self, count: u32) -> &mut Self`,
+//!   which makes the scale discrete with `ColourScaleLevels::Auto { count, limits }`, keeping
+//!   its colourmap, norm and limits; and `id(&self) -> NodeId`. On a discrete scale with
 //!   automatic edges, `limits` sets the limits of those edges.
-//! - `Figure::indexed_scale(&mut self, colors: impl IntoIterator<Item = Color>) ->
-//!   ColorScaleMut<'_>` and `Figure::categorical_scale(&mut self, categories: impl
-//!   IntoIterator<Item = (Color, impl Into<Text>)>) -> ColorScaleMut<'_>`.
+//! - `Figure::indexed_scale(&mut self, colours: impl IntoIterator<Item = Colour>) ->
+//!   ColourScaleMut<'_>` and `Figure::categorical_scale(&mut self, categories: impl
+//!   IntoIterator<Item = (Colour, impl Into<Text>)>) -> ColourScaleMut<'_>`.
 //! - `AxesMut::scalar_image(&mut self, values: impl Into<DataSource>) -> ScalarImageMut<'_>`,
 //!   which stores a `ByteMatrix` as bytes and a `Matrix` as floats, and whose handle offers
-//!   `color_scale(&mut self, NodeId) -> &mut Self` and `id(&self) -> NodeId`, besides the
+//!   `colour_scale(&mut self, NodeId) -> &mut Self` and `id(&self) -> NodeId`, besides the
 //!   placement, alpha and opacity setters that the image handles share.
-//! - `AxesMut::color_scale(&mut self) -> ColorScaleMut<'_>` returns the axes' default scale,
+//! - `AxesMut::colour_scale(&mut self) -> ColourScaleMut<'_>` returns the axes' default scale,
 //!   which is the scale named by the first artist of the axes, in artist order, that names
 //!   one, and creates a continuous scale when no artist of the axes names one. The rule
 //!   depends only on the IR, so a scale created this way before any colour-mapped plot is
 //!   not remembered by the axes until an artist names it: the guide says to configure the
 //!   default scale after the first colour-mapped plot, or to create a scale with
-//!   `fig.color_scale()` and pass it with `.color_scale(id)`.
+//!   `fig.colour_scale()` and pass it with `.colour_scale(id)`.
 //! - Every plotting call that maps colours (`scalar_image`, `contour`, `contourf`, `surf`,
-//!   `mesh`, `surface`, and `scatter` with `colors`) names the axes' default scale, creating
+//!   `mesh`, `surface`, and `scatter` with `colours`) names the axes' default scale, creating
 //!   it if need be, and `ContourMut`, `SurfaceMut`, `SeriesMut` and `ScalarImageMut` each
-//!   offer `color_scale(&mut self, NodeId) -> &mut Self`.
+//!   offer `colour_scale(&mut self, NodeId) -> &mut Self`.
 //! - An artist handle remembers whether its own plotting call created the default scale.
 //!   Giving the artist another scale through that handle deletes that scale when nothing
 //!   names it any more, so that the figure keeps no scale it did not ask for. A scale that
-//!   the plotting call did not create (one the author created with `Figure::color_scale`,
-//!   `indexed_scale`, `categorical_scale` or `AxesMut::color_scale`, or a default that an
+//!   the plotting call did not create (one the author created with `Figure::colour_scale`,
+//!   `indexed_scale`, `categorical_scale` or `AxesMut::colour_scale`, or a default that an
 //!   earlier artist created) is never deleted this way.
-//! - The prelude's `Colormap` remains the alias of `ColormapName`.
+//! - The prelude's `Colourmap` remains the alias of `ColourmapName`.
 //!
 //! Validation of what a scale refuses belongs to the IR tests, and drawing to the scene
 //! tests; these tests own the facade's promises.
 
 use ironlab::ir::{
-    self, Artist, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, Limits, OutOfRange,
-    Values,
+    self, Artist, ColourScale, ColourScaleKind, ColourScaleLevels, ColourScaleNorm, Limits,
+    OutOfRange, Values,
 };
 use ironlab::prelude::*;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 /// Returns the scale with the given identifier.
 #[track_caller]
-fn scale(fig: &Figure, id: NodeId) -> &ColorScale {
+fn scale(fig: &Figure, id: NodeId) -> &ColourScale {
     fig.ir()
-        .color_scale(id)
+        .colour_scale(id)
         .unwrap_or_else(|| panic!("{id} is not a colour scale"))
 }
 
@@ -66,10 +66,10 @@ fn scale(fig: &Figure, id: NodeId) -> &ColorScale {
 #[track_caller]
 fn scale_of(fig: &Figure, artist: NodeId) -> Option<NodeId> {
     match fig.ir().artist(artist) {
-        Some((_, Artist::ScalarImage(a))) => a.color_scale,
-        Some((_, Artist::Contour(a))) => a.color_scale,
-        Some((_, Artist::Surface(a))) => a.color_scale,
-        Some((_, Artist::Series(a))) => a.color_scale,
+        Some((_, Artist::ScalarImage(a))) => a.colour_scale,
+        Some((_, Artist::Contour(a))) => a.colour_scale,
+        Some((_, Artist::Surface(a))) => a.colour_scale,
+        Some((_, Artist::Series(a))) => a.colour_scale,
         other => panic!("{artist} is not an artist that names a scale: {other:?}"),
     }
 }
@@ -101,17 +101,17 @@ fn a_colour_mapped_artist_with_no_scale_names_a_new_default_scale() {
     let (x, y, z) = grid();
     let mut fig = Figure::new();
     let surface = fig.axes(0, 0).surf(&x, &y, &z).id();
-    assert_eq!(fig.ir().color_scales.len(), 1, "one scale is created");
+    assert_eq!(fig.ir().colour_scales.len(), 1, "one scale is created");
     let s = scale_of(&fig, surface).expect("the surface names a scale");
     assert_eq!(
         scale(&fig, s).kind,
-        ColorScaleKind::Continuous(Default::default()),
+        ColourScaleKind::Continuous(Default::default()),
         "the default scale is continuous with the defaults of its kind"
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
 
-// PROMISE: every colour-mapped artist of one axes shares its default scale, as they shared the axes' colormap and limits before.
+// PROMISE: every colour-mapped artist of one axes shares its default scale, as they shared the axes' colourmap and limits before.
 #[test]
 fn colour_mapped_artists_of_one_axes_share_its_default_scale() {
     let (x, y, z) = grid();
@@ -124,14 +124,14 @@ fn colour_mapped_artists_of_one_axes_share_its_default_scale() {
         ax.contour(&x, &y, &z).id(),
         ax.scalar_image(&values).id(),
         ax.scatter([0.0, 1.0], [0.0, 1.0])
-            .color_data([0.0, 1.0])
+            .colour_data([0.0, 1.0])
             .id(),
     ];
-    let default = fig.axes(0, 0).color_scale().id();
+    let default = fig.axes(0, 0).colour_scale().id();
     for id in ids {
         assert_eq!(scale_of(&fig, id), Some(default), "{id}");
     }
-    assert_eq!(fig.ir().color_scales.len(), 1);
+    assert_eq!(fig.ir().colour_scales.len(), 1);
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
 
@@ -143,13 +143,13 @@ fn each_axes_has_a_default_scale_of_its_own() {
     let left = fig.axes(0, 0).surface(&x, &y, &z).id();
     let right = fig.axes(0, 1).surface(&x, &y, &z).id();
     assert_ne!(scale_of(&fig, left), scale_of(&fig, right));
-    assert_eq!(fig.ir().color_scales.len(), 2);
+    assert_eq!(fig.ir().colour_scales.len(), 2);
     assert_eq!(
-        fig.axes(0, 0).color_scale().id(),
+        fig.axes(0, 0).colour_scale().id(),
         scale_of(&fig, left).unwrap()
     );
     assert_eq!(
-        fig.axes(0, 1).color_scale().id(),
+        fig.axes(0, 1).colour_scale().id(),
         scale_of(&fig, right).unwrap()
     );
 }
@@ -160,17 +160,17 @@ fn a_scale_is_shared_across_axes_by_naming_it() {
     let (x, y, z) = grid();
     let mut fig = Figure::new().tiles(1, 3);
     let shared = fig.axes(0, 0).surface(&x, &y, &z).id();
-    let s = fig.axes(0, 0).color_scale().id();
+    let s = fig.axes(0, 0).colour_scale().id();
     let others = [
-        fig.axes(0, 1).surface(&x, &y, &z).color_scale(s).id(),
-        fig.axes(0, 2).contourf(&x, &y, &z).color_scale(s).id(),
+        fig.axes(0, 1).surface(&x, &y, &z).colour_scale(s).id(),
+        fig.axes(0, 2).contourf(&x, &y, &z).colour_scale(s).id(),
     ];
     assert_eq!(scale_of(&fig, shared), Some(s));
     for id in others {
         assert_eq!(scale_of(&fig, id), Some(s));
     }
     assert_eq!(
-        fig.ir().color_scales.len(),
+        fig.ir().colour_scales.len(),
         1,
         "the defaults the other calls created were replaced and deleted"
     );
@@ -183,17 +183,17 @@ fn an_artist_given_another_scale_uses_it_and_the_others_keep_the_default() {
     let (x, y, z) = grid();
     let mut fig = Figure::new();
     let speed = fig
-        .color_scale()
-        .colormap(Colormap::Magma)
+        .colour_scale()
+        .colourmap(Colourmap::Magma)
         .limits(0.0, 1.0)
         .id();
     let first = fig.axes(0, 0).surface(&x, &y, &z).id();
-    let own = fig.axes(0, 0).contour(&x, &y, &z).color_scale(speed).id();
+    let own = fig.axes(0, 0).contour(&x, &y, &z).colour_scale(speed).id();
     let default = scale_of(&fig, first).expect("the surface names the default");
     assert_ne!(default, speed);
     assert_eq!(scale_of(&fig, own), Some(speed));
-    assert_eq!(fig.axes(0, 0).color_scale().id(), default);
-    assert_eq!(fig.ir().color_scales.len(), 2);
+    assert_eq!(fig.axes(0, 0).colour_scale().id(), default);
+    assert_eq!(fig.ir().colour_scales.len(), 2);
 }
 
 // PROMISE: the default scale is the scale of the axes' first colour-mapped artist, so an artist plotted later with no scale joins it, whatever kind it is.
@@ -207,12 +207,12 @@ fn the_default_scale_is_the_scale_of_the_first_colour_mapped_artist() {
             (GREEN, "converged"),
             (RED, "diverged"),
             (BLUE, "stalled"),
-            (Color::BLACK, "not entered"),
+            (Colour::BLACK, "not entered"),
         ])
         .id();
-    fig.axes(0, 0).scalar_image(&codes).color_scale(status);
+    fig.axes(0, 0).scalar_image(&codes).colour_scale(status);
     let later = fig.axes(0, 0).surface(&x, &y, &z).id();
-    assert_eq!(fig.axes(0, 0).color_scale().id(), status);
+    assert_eq!(fig.axes(0, 0).colour_scale().id(), status);
     assert_eq!(scale_of(&fig, later), Some(status));
 }
 
@@ -233,10 +233,10 @@ fn the_default_scale_survives_from_ir_and_a_round_trip_through_both_formats() {
         ),
     ] {
         let mut wrapped = Figure::from_ir(restored);
-        assert_eq!(wrapped.axes(0, 0).color_scale().id(), s, "{name}");
+        assert_eq!(wrapped.axes(0, 0).colour_scale().id(), s, "{name}");
         let later = wrapped.axes(0, 0).contourf(&x, &y, &z).id();
         assert_eq!(scale_of(&wrapped, later), Some(s), "{name}");
-        assert_eq!(wrapped.ir().color_scales.len(), 1, "{name}");
+        assert_eq!(wrapped.ir().colour_scales.len(), 1, "{name}");
     }
 }
 
@@ -245,19 +245,19 @@ fn the_default_scale_survives_from_ir_and_a_round_trip_through_both_formats() {
 fn replacing_a_scale_deletes_only_the_default_the_plotting_call_created() {
     let (x, y, z) = grid();
     let mut fig = Figure::new();
-    let first = fig.color_scale().colormap(Colormap::Magma).id();
-    let second = fig.color_scale().colormap(Colormap::Plasma).id();
+    let first = fig.colour_scale().colourmap(Colourmap::Magma).id();
+    let second = fig.colour_scale().colourmap(Colourmap::Plasma).id();
 
     // The surface's own default is replaced by `first` and deleted; `first` is then
     // replaced by `second` and kept, unused, because the author made it.
     let surface = fig
         .axes(0, 0)
         .surface(&x, &y, &z)
-        .color_scale(first)
-        .color_scale(second)
+        .colour_scale(first)
+        .colour_scale(second)
         .id();
     assert_eq!(scale_of(&fig, surface), Some(second));
-    let mut ids: Vec<NodeId> = fig.ir().color_scales.iter().map(|s| s.id).collect();
+    let mut ids: Vec<NodeId> = fig.ir().colour_scales.iter().map(|s| s.id).collect();
     ids.sort();
     assert_eq!(
         ids,
@@ -268,19 +268,19 @@ fn replacing_a_scale_deletes_only_the_default_the_plotting_call_created() {
     // A default that an earlier artist created and still names is kept when a later
     // artist, which joined it, is given another scale.
     let mut fig = Figure::new();
-    let own = fig.color_scale().id();
+    let own = fig.colour_scale().id();
     let earlier = fig.axes(0, 0).contourf(&x, &y, &z).id();
     let default = scale_of(&fig, earlier).unwrap();
     let later = fig
         .axes(0, 0)
         .scatter([0.0, 1.0], [0.0, 1.0])
-        .color_data([0.0, 1.0])
-        .color_scale(own)
+        .colour_data([0.0, 1.0])
+        .colour_scale(own)
         .id();
     assert_eq!(scale_of(&fig, later), Some(own));
     assert_eq!(scale_of(&fig, earlier), Some(default));
     assert!(
-        fig.ir().color_scale(default).is_some(),
+        fig.ir().colour_scale(default).is_some(),
         "the shared default is kept"
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
@@ -295,56 +295,56 @@ fn a_configured_scale_reaches_the_artists_of_an_axes_in_the_documented_ways() {
     let mut fig = Figure::new();
     let surface = fig.axes(0, 0).surf(&x, &y, &z).id();
     fig.axes(0, 0)
-        .color_scale()
-        .colormap(Colormap::Magma)
+        .colour_scale()
+        .colourmap(Colourmap::Magma)
         .limits(0.0, 5.0);
     let s = scale_of(&fig, surface).unwrap();
-    let ColorScaleKind::Continuous(kind) = &scale(&fig, s).kind else {
+    let ColourScaleKind::Continuous(kind) = &scale(&fig, s).kind else {
         panic!("the default scale is continuous");
     };
     assert_eq!(
-        kind.colormap,
-        ir::Colormap::Named {
-            name: Colormap::Magma,
+        kind.colourmap,
+        ir::Colourmap::Named {
+            name: Colourmap::Magma,
             reverse: false
         }
     );
-    assert_eq!(fig.ir().color_scales.len(), 1);
+    assert_eq!(fig.ir().colour_scales.len(), 1);
 
     // A scale passed to the first plot of an axes becomes its default for later plots.
     let mut fig = Figure::new();
-    let speed = fig.color_scale().colormap(Colormap::Plasma).id();
-    fig.axes(0, 0).contourf(&x, &y, &z).color_scale(speed);
+    let speed = fig.colour_scale().colourmap(Colourmap::Plasma).id();
+    fig.axes(0, 0).contourf(&x, &y, &z).colour_scale(speed);
     let later = fig.axes(0, 0).surf(&x, &y, &z).id();
-    assert_eq!(fig.axes(0, 0).color_scale().id(), speed);
+    assert_eq!(fig.axes(0, 0).colour_scale().id(), speed);
     assert_eq!(scale_of(&fig, later), Some(speed));
-    assert_eq!(fig.ir().color_scales.len(), 1, "no default is left behind");
+    assert_eq!(fig.ir().colour_scales.len(), 1, "no default is left behind");
 }
 
 // ---------------------------------------------------------------------------------
 // Scales as top-level nodes
 // ---------------------------------------------------------------------------------
 
-// PROMISE: `fig.color_scale()` returns a continuous scale whose setters reach the IR and chain as the guide shows.
+// PROMISE: `fig.colour_scale()` returns a continuous scale whose setters reach the IR and chain as the guide shows.
 #[test]
-fn color_scale_setters_chain_and_set_the_scale() {
+fn colour_scale_setters_chain_and_set_the_scale() {
     let mut fig = Figure::new();
     let s = fig
-        .color_scale()
-        .colormap(Colormap::Magma)
+        .colour_scale()
+        .colourmap(Colourmap::Magma)
         .limits(1.0, 100.0)
         .title("Speed (m/s)")
-        .norm(ColorScaleNorm::Log)
+        .norm(ColourScaleNorm::Log)
         .id();
     let scale = scale(&fig, s);
     assert_eq!(scale.title, Some(Text::from("Speed (m/s)")));
-    let ColorScaleKind::Continuous(kind) = &scale.kind else {
+    let ColourScaleKind::Continuous(kind) = &scale.kind else {
         panic!("the scale is continuous: {:?}", scale.kind);
     };
     assert_eq!(
-        kind.colormap,
-        ir::Colormap::Named {
-            name: Colormap::Magma,
+        kind.colourmap,
+        ir::Colourmap::Named {
+            name: Colourmap::Magma,
             reverse: false
         }
     );
@@ -355,52 +355,52 @@ fn color_scale_setters_chain_and_set_the_scale() {
             max: 100.0
         }
     );
-    assert_eq!(kind.norm, ColorScaleNorm::Log);
+    assert_eq!(kind.norm, ColourScaleNorm::Log);
     assert!(fig.validate().is_valid(), "an unused scale is valid");
 }
 
-// PROMISE: an author's own palette is a listed colormap, which a scale takes as it takes a named one.
+// PROMISE: an author's own palette is a listed colourmap, which a scale takes as it takes a named one.
 #[test]
-fn a_scale_takes_a_listed_colormap() {
+fn a_scale_takes_a_listed_colourmap() {
     let mut fig = Figure::new();
-    let listed = ir::Colormap::Listed {
-        colors: vec![RED, GREEN, BLUE],
+    let listed = ir::Colourmap::Listed {
+        colours: vec![RED, GREEN, BLUE],
     };
-    let s = fig.color_scale().colormap(listed.clone()).id();
-    let ColorScaleKind::Continuous(kind) = &scale(&fig, s).kind else {
+    let s = fig.colour_scale().colourmap(listed.clone()).id();
+    let ColourScaleKind::Continuous(kind) = &scale(&fig, s).kind else {
         panic!("the scale is continuous");
     };
-    assert_eq!(kind.colormap, listed);
+    assert_eq!(kind.colourmap, listed);
 }
 
-// PROMISE: `.discrete(edges)` switches a scale to bands at those edges and keeps the colormap and norm the author chose.
+// PROMISE: `.discrete(edges)` switches a scale to bands at those edges and keeps the colourmap and norm the author chose.
 #[test]
-fn discrete_switches_a_scale_to_bands_and_keeps_its_colormap_and_norm() {
+fn discrete_switches_a_scale_to_bands_and_keeps_its_colourmap_and_norm() {
     let (x, y, z) = grid();
     let mut fig = Figure::new();
     let s = fig
-        .color_scale()
-        .colormap(Colormap::Cividis)
+        .colour_scale()
+        .colourmap(Colourmap::Cividis)
         .discrete([0.0, 1.0, 2.5, 5.0])
         .id();
-    let ColorScaleKind::Discrete(kind) = &scale(&fig, s).kind else {
+    let ColourScaleKind::Discrete(kind) = &scale(&fig, s).kind else {
         panic!("the scale is discrete: {:?}", scale(&fig, s).kind);
     };
     assert_eq!(
         kind.levels,
-        ColorScaleLevels::Explicit {
+        ColourScaleLevels::Explicit {
             values: vec![0.0, 1.0, 2.5, 5.0]
         }
     );
     assert_eq!(
-        kind.colormap,
-        ir::Colormap::Named {
-            name: Colormap::Cividis,
+        kind.colourmap,
+        ir::Colourmap::Named {
+            name: Colourmap::Cividis,
             reverse: false
         }
     );
     // A filled contour on the discrete scale takes the band edges as its levels.
-    let contour = fig.axes(0, 0).contourf(&x, &y, &z).color_scale(s).id();
+    let contour = fig.axes(0, 0).contourf(&x, &y, &z).colour_scale(s).id();
     match fig.ir().artist(contour) {
         Some((_, Artist::Contour(c))) => assert_eq!(c.levels, None),
         other => panic!("expected a contour, found {other:?}"),
@@ -408,31 +408,31 @@ fn discrete_switches_a_scale_to_bands_and_keeps_its_colormap_and_norm() {
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
 
-// PROMISE: `.bands(count)` switches a scale to automatic band edges, keeping its colormap, norm and limits, and `limits` then sets the limits of those edges, in either order.
+// PROMISE: `.bands(count)` switches a scale to automatic band edges, keeping its colourmap, norm and limits, and `limits` then sets the limits of those edges, in either order.
 #[test]
 fn bands_switches_a_scale_to_automatic_edges_within_its_limits() {
     let mut fig = Figure::new();
     let before = fig
-        .color_scale()
-        .colormap(Colormap::Cividis)
-        .norm(ColorScaleNorm::Log)
+        .colour_scale()
+        .colourmap(Colourmap::Cividis)
+        .norm(ColourScaleNorm::Log)
         .limits(1.0, 1000.0)
         .bands(6)
         .id();
     let after = fig
-        .color_scale()
-        .colormap(Colormap::Cividis)
-        .norm(ColorScaleNorm::Log)
+        .colour_scale()
+        .colourmap(Colourmap::Cividis)
+        .norm(ColourScaleNorm::Log)
         .bands(6)
         .limits(1.0, 1000.0)
         .id();
     for (order, id) in [("limits then bands", before), ("bands then limits", after)] {
-        let ColorScaleKind::Discrete(kind) = &scale(&fig, id).kind else {
+        let ColourScaleKind::Discrete(kind) = &scale(&fig, id).kind else {
             panic!("{order}: the scale is discrete: {:?}", scale(&fig, id).kind);
         };
         assert_eq!(
             kind.levels,
-            ColorScaleLevels::Auto {
+            ColourScaleLevels::Auto {
                 count: 6,
                 limits: Limits::Manual {
                     min: 1.0,
@@ -442,14 +442,14 @@ fn bands_switches_a_scale_to_automatic_edges_within_its_limits() {
             "{order}"
         );
         assert_eq!(
-            kind.colormap,
-            ir::Colormap::Named {
-                name: Colormap::Cividis,
+            kind.colourmap,
+            ir::Colourmap::Named {
+                name: Colourmap::Cividis,
                 reverse: false
             },
             "{order}"
         );
-        assert_eq!(kind.norm, ColorScaleNorm::Log, "{order}");
+        assert_eq!(kind.norm, ColourScaleNorm::Log, "{order}");
     }
 }
 
@@ -472,17 +472,17 @@ fn a_contour_has_no_levels_of_its_own_until_it_is_given_some() {
 #[test]
 fn indexed_scale_holds_its_colours_and_is_strict_by_default() {
     let mut fig = Figure::new();
-    let colors: Vec<Color> = (0..=255u8)
+    let colours: Vec<Colour> = (0..=255u8)
         .map(|k| {
             let v = f32::from(k) / 255.0;
-            Color::rgb(v, v, v)
+            Colour::rgb(v, v, v)
         })
         .collect();
-    let s = fig.indexed_scale(colors.clone()).id();
-    let ColorScaleKind::Indexed(kind) = &scale(&fig, s).kind else {
+    let s = fig.indexed_scale(colours.clone()).id();
+    let ColourScaleKind::Indexed(kind) = &scale(&fig, s).kind else {
         panic!("the scale is indexed: {:?}", scale(&fig, s).kind);
     };
-    assert_eq!(kind.colors, colors);
+    assert_eq!(kind.colours, colours);
     assert_eq!(kind.outside.policy, OutOfRange::Strict);
 }
 
@@ -493,13 +493,13 @@ fn categorical_scale_holds_its_categories_in_order_with_their_labels() {
     let s = fig
         .categorical_scale([(GREEN, "taken by the finite set"), (RED, "not entered")])
         .id();
-    let ColorScaleKind::Categorical(kind) = &scale(&fig, s).kind else {
+    let ColourScaleKind::Categorical(kind) = &scale(&fig, s).kind else {
         panic!("the scale is categorical: {:?}", scale(&fig, s).kind);
     };
-    let pairs: Vec<(Color, Text)> = kind
+    let pairs: Vec<(Colour, Text)> = kind
         .categories
         .iter()
-        .map(|c| (c.color, c.label.clone()))
+        .map(|c| (c.colour, c.label.clone()))
         .collect();
     assert_eq!(
         pairs,
@@ -522,17 +522,17 @@ fn scalar_image_stores_bytes_or_floats_and_names_its_scale() {
     let field = Matrix::from_fn(3, 2, |row, col| (row * 2 + col) as f64 / 5.0);
     let mut fig = Figure::new().tiles(1, 2);
     let palette = fig
-        .indexed_scale((0..6).map(|k| Color::rgb(k as f32 / 5.0, 0.0, 0.0)))
+        .indexed_scale((0..6).map(|k| Colour::rgb(k as f32 / 5.0, 0.0, 0.0)))
         .id();
     let bytes = fig
         .axes(0, 0)
         .scalar_image(&codes)
-        .color_scale(palette)
+        .colour_scale(palette)
         .id();
     let floats = fig.axes(0, 1).scalar_image(&field).id();
 
     let image = scalar_image(&fig, bytes);
-    assert_eq!(image.color_scale, Some(palette));
+    assert_eq!(image.colour_scale, Some(palette));
     let array = &fig
         .ir()
         .data_array(image.values)
@@ -550,12 +550,12 @@ fn scalar_image_stores_bytes_or_floats_and_names_its_scale() {
     assert_eq!(array.shape, [3, 2]);
     assert!(matches!(&array.values, Values::F64(v) if v.len() == 6));
     let default = image
-        .color_scale
+        .colour_scale
         .expect("an image with no scale takes the default");
-    assert_eq!(fig.axes(0, 1).color_scale().id(), default);
+    assert_eq!(fig.axes(0, 1).colour_scale().id(), default);
 
     assert_eq!(
-        fig.ir().color_scales.len(),
+        fig.ir().colour_scales.len(),
         2,
         "the default created for the byte image was replaced by the palette and deleted"
     );

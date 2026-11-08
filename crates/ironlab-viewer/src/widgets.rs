@@ -173,10 +173,10 @@ impl Icon {
         }
     }
 
-    fn paint(self, painter: &egui::Painter, slot: Rect, color: Color32) {
+    fn paint(self, painter: &egui::Painter, slot: Rect, colour: Color32) {
         let c = slot.center();
         let r = Self::SLOT * 0.29;
-        let stroke = Stroke::new(Self::STROKE, color);
+        let stroke = Stroke::new(Self::STROKE, colour);
         match self {
             Self::Plus => {
                 painter.hline((c.x - r)..=(c.x + r), c.y, stroke);
@@ -231,7 +231,7 @@ impl Icon {
                         vec![t.left_top(), t.left_bottom(), t.right_center()]
                     }
                 };
-                painter.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+                painter.add(egui::Shape::convex_polygon(points, colour, Stroke::NONE));
             }
             Self::Tick => {
                 painter.add(egui::Shape::line(
@@ -691,7 +691,7 @@ impl<'a> Control<'a> {
     ) {
         let visuals = *ui.style().interact(response);
         let hovered = response.hovered() && self.clickable;
-        let (fill, stroke, text_color, data_color) = match self.face {
+        let (fill, stroke, text_colour, data_colour) = match self.face {
             Face::Tinted(tint) => (
                 if hovered { tint.hover } else { tint.fill },
                 Stroke::new(1.0, tint.stroke),
@@ -727,9 +727,9 @@ impl<'a> Control<'a> {
         } else {
             ui.visuals().disabled_alpha
         };
-        let (text_color, data_color) = (
-            text_color.gamma_multiply(fade),
-            data_color.gamma_multiply(fade),
+        let (text_colour, data_colour) = (
+            text_colour.gamma_multiply(fade),
+            data_colour.gamma_multiply(fade),
         );
         let painter = ui.painter();
         painter.rect(
@@ -749,7 +749,7 @@ impl<'a> Control<'a> {
                     egui::pos2(x + Icon::SLOT / 2.0, inner.center().y),
                     Vec2::splat(Icon::SLOT),
                 ),
-                text_color,
+                text_colour,
             );
             x += Icon::SLOT + Spacing::GAP;
         }
@@ -757,18 +757,18 @@ impl<'a> Control<'a> {
             painter.galley(
                 egui::pos2(x, inner.center().y - datum.size().y / 2.0),
                 datum.clone(),
-                data_color,
+                data_colour,
             );
             x += datum.size().x + Spacing::GAP;
         }
         painter.galley(
             egui::pos2(x, inner.center().y - words.size().y / 2.0),
             words,
-            text_color,
+            text_colour,
         );
         if let Some(icon) = self.trailing {
             let slot = Align2::RIGHT_CENTER.align_size_within_rect(Vec2::splat(Icon::SLOT), inner);
-            icon.paint(painter, slot, text_color);
+            icon.paint(painter, slot, text_colour);
         }
     }
 }
@@ -801,7 +801,7 @@ pub fn combo<R>(
 
 /// A run of text on its own: ordinary text, or weak text for a label or a datum.
 pub fn label(ui: &mut Ui, text: Text<'_>) -> Response {
-    let color = if text.role.weak() {
+    let colour = if text.role.weak() {
         ui.visuals().weak_text_color()
     } else {
         ui.visuals().text_color()
@@ -815,7 +815,7 @@ pub fn label(ui: &mut Ui, text: Text<'_>) -> Response {
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, words.clone()));
     if ui.is_rect_visible(rect) {
-        ui.painter().galley(rect.min, galley, color);
+        ui.painter().galley(rect.min, galley, colour);
     }
     response
 }
@@ -991,7 +991,7 @@ impl<'a> Row<'a> {
             1.0
         };
         let hovered = response.hovered() && !self.state.faded;
-        let (fill, mut title_color, data_color) = if self.state.selected {
+        let (fill, mut title_colour, data_colour) = if self.state.selected {
             (
                 visuals.selection.bg_fill,
                 visuals.strong_text_color(),
@@ -1023,11 +1023,11 @@ impl<'a> Row<'a> {
             )
         };
         if self.state.dimmed && !self.state.selected {
-            title_color = visuals.weak_text_color();
+            title_colour = visuals.weak_text_color();
         }
-        let (title_color, data_color) = (
-            title_color.gamma_multiply(fade),
-            data_color.gamma_multiply(fade),
+        let (title_colour, data_colour) = (
+            title_colour.gamma_multiply(fade),
+            data_colour.gamma_multiply(fade),
         );
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, fill);
@@ -1060,11 +1060,11 @@ impl<'a> Row<'a> {
                 } else {
                     Icon::TriangleRight
                 })
-                .paint(painter, slot(x), title_color);
+                .paint(painter, slot(x), title_colour);
                 x += Icon::SLOT + Spacing::GAP;
             }
             Leading::Check { ticked } => {
-                Icon::Box { ticked }.paint(painter, slot(x), title_color);
+                Icon::Box { ticked }.paint(painter, slot(x), title_colour);
                 x += Icon::SLOT + Spacing::GAP;
             }
         }
@@ -1076,7 +1076,7 @@ impl<'a> Row<'a> {
             painter.galley(
                 egui::pos2(right, rect.center().y - galley.size().y / 2.0),
                 galley,
-                data_color,
+                data_colour,
             );
             right -= Spacing::GAP;
         }
@@ -1086,12 +1086,12 @@ impl<'a> Row<'a> {
                 let origin = egui::pos2(x, rect.min.y + Spacing::ROW_Y);
                 let title = self.title.galley(ui, right - x);
                 let title_height = title.size().y;
-                painter.galley(origin, title, title_color);
+                painter.galley(origin, title, title_colour);
                 let detail = text(Role::Data, detail).galley(ui, right - x);
                 painter.galley(
                     origin + egui::vec2(0.0, title_height + Spacing::LINE_GAP),
                     detail,
-                    data_color,
+                    data_colour,
                 );
             }
             Detail::None | Detail::Trailing(_) => {
@@ -1099,7 +1099,7 @@ impl<'a> Row<'a> {
                 painter.galley(
                     egui::pos2(x, rect.center().y - title.size().y / 2.0),
                     title,
-                    title_color,
+                    title_colour,
                 );
             }
         }
@@ -1281,7 +1281,7 @@ impl<'a> Property<'a> {
         name.widget_info(|| egui::WidgetInfo::labeled(kind, true, words.clone()));
         if visible {
             let painter = ui.painter();
-            let color = if self.changed {
+            let colour = if self.changed {
                 style::CHIP_KEY
             } else if self.disclosure.is_some() && name.hovered() {
                 ui.visuals().text_color()
@@ -1305,7 +1305,7 @@ impl<'a> Property<'a> {
                         egui::pos2(slot_x, name_rect.center().y),
                         Vec2::splat(Icon::SLOT * 0.75),
                     ),
-                    color,
+                    colour,
                 );
             }
             if self.depth > 0 {
@@ -1322,7 +1322,7 @@ impl<'a> Property<'a> {
                     name_rect.center().y - galley.size().y / 2.0,
                 ),
                 galley,
-                color,
+                colour,
             );
         }
         let name = match self.docs {
@@ -1503,8 +1503,8 @@ pub fn number(ui: &mut Ui, value: &mut f64, format: Number, id: egui::Id) -> Res
 /// The hex of a colour as a scientist writes it: `#RRGGBB`, and `#RRGGBBAA` when the colour is not opaque, so that
 /// an alpha is never hidden.
 #[must_use]
-pub fn hex(color: Color32) -> String {
-    let [r, g, b, a] = color.to_srgba_unmultiplied();
+pub fn hex(colour: Color32) -> String {
+    let [r, g, b, a] = colour.to_srgba_unmultiplied();
     if a == 255 {
         format!("#{r:02X}{g:02X}{b:02X}")
     } else {
@@ -1514,10 +1514,10 @@ pub fn hex(color: Color32) -> String {
 
 /// A colour: a control carrying a swatch of it and its hex, which opens egui's picker beneath it when clicked. The
 /// response is marked changed when the picker changes the colour.
-pub fn swatch(ui: &mut Ui, color: &mut Color32, id: egui::Id) -> Response {
-    let words = hex(*color);
+pub fn swatch(ui: &mut Ui, colour: &mut Color32, id: egui::Id) -> Response {
+    let words = hex(*colour);
     let mut response = Control::new(text(Role::Data, &words), Face::Raised)
-        .before(Icon::Swatch(*color))
+        .before(Icon::Swatch(*colour))
         .show(ui);
     let picked = egui::Popup::menu(&response)
         .id(id.with("picker"))
@@ -1525,7 +1525,7 @@ pub fn swatch(ui: &mut Ui, color: &mut Color32, id: egui::Id) -> Response {
         .show(|ui| {
             egui::color_picker::color_picker_color32(
                 ui,
-                color,
+                colour,
                 egui::color_picker::Alpha::OnlyBlend,
             )
         })

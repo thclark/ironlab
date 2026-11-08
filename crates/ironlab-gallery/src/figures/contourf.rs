@@ -4,7 +4,7 @@ use crate::fields::*;
 
 pub const TITLE: &str = "Filled contour";
 pub const DESCRIPTION: &str = "Bands between explicitly chosen levels of the Julia field, filled with colours from \
-     the magma colormap.";
+     the magma colourmap.";
 
 pub fn figure() -> Figure {
     let (x, y, z) = julia_grid(121);
@@ -21,7 +21,7 @@ pub fn figure() -> Figure {
         .parameter("has_legend", false);
     let mut ax = fig.axes(0, 0);
     ax.contourf(&x, &y, &z).level_values(&levels);
-    ax.color_scale().colormap(Colormap::Magma);
+    ax.colour_scale().colourmap(Colourmap::Magma);
     ax.xlabel("$x$").ylabel("$y$");
     fig
 }

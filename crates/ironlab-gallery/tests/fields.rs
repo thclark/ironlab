@@ -4,7 +4,7 @@
 //! field would make the figures misrepresent the formula stated in the documentation, and a wrong gradient or normal
 //! would draw arrows that do not mean what their captions say.
 
-use ironlab::{ByteMatrix, Color, Matrix};
+use ironlab::{ByteMatrix, Colour, Matrix};
 use ironlab_gallery::fields::{
     CENTRAL_PEAK, DOMAIN_MAX, DOMAIN_MIN, FIELDS_SOURCE, Peak, correlation_field,
     cylinder_flow_mesh, cylinder_flow_speed, gradient, hsl_to_rgb, julia_field, julia_grid,
@@ -72,7 +72,7 @@ fn julia_iterate_returns_the_parts_of_the_third_iterate() {
 /// hue to white as the lightness rises, or the picture would misrepresent the arguments and magnitudes it encodes.
 #[test]
 fn hsl_to_rgb_places_the_primaries_wraps_the_hue_and_spans_black_to_white() {
-    let rgb = |c: Color| (c.r, c.g, c.b);
+    let rgb = |c: Colour| (c.r, c.g, c.b);
     assert_eq!(
         rgb(hsl_to_rgb(0.0, 1.0, 0.5)),
         (1.0, 0.0, 0.0),

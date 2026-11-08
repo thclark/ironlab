@@ -23,14 +23,14 @@ use crate::artist::{
     StepAt, Surface,
 };
 use crate::axes::{
-    AngleUnits, Aspect, AspectAdjust, Axes, Axis, AxisSide, ColormapName, InsideColorbar,
-    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    AngleUnits, Aspect, AspectAdjust, Axes, Axis, AxisSide, ColourmapName, InsideColourbar,
+    InsideColourbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
     TickLabels, Ticks, TitleAlign, View3d,
 };
-use crate::color_scale::{
-    CategoricalColorScale, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels,
-    ColorScaleNorm, ColorScaleOutOfRange, Colormap, ContinuousColorScale, DiscreteColorScale,
-    IndexedColorScale, OutOfRange,
+use crate::colour_scale::{
+    CategoricalColourScale, ColourCategory, ColourScale, ColourScaleKind, ColourScaleLevels,
+    ColourScaleNorm, ColourScaleOutOfRange, Colourmap, ContinuousColourScale, DiscreteColourScale,
+    IndexedColourScale, OutOfRange,
 };
 use crate::data::DataArray;
 use crate::edit::path::PropertyPath;
@@ -46,9 +46,10 @@ use crate::legend::{
 use crate::link::AxisLink;
 use crate::nodes::{NodeKind, describe};
 use crate::panel::{
-    ColorbarOrientation, ColorbarTitlePlacement, Panel, PanelColorbar, PanelContent, PanelLocation,
+    ColourbarOrientation, ColourbarTitlePlacement, Panel, PanelColourbar, PanelContent,
+    PanelLocation,
 };
-use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
+use crate::style::{Colour, ColourSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
 /// Why a step of a path walk failed, before it is given the node and the path that make
@@ -424,7 +425,7 @@ pub(crate) trait Entry {
     fn describe_entry(prefix: &mut Vec<&'static str>, docs: &'static str, out: &mut Vec<Property>);
 }
 
-impl Entry for Color {
+impl Entry for Colour {
     fn entry_get(&self, path: &[String]) -> Result<Value, Step> {
         Walk::get(self, path)
     }
@@ -436,22 +437,22 @@ impl Entry for Color {
     fn describe_entry(prefix: &mut Vec<&'static str>, docs: &'static str, out: &mut Vec<Property>) {
         out.push(Property {
             path: PropertyPath::of(prefix),
-            value_type: ValueType::Color,
+            value_type: ValueType::Colour,
             optional: false,
             conditional: true,
             docs,
         });
-        <Color as Walk>::describe(prefix, true, out);
+        <Colour as Walk>::describe(prefix, true, out);
     }
 }
 
-impl Entry for ColorCategory {
+impl Entry for ColourCategory {
     /// A category as a whole is not a value of its own; its colour and its label are.
     fn entry_get(&self, path: &[String]) -> Result<Value, Step> {
         match path.split_first() {
             None => Err(Step::ReadOnly),
             Some((head, rest)) => match head.as_str() {
-                "color" => Walk::get(&self.color, rest),
+                "colour" => Walk::get(&self.colour, rest),
                 "label" => Walk::get(&self.label, rest),
                 _ => Err(Step::Unknown),
             },
@@ -462,7 +463,7 @@ impl Entry for ColorCategory {
         match path.split_first() {
             None => Err(Step::ReadOnly),
             Some((head, rest)) => match head.as_str() {
-                "color" => Walk::set(&mut self.color, rest, value),
+                "colour" => Walk::set(&mut self.colour, rest, value),
                 "label" => Walk::set(&mut self.label, rest, value),
                 _ => Err(Step::Unknown),
             },
@@ -476,8 +477,8 @@ impl Entry for ColorCategory {
     ) {
         walk_describe!(
             plain,
-            Color,
-            "color",
+            Colour,
+            "colour",
             "The colour of the category.",
             prefix,
             true,
@@ -553,13 +554,13 @@ ir_leaf! {
     PolarAngle => PolarAngle;
     AxisSide => AxisSide;
     Scale => Scale;
-    ColormapName => ColormapName;
-    ColorScaleNorm => ColorScaleNorm;
+    ColourmapName => ColourmapName;
+    ColourScaleNorm => ColourScaleNorm;
     LegendLocation => LegendLocation;
     PanelLocation => PanelLocation;
-    ColorbarOrientation => ColorbarOrientation;
-    InsideColorbarSide => InsideColorbarSide;
-    ColorbarTitlePlacement => ColorbarTitlePlacement;
+    ColourbarOrientation => ColourbarOrientation;
+    InsideColourbarSide => InsideColourbarSide;
+    ColourbarTitlePlacement => ColourbarTitlePlacement;
     LegendEntryOrder => LegendEntryOrder;
     AspectAdjust => AspectAdjust;
     TitleAlign => TitleAlign;
@@ -641,11 +642,11 @@ ir_node! {
             "The base font size in points; titles and tick labels are scaled from it.";
         plain "embolden" => embolden: Embolden =
             "How much heavier than designed the figure is drawn, for projection: the weight of its text and the thickness of its lines and edges, but not the size of its markers.";
-        plain "background" => background: Color = "The colour of the figure background.";
+        plain "background" => background: Colour = "The colour of the figure background.";
         plain "layout" => layout: TileLayout =
             "The grid of cells in which axes and panels are placed.";
         hidden "data" => data: () = "";
-        hidden "color_scales" => color_scales: () = "";
+        hidden "colour_scales" => colour_scales: () = "";
         hidden "axes" => axes: () = "";
         hidden "panels" => panels: () = "";
         plain "links" => links: Vec<AxisLink> =
@@ -664,13 +665,13 @@ ir_node! {
         hidden "array" => array: () = "";
     }
 
-    ColorScale {
+    ColourScale {
         hidden "id" => id: () = "";
         optional "title" => title: Text =
             "The title drawn with the scale beside every bar that shows it: along the bar or above it, as the bar places it.";
-        plain "kind" => kind: ColorScaleKind =
+        plain "kind" => kind: ColourScaleKind =
             "How values become colours and how the scale is drawn: continuous, discrete, indexed or categorical.";
-        plain "non_finite" => non_finite: ColorScaleOutOfRange =
+        plain "non_finite" => non_finite: ColourScaleOutOfRange =
             "What is drawn for a value that is NaN or infinite, on every kind of scale.";
     }
 
@@ -692,7 +693,7 @@ ir_node! {
             "The ratios of the length of one data unit of y, and of z, to the length of one data unit of x; on a logarithmic axis the unit is one decade.";
         plain "aspect_adjust" => aspect_adjust: AspectAdjust =
             "How a fixed aspect is kept: by shaping the plot area or the box of a three-dimensional axes to the limits, or by widening the limits.";
-        optional "colorbar" => colorbar: InsideColorbar =
+        optional "colourbar" => colourbar: InsideColourbar =
             "The colourbar drawn inside the plot area along one of its edges, over the artists, or absent when the axes shows none.";
         plain "box" => box_: bool =
             "Whether the full outline of the plot box is drawn, rather than only the edges that carry tick labels.";
@@ -727,9 +728,9 @@ ir_node! {
             "The style of the markers at the points; a shape of none draws no markers.";
         optional "size_data" => size_data: NodeId =
             "The diameter of each marker in points, one value per point; when absent every marker takes the marker size, which is always the size of the legend key.";
-        optional "color_data" => color_data: NodeId =
+        optional "colour_data" => colour_data: NodeId =
             "The values that colour the series through its colour scale: one per point, which colours the markers and draws each segment as a gradient, or one per segment, which colours each segment of the line.";
-        optional "color_scale" => color_scale: NodeId =
+        optional "colour_scale" => colour_scale: NodeId =
             "The colour scale through which the colour data is mapped; a series with colour data must name one.";
         plain "x_coords" => x_coords: Coords =
             "How the x values are placed: as data along the x axis, or as fractions of the plot area's width.";
@@ -739,8 +740,8 @@ ir_node! {
             "Whether the artist is clipped to the plot area; when it is not, marks may extend beyond the plot area along a dimension in axes-fraction coordinates, but never along a dimension in data coordinates.";
         optional "base" => base: f64 =
             "The value of y, read in the coordinates of y, down to which the area under the line is filled, or absent for no base.";
-        plain "fill" => fill: ColorSpec =
-            "The colour of the area between the line and the base, or none; a fill needs a base, is invalid in three-dimensional axes and cannot be colormapped, and an automatic fill takes the colour of the series.";
+        plain "fill" => fill: ColourSpec =
+            "The colour of the area between the line and the base, or none; a fill needs a base, is invalid in three-dimensional axes and cannot be colourmapped, and an automatic fill takes the colour of the series.";
         plain "fill_opacity" => fill_opacity: f64 =
             "The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
     }
@@ -759,9 +760,9 @@ ir_node! {
         plain "placement" => placement: ContourPlacement =
             "Where the contours are placed in three-dimensional axes.";
         plain "line" => line: LineStyle =
-            "The style of the isolines; a colormapped colour takes the colour of each isoline's level through the colour scale.";
-        optional "color_scale" => color_scale: NodeId =
-            "The colour scale through which levels and bands are coloured; a contour whose bands are filled or whose isolines are colormapped must name one.";
+            "The style of the isolines; a colourmapped colour takes the colour of each isoline's level through the colour scale.";
+        optional "colour_scale" => colour_scale: NodeId =
+            "The colour scale through which levels and bands are coloured; a contour whose bands are filled or whose isolines are colourmapped must name one.";
         plain "line_opacity" => line_opacity: f64 =
             "The opacity of the isolines, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colour.";
         plain "fill_opacity" => fill_opacity: f64 =
@@ -796,11 +797,11 @@ ir_node! {
             "The field, a two-dimensional array of shape [ny, nx]: the height of every node in a three-dimensional axes, and the colour data of every node unless c is given.";
         optional "c" => c: NodeId =
             "The colour data of every node, with the same shape as the field; when absent the surface is coloured by its field.";
-        plain "face" => face: ColorSpec = "The colour of the faces.";
-        plain "edge" => edge: ColorSpec = "The colour of the face edges.";
+        plain "face" => face: ColourSpec = "The colour of the faces.";
+        plain "edge" => edge: ColourSpec = "The colour of the face edges.";
         plain "edge_width_pt" => edge_width_pt: f64 = "The width of the face edges in points.";
-        optional "color_scale" => color_scale: NodeId =
-            "The colour scale through which the colour data is mapped; a surface whose faces or edges are colormapped must name one.";
+        optional "colour_scale" => colour_scale: NodeId =
+            "The colour scale through which the colour data is mapped; a surface whose faces or edges are colourmapped must name one.";
         optional "face_alpha" => face_alpha: NodeId =
             "The alpha of the faces at every node, with the same shape as the field; a face takes the mean of its corners' alpha, which is clamped to [0, 1], and a non-finite alpha makes the face transparent. When absent the faces are uniformly opaque before their opacity applies.";
         optional "edge_alpha" => edge_alpha: NodeId =
@@ -828,7 +829,7 @@ ir_node! {
         plain "visible" => visible: bool = "Whether the artist is drawn.";
         plain "values" => values: NodeId =
             "The numbers, a two-dimensional array of shape [ny, nx] of floating-point or 8-bit values, each mapped to a colour through the colour scale.";
-        optional "color_scale" => color_scale: NodeId =
+        optional "colour_scale" => colour_scale: NodeId =
             "The colour scale through which the numbers are mapped; a scalar image must name one.";
         plain "placement" => placement: ImagePlacement = "Where the pixels lie in the axes.";
         optional "alpha" => alpha: NodeId =
@@ -853,14 +854,14 @@ ir_node! {
             "How wide each bar is along the category axis: a fraction of the pitch of the positions, one width for every bar, or one width per bar.";
         plain "offset" => offset: BarOffset =
             "How far the centre of each bar lies from its position along the category axis: a multiple of the width of the bar, or a distance in data units.";
-        plain "face" => face: ColorSpec =
-            "The colour of the bars: automatic for the next colour of the colour order, a fixed colour, none, or colormapped, which gives each bar the colour of its value of the colour data through the colour scale.";
-        optional "color_data" => color_data: NodeId =
+        plain "face" => face: ColourSpec =
+            "The colour of the bars: automatic for the next colour of the colour order, a fixed colour, none, or colourmapped, which gives each bar the colour of its value of the colour data through the colour scale.";
+        optional "colour_data" => colour_data: NodeId =
             "The values that colour the bars through their colour scale, one per bar; when absent the bars take fixed colours.";
-        optional "color_scale" => color_scale: NodeId =
+        optional "colour_scale" => colour_scale: NodeId =
             "The colour scale through which the colour data is mapped; bars with colour data must name one.";
         plain "edge" => edge: LineStyle =
-            "The style of the outline of every bar: a colour of none draws no outline, an automatic colour is the colour of the series, and a colormapped colour gives each outline the colour of its bar's value through the colour scale.";
+            "The style of the outline of every bar: a colour of none draws no outline, an automatic colour is the colour of the series, and a colourmapped colour gives each outline the colour of its bar's value through the colour scale.";
         plain "face_opacity" => face_opacity: f64 =
             "The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the alpha of their colours.";
         plain "edge_opacity" => edge_opacity: f64 =
@@ -883,7 +884,7 @@ ir_node! {
             "The value along the value axis to which the outline drops at both ends, or absent for an open outline.";
         plain "line" => line: LineStyle =
             "The style of the outline, whose automatic colour is the next colour of the colour order.";
-        plain "fill" => fill: ColorSpec =
+        plain "fill" => fill: ColourSpec =
             "The colour of the area between the outline and the base, or none; a fill needs a base.";
         plain "line_opacity" => line_opacity: f64 =
             "The opacity of the outline, from 0 (transparent) to 1 (opaque), which multiplies the alpha of its colour.";
@@ -906,8 +907,8 @@ ir_node! {
         plain "gap" => gap: CellGap =
             "The fractions of the width and height of each cell left empty, measured on the page.";
         plain "edge" => edge: LineStyle =
-            "The style of the outline of every cell; a colour of none draws no outline, and a colormapped colour gives each outline the colour of its cell.";
-        optional "color_scale" => color_scale: NodeId =
+            "The style of the outline of every cell; a colour of none draws no outline, and a colourmapped colour gives each outline the colour of its cell.";
+        optional "colour_scale" => colour_scale: NodeId =
             "The colour scale through which the values are mapped; cells must name one.";
         optional "alpha" => alpha: NodeId =
             "The alpha of every cell, with the same shape as the values: floating-point values from 0 to 1 or 8-bit values from 0 to 255. When absent the cells are uniformly opaque before the face opacity applies.";
@@ -941,7 +942,7 @@ ir_value! {
             "The sizes of the columns, from the left: a relative weight, or fitted to the panels in the column; a column without a size has a weight of one.";
     }
 
-    Color as Color {
+    Colour as Colour {
         plain "r" => r: f32 = "The red component, from 0 to 1.";
         plain "g" => g: f32 = "The green component, from 0 to 1.";
         plain "b" => b: f32 = "The blue component, from 0 to 1.";
@@ -1014,23 +1015,23 @@ ir_value! {
         hidden "entries" => entries: () = "";
     }
 
-    PanelColorbar as PanelColorbar {
+    PanelColourbar as PanelColourbar {
         plain "scale" => scale: NodeId = "The colour scale that the colourbar shows.";
-        plain "orientation" => orientation: ColorbarOrientation =
+        plain "orientation" => orientation: ColourbarOrientation =
             "Whether the bar stands upright, with low values at the bottom, or lies flat, with low values at the left.";
         optional "length" => length: f64 =
             "The length of the bar, with any keys it shows, as a fraction of the span of the plot boxes beside it, placed along the span by the panel's alignment; greater than 0 and at most 1. Absent means the whole span for an upright bar and half of it for a flat one.";
-        plain "title_placement" => title_placement: ColorbarTitlePlacement =
+        plain "title_placement" => title_placement: ColourbarTitlePlacement =
             "Where the title of the scale is drawn: along the bar beyond its tick labels, or as a heading above it.";
     }
 
-    InsideColorbar as InsideColorbar {
+    InsideColourbar as InsideColourbar {
         plain "scale" => scale: NodeId = "The colour scale that the colourbar shows.";
-        plain "side" => side: InsideColorbarSide =
+        plain "side" => side: InsideColourbarSide =
             "The edge of the plot area along which the bar lies, which also sets whether it lies flat or stands upright.";
         plain "length" => length: f64 =
             "The length of the bar, with any keys it shows, as a fraction of the edge it lies along, centred on it; greater than 0 and at most 1.";
-        plain "title_placement" => title_placement: ColorbarTitlePlacement =
+        plain "title_placement" => title_placement: ColourbarTitlePlacement =
             "Where the title of the scale is drawn: along the bar beyond its tick labels, or as a heading on the side of the bar away from them.";
     }
 
@@ -1048,7 +1049,7 @@ ir_value! {
     }
 
     LineStyle as LineStyle {
-        plain "color" => color: ColorSpec = "The line colour.";
+        plain "colour" => colour: ColourSpec = "The line colour.";
         plain "width_pt" => width_pt: f64 = "The line width in points.";
         plain "dash" => dash: DashStyle = "The dash pattern of the line.";
     }
@@ -1057,8 +1058,8 @@ ir_value! {
         plain "shape" => shape: MarkerShape = "The marker shape.";
         plain "size_pt" => size_pt: f64 =
             "The marker size in points, measured as the width of the marker.";
-        plain "face" => face: ColorSpec = "The colour of the marker interior.";
-        plain "edge" => edge: ColorSpec = "The colour of the marker outline.";
+        plain "face" => face: ColourSpec = "The colour of the marker interior.";
+        plain "edge" => edge: ColourSpec = "The colour of the marker outline.";
     }
 
     ImagePlacement as ImagePlacement {
@@ -1070,7 +1071,7 @@ ir_value! {
             "The coordinates of the centres of the first and last rows along the second axis of the plane, or absent for centres at 0 to ny − 1.";
     }
 
-    ColorScaleOutOfRange as ColorScaleOutOfRange {
+    ColourScaleOutOfRange as ColourScaleOutOfRange {
         plain "policy" => policy: OutOfRange = "What is drawn for a value of the category.";
         plain "show_key" => show_key: bool =
             "Whether a colourbar that shows the scale draws a key square for the category, separate from the bar.";
@@ -1078,15 +1079,15 @@ ir_value! {
             "The label of the key square, or absent for the default label.";
     }
 
-    ContinuousColorScale as ContinuousColorScale {
-        plain "colormap" => colormap: Colormap = "The palette that the scale interpolates.";
+    ContinuousColourScale as ContinuousColourScale {
+        plain "colourmap" => colourmap: Colourmap = "The palette that the scale interpolates.";
         plain "limits" => limits: Limits =
-            "The values mapped to the first and last colours of the colormap; automatic limits are the range of the values that every artist maps through the scale.";
-        plain "norm" => norm: ColorScaleNorm =
+            "The values mapped to the first and last colours of the colourmap; automatic limits are the range of the values that every artist maps through the scale.";
+        plain "norm" => norm: ColourScaleNorm =
             "Whether values are interpolated in linear or logarithmic space.";
-        plain "below" => below: ColorScaleOutOfRange =
+        plain "below" => below: ColourScaleOutOfRange =
             "What is drawn for a value below the lower limit, or not positive under a logarithmic norm.";
-        plain "above" => above: ColorScaleOutOfRange =
+        plain "above" => above: ColourScaleOutOfRange =
             "What is drawn for a value above the upper limit.";
         plain "ticks" => ticks: Ticks =
             "Where the ticks of a colourbar that shows the scale are placed.";
@@ -1094,15 +1095,15 @@ ir_value! {
             "What is written at the ticks of a colourbar that shows the scale.";
     }
 
-    DiscreteColorScale as DiscreteColorScale {
-        plain "colormap" => colormap: Colormap =
+    DiscreteColourScale as DiscreteColourScale {
+        plain "colourmap" => colourmap: Colourmap =
             "The palette from which the bands take their colours.";
-        plain "levels" => levels: ColorScaleLevels = "The edges of the bands.";
-        plain "norm" => norm: ColorScaleNorm =
-            "Whether band edges are chosen, and the colormap sampled, in linear or logarithmic space.";
-        plain "below" => below: ColorScaleOutOfRange =
+        plain "levels" => levels: ColourScaleLevels = "The edges of the bands.";
+        plain "norm" => norm: ColourScaleNorm =
+            "Whether band edges are chosen, and the colourmap sampled, in linear or logarithmic space.";
+        plain "below" => below: ColourScaleOutOfRange =
             "What is drawn for a value below the first edge, or not positive under a logarithmic norm.";
-        plain "above" => above: ColorScaleOutOfRange =
+        plain "above" => above: ColourScaleOutOfRange =
             "What is drawn for a value above the last edge.";
         plain "ticks" => ticks: Ticks =
             "Where the ticks of a colourbar that shows the scale are placed; automatic ticks are one per band edge.";
@@ -1110,10 +1111,10 @@ ir_value! {
             "What is written at the ticks of a colourbar that shows the scale.";
     }
 
-    IndexedColorScale as IndexedColorScale {
-        entries "colors" => colors: Color =
+    IndexedColourScale as IndexedColourScale {
+        entries "colours" => colours: Colour =
             "The colour of one entry of the palette, which a whole number equal to its index takes.";
-        plain "outside" => outside: ColorScaleOutOfRange =
+        plain "outside" => outside: ColourScaleOutOfRange =
             "What is drawn for a value that names no entry.";
         plain "ticks" => ticks: Ticks =
             "Where the ticks of a colourbar that shows the scale are placed, at the centres of the entries.";
@@ -1121,9 +1122,9 @@ ir_value! {
             "What is written at the ticks of a colourbar that shows the scale.";
     }
 
-    CategoricalColorScale as CategoricalColorScale {
-        entries "categories" => categories: ColorCategory = "One category of the scale.";
-        plain "outside" => outside: ColorScaleOutOfRange =
+    CategoricalColourScale as CategoricalColourScale {
+        entries "categories" => categories: ColourCategory = "One category of the scale.";
+        plain "outside" => outside: ColourScaleOutOfRange =
             "What is drawn for a value that names no category.";
     }
 
@@ -1134,7 +1135,7 @@ ir_value! {
             "The data array of the bin edges that the specification resolved to, one more than the bins.";
         optional "range" => range: [f64; 2] =
             "The range of sample values that was binned, as its low and high ends, or absent when the range of the samples was used.";
-        plain "normalization" => normalization: HistNorm =
+        plain "normalisation" => normalisation: HistNorm =
             "How the counts of the bins were normalised into the values drawn.";
         plain "total" => total: f64 = "The number of samples counted into the bins.";
         plain "excluded_non_finite" => excluded_non_finite: u64 =
@@ -1154,7 +1155,7 @@ ir_value! {
             "The range of sample values along x that was binned, or absent for the range of the samples.";
         optional "y_range" => y_range: [f64; 2] =
             "The range of sample values along y that was binned, or absent for the range of the samples.";
-        plain "normalization" => normalization: HistNorm =
+        plain "normalisation" => normalisation: HistNorm =
             "How the counts of the bins were normalised into the values drawn.";
         optional "min_count" => min_count: f64 =
             "The count below which a bin was left empty, or absent when every bin was drawn.";
@@ -1297,8 +1298,8 @@ ir_tagged! {
             plain "legend" => 0: PanelLegend =
                 "A legend, which lists the entries of every axes whose legend names the panel.";
         }
-        Colorbar {
-            plain "colorbar" => 0: PanelColorbar =
+        Colourbar {
+            plain "colourbar" => 0: PanelColourbar =
                 "A colourbar, which shows a colour scale along the cells of the panel.";
         }
     }
@@ -1352,13 +1353,13 @@ ir_tagged! {
         }
     }
 
-    ColorSpec as ColorSpec {
+    ColourSpec as ColourSpec {
         Auto {}
         Rgba {
-            plain "color" => color: Color = "The colour to use.";
+            plain "colour" => colour: Colour = "The colour to use.";
         }
         None {}
-        Colormapped {}
+        Colourmapped {}
     }
 
     Grid as Grid {
@@ -1417,42 +1418,42 @@ ir_tagged! {
         Transparent {}
         Clamp {}
         Rgba {
-            plain "color" => color: Color = "The colour in which the values are drawn.";
+            plain "colour" => colour: Colour = "The colour in which the values are drawn.";
         }
     }
 
-    ColorScaleKind as ColorScaleKind {
+    ColourScaleKind as ColourScaleKind {
         Continuous {
-            plain "continuous" => 0: ContinuousColorScale =
-                "A colormap interpolated between limits, drawn as a smooth bar.";
+            plain "continuous" => 0: ContinuousColourScale =
+                "A colourmap interpolated between limits, drawn as a smooth bar.";
         }
         Discrete {
-            plain "discrete" => 0: DiscreteColorScale =
-                "Bands between edges, each in one colour of a colormap, drawn as a bar of bands.";
+            plain "discrete" => 0: DiscreteColourScale =
+                "Bands between edges, each in one colour of a colourmap, drawn as a bar of bands.";
         }
         Indexed {
-            plain "indexed" => 0: IndexedColorScale =
+            plain "indexed" => 0: IndexedColourScale =
                 "A palette of which a whole number i takes entry i, drawn as a bar of adjoining blocks.";
         }
         Categorical {
-            plain "categorical" => 0: CategoricalColorScale =
+            plain "categorical" => 0: CategoricalColourScale =
                 "Labelled categories of which a whole number i takes category i, drawn as separate outlined squares.";
         }
     }
 
-    Colormap as Colormap {
+    Colourmap as Colourmap {
         Named {
-            plain "name" => name: ColormapName = "The name of the bundled colormap.";
+            plain "name" => name: ColourmapName = "The name of the bundled colourmap.";
             plain "reverse" => reverse: bool =
-                "Whether the colormap runs from its last colour to its first.";
+                "Whether the colourmap runs from its last colour to its first.";
         }
         Listed {
-            entries "colors" => colors: Color =
-                "One colour of the listed colormap, which the scale interpolates or samples in order.";
+            entries "colours" => colours: Colour =
+                "One colour of the listed colourmap, which the scale interpolates or samples in order.";
         }
     }
 
-    ColorScaleLevels as ColorScaleLevels {
+    ColourScaleLevels as ColourScaleLevels {
         Auto {
             plain "count" => count: u32 = "The approximate number of bands; at least one.";
             plain "limits" => limits: Limits =

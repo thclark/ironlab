@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use ironlab_ir::{
-    Artist, Axes, ColorScaleNorm, ColorSpec, Contour, ContourPlacement, Coords as ArtistCoords,
+    Artist, Axes, ColourScaleNorm, ColourSpec, Contour, ContourPlacement, Coords as ArtistCoords,
     DashStyle, Levels, NodeId, Quiver, Series, Surface, View3d,
 };
 
@@ -878,7 +878,7 @@ fn line_stroke(
 /// pieces: a few device pixels at print resolution, so that the seams between pieces cannot be seen.
 const MAX_GRADIENT_PIECE_PT: f64 = 1.0;
 
-/// The most pieces one gradient segment is cut into: no colormap holds more distinguishable colours than this along
+/// The most pieces one gradient segment is cut into: no colourmap holds more distinguishable colours than this along
 /// one segment, and the bound keeps a very long segment from costing thousands of paths.
 const MAX_GRADIENT_PIECES: usize = 256;
 
@@ -1024,7 +1024,7 @@ fn draw_segments(
         let mut builder = PathBuilder::new();
         builder.polyline(&[a.position, b.position], false);
         let stroke = Stroke {
-            color: colour,
+            colour,
             dash_offset: offset(start),
             ..template.clone()
         };
@@ -1048,7 +1048,7 @@ fn draw_segments(
 /// replaces, the one leaving its first point), and every line of a 3D axes is depth-ordered segment by segment.
 ///
 /// The colour of the series is its line colour (`primary`), which an automatic marker face or edge follows: with a
-/// colour-mapped line and one value per point, the colour of each point. A colormapped marker face or edge takes the
+/// colour-mapped line and one value per point, the colour of each point. A colourmapped marker face or edge takes the
 /// colour of its point's value, and without colour data the colour of the series. A point whose colour value the
 /// scale draws nothing for (a non-finite value under the default transparent policy) is not drawn: it has no marker,
 /// and it breaks the line, so neither segment that meets it is drawn. A series that draws a line strokes its marker
@@ -1063,7 +1063,7 @@ fn draw_series(
     primary: Paint,
 ) {
     // The data stage lets colour data through only with a colour scale to map it.
-    let scale = series.color_scale.and_then(|id| draw.scales.get(id));
+    let scale = series.colour_scale.and_then(|id| draw.scales.get(id));
     let map_all = |values: &[f64]| -> Vec<Option<Rgba>> {
         values
             .iter()
@@ -1076,20 +1076,20 @@ fn draw_series(
         None => (None, None),
     };
     let own = primary.single(style::viridis_middle());
-    let mapped_line = series.line.color == ColorSpec::Colormapped;
+    let mapped_line = series.line.colour == ColourSpec::Colourmapped;
     // The colour of the series at a point, which an automatic marker colour follows.
     let series_colour = |i: usize| match &point_colours {
         Some(colours) if mapped_line => colours[i],
         _ => own,
     };
-    let part = |spec: ColorSpec, i: usize| match spec {
-        ColorSpec::Auto => series_colour(i),
-        ColorSpec::Colormapped => match &point_colours {
+    let part = |spec: ColourSpec, i: usize| match spec {
+        ColourSpec::Auto => series_colour(i),
+        ColourSpec::Colourmapped => match &point_colours {
             Some(colours) => colours[i],
             None => series_colour(i),
         },
-        ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
-        ColorSpec::None => None,
+        ColourSpec::Rgba { colour } => Some(style::ir_colour(colour)),
+        ColourSpec::None => None,
     };
     // A point whose colour the scale draws nothing for cannot be placed, so it breaks the line as a gap does.
     let at = |i: usize| match &point_colours {
@@ -1099,11 +1099,11 @@ fn draw_series(
 
     if let Some(base) = series.fill_base() {
         let fill = match series.fill {
-            ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
-            // A colormapped fill is invalid, because the area under the line has no value to look a colour up by;
+            ColourSpec::Rgba { colour } => Some(style::ir_colour(colour)),
+            // A colourmapped fill is invalid, because the area under the line has no value to look a colour up by;
             // it is drawn as an automatic one, in the colour of the series.
-            ColorSpec::Auto | ColorSpec::Colormapped => own,
-            ColorSpec::None => None,
+            ColourSpec::Auto | ColourSpec::Colourmapped => own,
+            ColourSpec::None => None,
         };
         let fill =
             fill.map(|c| c.with_alpha_factor(style::unit_opacity(series.fill_opacity) as f32));
@@ -1181,10 +1181,7 @@ fn draw_series(
                     for run in &runs {
                         b.polyline(&positions(run), false);
                     }
-                    let stroke = Stroke {
-                        color: colour,
-                        ..template
-                    };
+                    let stroke = Stroke { colour, ..template };
                     draw.push(0.0, paths::item(series.id, b.finish(), None, Some(stroke)));
                 }
             }
@@ -1400,21 +1397,21 @@ const AUTOMATIC_CONTOUR_LEVELS: u32 = 10;
 /// values of the field. A band is coloured by the middle of its range within the field, geometric under a logarithmic
 /// norm when the range is positive, and an isoline by its level, except for the levels a contour takes from an indexed or categorical scale: those lie
 /// between entries, so a band takes the entry of the whole number it holds and an isoline the entry of the band
-/// below it. A colormapped colour of a contour that names no usable scale takes the middle of viridis.
+/// below it. A colourmapped colour of a contour that names no usable scale takes the middle of viridis.
 fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     let Some((zmin, zmax)) = field_range(grid.z) else {
         return;
     };
     let fill_opacity = style::unit_opacity(c.fill_opacity);
     let line_opacity = style::unit_opacity(c.line_opacity);
-    let scale: Option<&ResolvedScale> = c.color_scale.and_then(|id| draw.scales.get(id));
+    let scale: Option<&ResolvedScale> = c.colour_scale.and_then(|id| draw.scales.get(id));
     let from_scale = match &c.levels {
         Some(_) => None,
         None => scale.and_then(ResolvedScale::contour_levels),
     };
     // Levels between the entries of an indexed or categorical scale, of which each band holds one whole number.
     let between_entries = from_scale.is_some() && scale.is_some_and(ResolvedScale::is_index_mapped);
-    let log = scale.is_some_and(|scale| scale.norm() == ColorScaleNorm::Log);
+    let log = scale.is_some_and(|scale| scale.norm() == ColourScaleNorm::Log);
     let log_range = if log {
         positive_field_range(grid.z)
     } else {
@@ -1477,11 +1474,11 @@ fn draw_contour(draw: &mut Draw, c: &Contour, grid: &GridRef) {
     }
     let line_colour = |level: f64| {
         let value = if between_entries { level - 0.5 } else { level };
-        let colour = match c.line.color {
-            ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
-            ColorSpec::None => None,
-            ColorSpec::Auto | ColorSpec::Colormapped if !c.fill => mapped(value),
-            ColorSpec::Auto | ColorSpec::Colormapped => None,
+        let colour = match c.line.colour {
+            ColourSpec::Rgba { colour } => Some(style::ir_colour(colour)),
+            ColourSpec::None => None,
+            ColourSpec::Auto | ColourSpec::Colourmapped if !c.fill => mapped(value),
+            ColourSpec::Auto | ColourSpec::Colourmapped => None,
         };
         colour
             .filter(|_| line_opacity > 0.0)
@@ -1643,7 +1640,7 @@ fn draw_surface(
     alpha: SurfaceAlpha,
 ) {
     let values = colours.unwrap_or(grid.z);
-    let scale: Option<&ResolvedScale> = s.color_scale.and_then(|id| draw.scales.get(id));
+    let scale: Option<&ResolvedScale> = s.colour_scale.and_then(|id| draw.scales.get(id));
     let first_corner = scale.is_some_and(ResolvedScale::is_index_mapped);
     let width = style::width_or(s.edge_width_pt, 0.5);
     let face_opacity = style::unit_opacity(s.face_opacity);
@@ -1675,9 +1672,9 @@ fn draw_surface(
                 })
                 .collect();
             let Some(mapped) = mapped else { continue };
-            let paint = |spec: ColorSpec| match style::resolve(spec, Paint::Colormapped) {
+            let paint = |spec: ColourSpec| match style::resolve(spec, Paint::Colourmapped) {
                 Paint::Fixed(c) => c,
-                Paint::Colormapped => match scale {
+                Paint::Colourmapped => match scale {
                     Some(scale) => scale.colour(value),
                     None => Some(style::viridis_middle()),
                 },
@@ -1713,7 +1710,7 @@ fn draw_surface(
                             let mut reversed = inner;
                             reversed.reverse();
                             ring.polyline(&reversed, true);
-                            paths::item(s.id, ring.finish(), Some(paths::fill(stroke.color)), None)
+                            paths::item(s.id, ring.finish(), Some(paths::fill(stroke.colour)), None)
                         }
                         None => paths::item(s.id, segments, None, Some(stroke)),
                     };

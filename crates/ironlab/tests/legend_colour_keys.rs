@@ -1,18 +1,18 @@
 //! Colour keys in legends built through the user API (#24): a colour scale listed as an
 //! item of a legend panel or of a legend inside an axes.
 //!
-//! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/legend_color_keys.rs`
-//! (`LegendItemContent::ColorScale { scale, rows }` and `LegendItem::color_scale(NodeId)`, which
+//! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/legend_colour_keys.rs`
+//! (`LegendItemContent::ColourScale { scale, rows }` and `LegendItem::colour_scale(NodeId)`, which
 //! gives five rows):
 //!
 //! - `PanelLegendMut::item` keeps its name and its argument, anything that converts into a
 //!   `LegendItem` or a bare `NodeId`, as the plan's facade example
 //!   `fig.panel(2, 0).legend().item(status).item(scatter_id)` requires. A bare identifier is
 //!   resolved against the figure when `item` is called: an identifier that names a colour
-//!   scale of the figure appends `LegendItem::color_scale(id)`, and any other identifier,
+//!   scale of the figure appends `LegendItem::colour_scale(id)`, and any other identifier,
 //!   one that names no node included, appends `LegendItem::artist(id)` as before, so that
 //!   validation reports a wrong identifier rather than the facade guessing. A `LegendItem`
-//!   passed whole is appended as it is. A dedicated `color_scale_item` setter is not added,
+//!   passed whole is appended as it is. A dedicated `colour_scale_item` setter is not added,
 //!   because the existing `item` already takes every kind of identifier, and an author who
 //!   holds a scale identifier and an artist identifier should not have to remember which
 //!   setter each needs. (The implementation may change the argument's trait, for example
@@ -35,9 +35,9 @@ use ironlab::ir::{Legend, PanelContent, PanelLegend};
 use ironlab::prelude::*;
 use ironlab::{IssueKind, LegendItemContent};
 
-const GREEN: Color = Color::rgb(0.0, 0.6, 0.3);
-const RED: Color = Color::rgb(0.8, 0.2, 0.1);
-const GREY: Color = Color::rgb(0.5, 0.5, 0.5);
+const GREEN: Colour = Colour::rgb(0.0, 0.6, 0.3);
+const RED: Colour = Colour::rgb(0.8, 0.2, 0.1);
+const GREY: Colour = Colour::rgb(0.5, 0.5, 0.5);
 
 /// Returns the legend that the panel with the given identifier holds.
 #[track_caller]
@@ -72,14 +72,14 @@ fn item_lists_a_scale_and_an_artist_in_call_order() {
         .categorical_scale([(GREEN, "taken"), (RED, "skipped")])
         .id();
     let codes = ByteMatrix::from_rows(&[[0, 1, 1], [1, 0, 0]]);
-    fig.axes(0, 0).scalar_image(&codes).color_scale(status);
+    fig.axes(0, 0).scalar_image(&codes).colour_scale(status);
     let x = linspace(0.0, 1.0, 5);
     let scatter_id = fig.axes(1, 0).scatter(&x, &x).label("Measured").id();
     let key = fig.panel(2, 0).legend().item(status).item(scatter_id).id();
     assert_eq!(
         items(&fig, key),
         vec![
-            LegendItem::color_scale(status),
+            LegendItem::colour_scale(status),
             LegendItem::artist(scatter_id)
         ]
     );
@@ -95,8 +95,12 @@ fn item_lists_a_scale_and_an_artist_in_call_order() {
 #[test]
 fn item_recognises_a_scale_of_every_kind() {
     let mut fig = Figure::new().tiles(2, 1);
-    let continuous = fig.color_scale().limits(0.0, 1.0).title("Speed (m/s)").id();
-    let discrete = fig.color_scale().discrete([0.0, 1.0, 2.0]).id();
+    let continuous = fig
+        .colour_scale()
+        .limits(0.0, 1.0)
+        .title("Speed (m/s)")
+        .id();
+    let discrete = fig.colour_scale().discrete([0.0, 1.0, 2.0]).id();
     let indexed = fig.indexed_scale([GREEN, RED, GREY]).id();
     let categorical = fig.categorical_scale([(GREEN, "converged")]).id();
     let key = fig
@@ -114,7 +118,7 @@ fn item_recognises_a_scale_of_every_kind() {
     assert_eq!(
         contents,
         [continuous, discrete, indexed, categorical]
-            .map(|scale| LegendItemContent::ColorScale { scale, rows: 5 })
+            .map(|scale| LegendItemContent::ColourScale { scale, rows: 5 })
             .to_vec()
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
@@ -149,10 +153,10 @@ fn item_keeps_its_meaning_for_artists_whole_items_and_unknown_identifiers() {
     let mut fig = Figure::new().tiles(2, 1);
     let x = linspace(0.0, 1.0, 5);
     let line = fig.axes(0, 0).plot(&x, &x).label("Curve").id();
-    let speed = fig.color_scale().id();
+    let speed = fig.colour_scale().id();
     let heading = LegendItem {
         full_row: true,
-        ..LegendItem::color_scale(speed)
+        ..LegendItem::colour_scale(speed)
     };
     let missing = NodeId(9_999);
     let key = fig
@@ -183,7 +187,7 @@ fn item_keeps_its_meaning_for_artists_whole_items_and_unknown_identifiers() {
 #[test]
 fn a_scale_item_survives_the_other_legend_setters() {
     let mut fig = Figure::new().tiles(2, 1);
-    let speed = fig.color_scale().id();
+    let speed = fig.colour_scale().id();
     let key = fig
         .panel(1, 0)
         .legend()
@@ -192,7 +196,7 @@ fn a_scale_item_survives_the_other_legend_setters() {
         .order(LegendEntryOrder::RowMajor)
         .boxed(false)
         .id();
-    assert_eq!(items(&fig, key), vec![LegendItem::color_scale(speed)]);
+    assert_eq!(items(&fig, key), vec![LegendItem::colour_scale(speed)]);
 }
 
 // PROMISE: the key inside one plot may show any scale of the figure, through the explicit
@@ -209,7 +213,7 @@ fn an_inside_legend_lists_a_scale_through_its_explicit_entries() {
     ax.legend(LegendLocation::NorthWest)
         .legend_entries(LegendEntries::Explicit(vec![
             LegendItem::artist(line),
-            LegendItem::color_scale(status),
+            LegendItem::colour_scale(status),
         ]));
     let axes = fig.axes(0, 0).id();
     match &fig.ir().axes(axes).unwrap().legend {
@@ -217,7 +221,7 @@ fn an_inside_legend_lists_a_scale_through_its_explicit_entries() {
             inside.entries,
             LegendEntries::Explicit(vec![
                 LegendItem::artist(line),
-                LegendItem::color_scale(status)
+                LegendItem::colour_scale(status)
             ])
         ),
         other => panic!("the axes has an inside legend, not {other:?}"),
@@ -236,7 +240,10 @@ fn a_scale_item_survives_a_round_trip_through_the_ir() {
     let status = fig.categorical_scale([(GREEN, "taken")]).id();
     let key = fig.panel(1, 0).legend().item(status).id();
     let reloaded = Figure::from_ir(fig.clone().into_ir());
-    assert_eq!(items(&reloaded, key), vec![LegendItem::color_scale(status)]);
+    assert_eq!(
+        items(&reloaded, key),
+        vec![LegendItem::colour_scale(status)]
+    );
     assert_eq!(reloaded.ir(), fig.ir());
 }
 
@@ -248,7 +255,11 @@ fn full_row_resolves_a_scale_as_item_does() {
     let mut fig = Figure::new().tiles(2, 1);
     let x = linspace(0.0, 1.0, 5);
     let line = fig.axes(0, 0).plot(&x, &x).label("Curve").id();
-    let speed = fig.color_scale().limits(0.0, 1.0).title("Speed (m/s)").id();
+    let speed = fig
+        .colour_scale()
+        .limits(0.0, 1.0)
+        .title("Speed (m/s)")
+        .id();
     let status = fig.categorical_scale([(GREEN, "taken")]).id();
     let key = fig
         .panel(1, 0)
@@ -264,9 +275,9 @@ fn full_row_resolves_a_scale_as_item_does() {
     assert_eq!(
         items(&fig, key),
         vec![
-            row(LegendItem::color_scale(speed)),
+            row(LegendItem::colour_scale(speed)),
             row(LegendItem::artist(line)),
-            row(LegendItem::color_scale(status)),
+            row(LegendItem::colour_scale(status)),
         ]
     );
     let report = fig.validate();

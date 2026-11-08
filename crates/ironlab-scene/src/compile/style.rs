@@ -7,14 +7,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use ironlab_ir::{
-    Artist, Axes, Bar, Color, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKey,
-    ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleSlot, ColorSpec, Colormap,
-    ColormapName, DashStyle, Figure, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, Limits, MarkerShape,
-    MarkerStyle, NodeId, OutOfRange, Series,
+    Artist, Axes, Bar, Colour, ColourScale, ColourScaleClass, ColourScaleDomain, ColourScaleKey,
+    ColourScaleKind, ColourScaleLevels, ColourScaleNorm, ColourScaleSlot, ColourSpec, Colourmap,
+    ColourmapName, DashStyle, Figure, LISTED_COLOURMAP_MAX, LISTED_COLOURMAP_MIN, Limits,
+    MarkerShape, MarkerStyle, NodeId, OutOfRange, Series,
 };
 
 use crate::display::{Item, ItemKind, MarkerInstance, MarkersItem, PathSegment, Point, Rgba};
-use crate::maths::colormap::{self, Lut};
+use crate::maths::colourmap::{self, Lut};
 use crate::maths::{contour, ticks};
 
 use super::Ctx;
@@ -38,47 +38,47 @@ pub(super) const INK: Rgba = Rgba::new(0.15, 0.15, 0.15, 1.0);
 pub(super) const GRID: Rgba = Rgba::new(0.87, 0.87, 0.87, 1.0);
 
 /// Converts an IR colour to a display colour, clamping each channel into `[0, 1]` and replacing NaN with 0.
-pub(super) fn ir_colour(c: Color) -> Rgba {
+pub(super) fn ir_colour(c: Colour) -> Rgba {
     let channel = |v: f32| if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) };
     Rgba::new(channel(c.r), channel(c.g), channel(c.b), channel(c.a))
 }
 
-/// Returns the lookup table of a bundled colormap.
-pub(super) fn lut(name: ColormapName) -> &'static Lut {
+/// Returns the lookup table of a bundled colourmap.
+pub(super) fn lut(name: ColourmapName) -> &'static Lut {
     match name {
-        ColormapName::Viridis => &colormap::VIRIDIS,
-        ColormapName::Cividis => &colormap::CIVIDIS,
-        ColormapName::Magma => &colormap::MAGMA,
-        ColormapName::Inferno => &colormap::INFERNO,
-        ColormapName::Plasma => &colormap::PLASMA,
-        ColormapName::Coolwarm => &colormap::COOLWARM,
-        ColormapName::Gray => &colormap::GRAY,
+        ColourmapName::Viridis => &colourmap::VIRIDIS,
+        ColourmapName::Cividis => &colourmap::CIVIDIS,
+        ColourmapName::Magma => &colourmap::MAGMA,
+        ColourmapName::Inferno => &colourmap::INFERNO,
+        ColourmapName::Plasma => &colourmap::PLASMA,
+        ColourmapName::Coolwarm => &colourmap::COOLWARM,
+        ColourmapName::Grey => &colourmap::GREY,
     }
 }
 
-/// Returns the middle colour of viridis, which a colormapped colour takes where it has no number to map: the colour
-/// of a colormapped quiver, and a colormapped colour of a series without colour data.
+/// Returns the middle colour of viridis, which a colourmapped colour takes where it has no number to map: the colour
+/// of a colourmapped quiver, and a colourmapped colour of a series without colour data.
 pub(super) fn viridis_middle() -> Rgba {
-    Rgba::from_u8(colormap::VIRIDIS[128])
+    Rgba::from_u8(colourmap::VIRIDIS[128])
 }
 
 /// The number of bands of a discrete scale whose automatic band edges cannot be used, and of a contour that takes
 /// automatic levels.
 const AUTOMATIC_BANDS: u32 = 10;
 
-/// The colours a resolved colour scale maps to: a colormap sampled at a position from 0 to 1, or the entries of an
+/// The colours a resolved colour scale maps to: a colourmap sampled at a position from 0 to 1, or the entries of an
 /// indexed or categorical scale.
 enum Palette<'a> {
-    /// A bundled colormap, whose 256 entries share the unit interval equally, run backwards when it is reversed.
+    /// A bundled colourmap, whose 256 entries share the unit interval equally, run backwards when it is reversed.
     Named { lut: &'static Lut, reverse: bool },
-    /// A listed colormap of at least two colours, interpolated linearly in sRGB.
-    Listed(&'a [Color]),
+    /// A listed colourmap of at least two colours, interpolated linearly in sRGB.
+    Listed(&'a [Colour]),
     /// The entries of an indexed or categorical scale.
     Entries(Vec<Rgba>),
 }
 
 impl Palette<'_> {
-    /// Returns the colour of a colormap at the position `t` from 0 to 1, or the entry `t` selects among the entries
+    /// Returns the colour of a colourmap at the position `t` from 0 to 1, or the entry `t` selects among the entries
     /// of an indexed or categorical scale, which only [`ResolvedScale::middle`] asks for.
     fn at(&self, t: f64) -> Option<Rgba> {
         let t = if t.is_nan() { 0.0 } else { t.clamp(0.0, 1.0) };
@@ -89,15 +89,15 @@ impl Palette<'_> {
                 let index = if *reverse { 255 - index } else { index };
                 Some(Rgba::from_u8(lut[index]))
             }
-            Palette::Listed(colors) => {
-                let last = colors.len().checked_sub(1)?;
+            Palette::Listed(colours) => {
+                let last = colours.len().checked_sub(1)?;
                 if last == 0 {
-                    return Some(ir_colour(colors[0]));
+                    return Some(ir_colour(colours[0]));
                 }
                 let x = t * last as f64;
                 let i = (x.floor() as usize).min(last - 1);
                 let f = (x - i as f64) as f32;
-                let (a, b) = (ir_colour(colors[i]), ir_colour(colors[i + 1]));
+                let (a, b) = (ir_colour(colours[i]), ir_colour(colours[i + 1]));
                 let mix = |p: f32, q: f32| p + (q - p) * f;
                 Some(Rgba::new(
                     mix(a.r, b.r),
@@ -121,32 +121,32 @@ impl Palette<'_> {
 ///
 /// Every artist maps its numbers to colours through [`ResolvedScale::colour`], so that one rule colours them all: a
 /// value inside the scale takes the colour of its slot, and any other value follows the policy of its category of
-/// the scale (see [`ColorScale::category`]).
+/// the scale (see [`ColourScale::category`]).
 pub(crate) struct ResolvedScale<'a> {
     /// The colour scale of the figure.
-    pub scale: &'a ColorScale,
+    pub scale: &'a ColourScale,
     /// The domain that classifies values, with its limits and band edges resolved.
-    pub domain: ColorScaleDomain,
+    pub domain: ColourScaleDomain,
     palette: Palette<'a>,
 }
 
 impl ResolvedScale<'_> {
     /// Returns the norm of the scale, which is linear for an indexed or categorical scale.
-    pub fn norm(&self) -> ColorScaleNorm {
+    pub fn norm(&self) -> ColourScaleNorm {
         self.scale.kind.norm()
     }
 
     /// Returns whether the scale is indexed or categorical, so that it maps whole numbers to entries.
     pub fn is_index_mapped(&self) -> bool {
-        matches!(self.domain, ColorScaleDomain::Entries { .. })
+        matches!(self.domain, ColourScaleDomain::Entries { .. })
     }
 
     /// Returns the colour of a slot of the scale: a continuous position, a band of a discrete scale (band `i` of `k`
-    /// takes the colormap colour at `i / (k − 1)`, and a single band the colour at the start), or an entry.
-    pub fn slot_colour(&self, slot: ColorScaleSlot) -> Option<Rgba> {
+    /// takes the colourmap colour at `i / (k − 1)`, and a single band the colour at the start), or an entry.
+    pub fn slot_colour(&self, slot: ColourScaleSlot) -> Option<Rgba> {
         match slot {
-            ColorScaleSlot::Position(t) => self.palette.at(t),
-            ColorScaleSlot::Band(band) => {
+            ColourScaleSlot::Position(t) => self.palette.at(t),
+            ColourScaleSlot::Band(band) => {
                 let bands = self.bands();
                 let t = if bands > 1 {
                     band as f64 / (bands - 1) as f64
@@ -155,7 +155,7 @@ impl ResolvedScale<'_> {
                 };
                 self.palette.at(t)
             }
-            ColorScaleSlot::Entry(entry) => match &self.palette {
+            ColourScaleSlot::Entry(entry) => match &self.palette {
                 Palette::Entries(entries) => entries.get(entry).copied(),
                 _ => None,
             },
@@ -165,26 +165,26 @@ impl ResolvedScale<'_> {
     /// Returns the number of bands of a discrete scale, and 1 for any other kind.
     fn bands(&self) -> usize {
         match &self.domain {
-            ColorScaleDomain::Discrete { edges, .. } => edges.len().saturating_sub(1).max(1),
+            ColourScaleDomain::Discrete { edges, .. } => edges.len().saturating_sub(1).max(1),
             _ => 1,
         }
     }
 
     /// Returns the slot of the first colour of the scale, which a value below its range clamps to.
-    fn first_slot(&self) -> ColorScaleSlot {
+    fn first_slot(&self) -> ColourScaleSlot {
         match self.domain {
-            ColorScaleDomain::Continuous { .. } => ColorScaleSlot::Position(0.0),
-            ColorScaleDomain::Discrete { .. } => ColorScaleSlot::Band(0),
-            ColorScaleDomain::Entries { .. } => ColorScaleSlot::Entry(0),
+            ColourScaleDomain::Continuous { .. } => ColourScaleSlot::Position(0.0),
+            ColourScaleDomain::Discrete { .. } => ColourScaleSlot::Band(0),
+            ColourScaleDomain::Entries { .. } => ColourScaleSlot::Entry(0),
         }
     }
 
     /// Returns the slot of the last colour of the scale, which a value above its range clamps to.
-    fn last_slot(&self) -> ColorScaleSlot {
+    fn last_slot(&self) -> ColourScaleSlot {
         match self.domain {
-            ColorScaleDomain::Continuous { .. } => ColorScaleSlot::Position(1.0),
-            ColorScaleDomain::Discrete { .. } => ColorScaleSlot::Band(self.bands() - 1),
-            ColorScaleDomain::Entries { count } => ColorScaleSlot::Entry(count.saturating_sub(1)),
+            ColourScaleDomain::Continuous { .. } => ColourScaleSlot::Position(1.0),
+            ColourScaleDomain::Discrete { .. } => ColourScaleSlot::Band(self.bands() - 1),
+            ColourScaleDomain::Entries { count } => ColourScaleSlot::Entry(count.saturating_sub(1)),
         }
     }
 
@@ -193,7 +193,7 @@ impl ResolvedScale<'_> {
     /// A value inside the scale takes the colour of its slot. A value the scale cannot place follows the policy of
     /// its category: nothing under a transparent policy, the fixed colour of a fixed-colour policy, and under a clamp
     /// the first colour below the range, the last colour above it, and, outside the entries of an indexed or
-    /// categorical scale, the entry of the value truncated toward zero and clamped to the first or last entry; a
+    /// categorical scale, the entry of the value truncated towards zero and clamped to the first or last entry; a
     /// non-finite value has no nearest end, so a clamp draws nothing for it. A strict policy draws nothing either: an
     /// artist whose own numbers a strict policy refuses is skipped before it is drawn (see
     /// [`ResolvedScale::strict_category`]), so a value that reaches a strict policy here is one derived from those
@@ -203,7 +203,7 @@ impl ResolvedScale<'_> {
         let policy = match self.scale.category(class) {
             None => {
                 return match class {
-                    ColorScaleClass::Inside(slot) => self.slot_colour(slot),
+                    ColourScaleClass::Inside(slot) => self.slot_colour(slot),
                     _ => None,
                 };
             }
@@ -211,20 +211,20 @@ impl ResolvedScale<'_> {
         };
         match policy {
             OutOfRange::Strict | OutOfRange::Transparent => None,
-            OutOfRange::Rgba { color } => Some(ir_colour(color)),
+            OutOfRange::Rgba { colour } => Some(ir_colour(colour)),
             OutOfRange::Clamp => match class {
-                ColorScaleClass::Below => self.slot_colour(self.first_slot()),
-                ColorScaleClass::Above => self.slot_colour(self.last_slot()),
-                ColorScaleClass::Outside => {
-                    let ColorScaleDomain::Entries { count } = self.domain else {
+                ColourScaleClass::Below => self.slot_colour(self.first_slot()),
+                ColourScaleClass::Above => self.slot_colour(self.last_slot()),
+                ColourScaleClass::Outside => {
+                    let ColourScaleDomain::Entries { count } = self.domain else {
                         return None;
                     };
                     let last = count.checked_sub(1)?;
                     // The value is finite, and the clamp bounds it before the cast, which saturates anyway.
                     let entry = value.trunc().clamp(0.0, last as f64) as usize;
-                    self.slot_colour(ColorScaleSlot::Entry(entry))
+                    self.slot_colour(ColourScaleSlot::Entry(entry))
                 }
-                ColorScaleClass::NonFinite | ColorScaleClass::Inside(_) => None,
+                ColourScaleClass::NonFinite | ColourScaleClass::Inside(_) => None,
             },
         }
     }
@@ -234,11 +234,11 @@ impl ResolvedScale<'_> {
     /// the range and the last above it. Returns `None` when the key is left empty: under a transparent or strict
     /// policy, for a non-finite value, which has no nearest end, for a clamp outside the entries, which takes
     /// either end, and for a category the kind of the scale does not have.
-    pub fn key_colour(&self, key: ColorScaleKey) -> Option<Rgba> {
+    pub fn key_colour(&self, key: ColourScaleKey) -> Option<Rgba> {
         match (self.scale.key(key)?.policy, key) {
-            (OutOfRange::Rgba { color }, _) => Some(ir_colour(color)),
-            (OutOfRange::Clamp, ColorScaleKey::Below) => self.slot_colour(self.first_slot()),
-            (OutOfRange::Clamp, ColorScaleKey::Above) => self.slot_colour(self.last_slot()),
+            (OutOfRange::Rgba { colour }, _) => Some(ir_colour(colour)),
+            (OutOfRange::Clamp, ColourScaleKey::Below) => self.slot_colour(self.first_slot()),
+            (OutOfRange::Clamp, ColourScaleKey::Above) => self.slot_colour(self.last_slot()),
             _ => None,
         }
     }
@@ -253,10 +253,10 @@ impl ResolvedScale<'_> {
             return None;
         }
         Some(match class {
-            ColorScaleClass::Below => ("below", "lies below the range of the colour scale"),
-            ColorScaleClass::Above => ("above", "lies above the range of the colour scale"),
-            ColorScaleClass::Outside => ("outside", "names no entry of the colour scale"),
-            ColorScaleClass::NonFinite | ColorScaleClass::Inside(_) => {
+            ColourScaleClass::Below => ("below", "lies below the range of the colour scale"),
+            ColourScaleClass::Above => ("above", "lies above the range of the colour scale"),
+            ColourScaleClass::Outside => ("outside", "names no entry of the colour scale"),
+            ColourScaleClass::NonFinite | ColourScaleClass::Inside(_) => {
                 ("non_finite", "is not finite")
             }
         })
@@ -268,11 +268,11 @@ impl ResolvedScale<'_> {
     /// levels.
     pub fn contour_levels(&self) -> Option<Vec<f64>> {
         match &self.domain {
-            ColorScaleDomain::Discrete { edges, .. } => Some(edges.clone()),
-            ColorScaleDomain::Entries { count } => {
+            ColourScaleDomain::Discrete { edges, .. } => Some(edges.clone()),
+            ColourScaleDomain::Entries { count } => {
                 Some((1..*count).map(|entry| entry as f64 - 0.5).collect())
             }
-            ColorScaleDomain::Continuous { .. } => None,
+            ColourScaleDomain::Continuous { .. } => None,
         }
     }
 }
@@ -284,18 +284,18 @@ pub(crate) struct ColourScales<'a> {
 
 impl<'a> ColourScales<'a> {
     /// Resolves every colour scale of the figure: the automatic limits of a scale range over the numbers that every
-    /// artist naming it maps, in every axes, hidden artists included (see [`Figure::automatic_color_limits`]).
+    /// artist naming it maps, in every axes, hidden artists included (see [`Figure::automatic_colour_limits`]).
     ///
     /// A scale that cannot be used as it stands is reported with a warning naming it and drawn with a usable
     /// replacement: manual limits that are not finite and increasing, or not positive under a logarithmic norm, are
     /// replaced by automatic limits; explicit band edges that are not at least two finite, strictly increasing
-    /// values (positive under a logarithmic norm) by ten automatic bands; and a listed colormap of fewer than 2 or
+    /// values (positive under a logarithmic norm) by ten automatic bands; and a listed colourmap of fewer than 2 or
     /// more than 1024 colours by viridis. Automatic limits over no value are `[0, 1]`, or `[1, 10]` under a
     /// logarithmic norm.
     pub fn resolve(ctx: &mut Ctx<'a>) -> Self {
         let figure: &'a Figure = ctx.figure;
         let scales = figure
-            .color_scales
+            .colour_scales
             .iter()
             .map(|scale| (scale.id, resolve_scale(ctx, figure, scale)))
             .collect();
@@ -319,25 +319,25 @@ impl<'a> ColourScales<'a> {
     }
 
     /// Returns the scale through which an artist colours what it colour-maps, or `None` when it names no usable
-    /// scale or maps no number to a colour, by the rule of [`Artist::color_mapping`].
+    /// scale or maps no number to a colour, by the rule of [`Artist::colour_mapping`].
     pub fn of(&self, artist: &Artist) -> Option<&ResolvedScale<'a>> {
         artist
-            .color_mapping()
-            .and_then(|mapping| mapping.color_scale)
+            .colour_mapping()
+            .and_then(|mapping| mapping.colour_scale)
             .and_then(|id| self.get(id))
     }
 }
 
 /// Resolves one colour scale, warning against it where it cannot be used as it stands.
-fn resolve_scale<'a>(ctx: &mut Ctx, figure: &Figure, scale: &'a ColorScale) -> ResolvedScale<'a> {
+fn resolve_scale<'a>(ctx: &mut Ctx, figure: &Figure, scale: &'a ColourScale) -> ResolvedScale<'a> {
     let norm = scale.kind.norm();
     let mut warn = |message: String| ctx.warn(Some(scale.id), message);
     let automatic = || {
         figure
-            .automatic_color_limits(scale.id)
+            .automatic_colour_limits(scale.id)
             .unwrap_or(match norm {
-                ColorScaleNorm::Linear => (0.0, 1.0),
-                ColorScaleNorm::Log => (1.0, 10.0),
+                ColourScaleNorm::Linear => (0.0, 1.0),
+                ColourScaleNorm::Log => (1.0, 10.0),
             })
     };
     let limits = |limits: Limits, warn: &mut dyn FnMut(String)| match limits {
@@ -346,7 +346,7 @@ fn resolve_scale<'a>(ctx: &mut Ctx, figure: &Figure, scale: &'a ColorScale) -> R
             warn(format!(
                 "The manual limits [{min}, {max}] of the colour scale are not usable{}, so automatic limits are \
                  used.",
-                if norm == ColorScaleNorm::Log {
+                if norm == ColourScaleNorm::Log {
                     " under its logarithmic norm"
                 } else {
                     ""
@@ -356,50 +356,50 @@ fn resolve_scale<'a>(ctx: &mut Ctx, figure: &Figure, scale: &'a ColorScale) -> R
         }
         Limits::Auto => automatic(),
     };
-    let colormap = |colormap: &'a Colormap, warn: &mut dyn FnMut(String)| match colormap {
-        Colormap::Named { name, reverse } => Palette::Named {
+    let colourmap = |colourmap: &'a Colourmap, warn: &mut dyn FnMut(String)| match colourmap {
+        Colourmap::Named { name, reverse } => Palette::Named {
             lut: lut(*name),
             reverse: *reverse,
         },
-        Colormap::Listed { colors }
-            if (LISTED_COLORMAP_MIN..=LISTED_COLORMAP_MAX).contains(&colors.len()) =>
+        Colourmap::Listed { colours }
+            if (LISTED_COLOURMAP_MIN..=LISTED_COLOURMAP_MAX).contains(&colours.len()) =>
         {
-            Palette::Listed(colors)
+            Palette::Listed(colours)
         }
-        Colormap::Listed { colors } => {
+        Colourmap::Listed { colours } => {
             warn(format!(
-                "The listed colormap of the colour scale holds {} colours, but it must hold from \
-                 {LISTED_COLORMAP_MIN} to {LISTED_COLORMAP_MAX}, so viridis is used.",
-                colors.len()
+                "The listed colourmap of the colour scale holds {} colours, but it must hold from \
+                 {LISTED_COLOURMAP_MIN} to {LISTED_COLOURMAP_MAX}, so viridis is used.",
+                colours.len()
             ));
             Palette::Named {
-                lut: &colormap::VIRIDIS,
+                lut: &colourmap::VIRIDIS,
                 reverse: false,
             }
         }
     };
     let (domain, palette) = match &scale.kind {
-        ColorScaleKind::Continuous(continuous) => {
+        ColourScaleKind::Continuous(continuous) => {
             let (min, max) = limits(continuous.limits, &mut warn);
             (
-                ColorScaleDomain::Continuous { min, max, norm },
-                colormap(&continuous.colormap, &mut warn),
+                ColourScaleDomain::Continuous { min, max, norm },
+                colourmap(&continuous.colourmap, &mut warn),
             )
         }
-        ColorScaleKind::Discrete(discrete) => {
+        ColourScaleKind::Discrete(discrete) => {
             let edges = match &discrete.levels {
-                ColorScaleLevels::Auto { count, limits: l } => {
+                ColourScaleLevels::Auto { count, limits: l } => {
                     let (min, max) = limits(*l, &mut warn);
                     automatic_edges(min, max, (*count).max(1), norm)
                 }
-                ColorScaleLevels::Explicit { values } if edges_usable(values, norm) => {
+                ColourScaleLevels::Explicit { values } if edges_usable(values, norm) => {
                     values.clone()
                 }
-                ColorScaleLevels::Explicit { values } => {
+                ColourScaleLevels::Explicit { values } => {
                     warn(format!(
                         "The band edges {values:?} of the colour scale are not at least two finite, strictly \
                          increasing values{}, so {AUTOMATIC_BANDS} automatic bands are used.",
-                        if norm == ColorScaleNorm::Log {
+                        if norm == ColourScaleNorm::Log {
                             " that are positive under its logarithmic norm"
                         } else {
                             ""
@@ -410,25 +410,25 @@ fn resolve_scale<'a>(ctx: &mut Ctx, figure: &Figure, scale: &'a ColorScale) -> R
                 }
             };
             (
-                ColorScaleDomain::Discrete { edges, norm },
-                colormap(&discrete.colormap, &mut warn),
+                ColourScaleDomain::Discrete { edges, norm },
+                colourmap(&discrete.colourmap, &mut warn),
             )
         }
-        ColorScaleKind::Indexed(indexed) => (
-            ColorScaleDomain::Entries {
-                count: indexed.colors.len(),
+        ColourScaleKind::Indexed(indexed) => (
+            ColourScaleDomain::Entries {
+                count: indexed.colours.len(),
             },
-            Palette::Entries(indexed.colors.iter().copied().map(ir_colour).collect()),
+            Palette::Entries(indexed.colours.iter().copied().map(ir_colour).collect()),
         ),
-        ColorScaleKind::Categorical(categorical) => (
-            ColorScaleDomain::Entries {
+        ColourScaleKind::Categorical(categorical) => (
+            ColourScaleDomain::Entries {
                 count: categorical.categories.len(),
             },
             Palette::Entries(
                 categorical
                     .categories
                     .iter()
-                    .map(|category| ir_colour(category.color))
+                    .map(|category| ir_colour(category.colour))
                     .collect(),
             ),
         ),
@@ -441,31 +441,34 @@ fn resolve_scale<'a>(ctx: &mut Ctx, figure: &Figure, scale: &'a ColorScale) -> R
 }
 
 /// Returns whether manual limits can be used: finite and strictly increasing, and positive under a logarithmic norm.
-fn limits_usable(min: f64, max: f64, norm: ColorScaleNorm) -> bool {
-    min.is_finite() && max.is_finite() && min < max && (norm == ColorScaleNorm::Linear || min > 0.0)
+fn limits_usable(min: f64, max: f64, norm: ColourScaleNorm) -> bool {
+    min.is_finite()
+        && max.is_finite()
+        && min < max
+        && (norm == ColourScaleNorm::Linear || min > 0.0)
 }
 
 /// Returns whether explicit band edges can be used: at least two finite, strictly increasing values, positive under
 /// a logarithmic norm.
-fn edges_usable(edges: &[f64], norm: ColorScaleNorm) -> bool {
+fn edges_usable(edges: &[f64], norm: ColourScaleNorm) -> bool {
     edges.len() >= 2
         && edges.iter().all(|edge| edge.is_finite())
         && edges.windows(2).all(|pair| pair[0] < pair[1])
-        && (norm == ColorScaleNorm::Linear || edges[0] > 0.0)
+        && (norm == ColourScaleNorm::Linear || edges[0] > 0.0)
 }
 
 /// Returns the automatic band edges of a discrete scale from `min` to `max`: the two limits, which are the first and
 /// last edges, and between them the nice values that split the range into about `count` bands, chosen in the space
 /// of the norm. Equal limits give a single band of no width.
-fn automatic_edges(min: f64, max: f64, count: u32, norm: ColorScaleNorm) -> Vec<f64> {
+fn automatic_edges(min: f64, max: f64, count: u32, norm: ColourScaleNorm) -> Vec<f64> {
     // The limits are finite, so they are either equal or increasing.
     if min >= max {
         return vec![min, max];
     }
     let target = count as usize;
     let inner: Vec<f64> = match norm {
-        ColorScaleNorm::Linear => contour::auto_levels(min, max, target),
-        ColorScaleNorm::Log => ticks::log_ticks(min, max, target)
+        ColourScaleNorm::Linear => contour::auto_levels(min, max, target),
+        ColourScaleNorm::Log => ticks::log_ticks(min, max, target)
             .major
             .into_iter()
             .filter(|edge| *edge > min && *edge < max)
@@ -483,26 +486,26 @@ pub(super) enum Paint {
     /// A fixed colour, or no colour at all.
     Fixed(Option<Rgba>),
     /// A colour taken from a colour scale.
-    Colormapped,
+    Colourmapped,
 }
 
 impl Paint {
-    /// Returns the colour, taking `middle` for a colormapped paint, which has no number to map.
+    /// Returns the colour, taking `middle` for a colourmapped paint, which has no number to map.
     pub fn single(self, middle: Rgba) -> Option<Rgba> {
         match self {
             Paint::Fixed(c) => c,
-            Paint::Colormapped => Some(middle),
+            Paint::Colourmapped => Some(middle),
         }
     }
 }
 
 /// Resolves a colour specification whose `Auto` means `auto`.
-pub(super) fn resolve(spec: ColorSpec, auto: Paint) -> Paint {
+pub(super) fn resolve(spec: ColourSpec, auto: Paint) -> Paint {
     match spec {
-        ColorSpec::Auto => auto,
-        ColorSpec::Rgba { color } => Paint::Fixed(Some(ir_colour(color))),
-        ColorSpec::None => Paint::Fixed(None),
-        ColorSpec::Colormapped => Paint::Colormapped,
+        ColourSpec::Auto => auto,
+        ColourSpec::Rgba { colour } => Paint::Fixed(Some(ir_colour(colour))),
+        ColourSpec::None => Paint::Fixed(None),
+        ColourSpec::Colourmapped => Paint::Colourmapped,
     }
 }
 
@@ -511,20 +514,20 @@ pub(super) fn resolve(spec: ColorSpec, auto: Paint) -> Paint {
 /// value belongs to a point and those markers are drawn in the colour the series would have had.
 fn takes_order_for_markers(figure: &Figure, series: &Series) -> bool {
     let length = |id| figure.data_array(id).map(|data| data.array.len());
-    let per_segment = series.color_data.is_some_and(
+    let per_segment = series.colour_data.is_some_and(
         |colours| matches!((length(colours), length(series.x)), (Some(v), Some(n)) if v + 1 == n),
     );
     per_segment
         && series.draws_markers()
-        && [series.marker.face, series.marker.edge].contains(&ColorSpec::Auto)
+        && [series.marker.face, series.marker.edge].contains(&ColourSpec::Auto)
 }
 
 /// Returns whether a bar series takes a colour of the colour order as the colour of its series: it does when its
-/// face or its edge is automatic, or is colormapped without colour data, which has no value to map and is drawn as an
+/// face or its edge is automatic, or is colourmapped without colour data, which has no value to map and is drawn as an
 /// automatic one would be.
 fn takes_order_for_bars(bar: &Bar) -> bool {
-    [bar.face, bar.edge.color].iter().any(|&spec| {
-        spec == ColorSpec::Auto || (spec == ColorSpec::Colormapped && bar.color_data.is_none())
+    [bar.face, bar.edge.colour].iter().any(|&spec| {
+        spec == ColourSpec::Auto || (spec == ColourSpec::Colourmapped && bar.colour_data.is_none())
     })
 }
 
@@ -536,7 +539,7 @@ fn takes_order_for_bars(bar: &Bar) -> bool {
 /// [`takes_order_for_markers`]). The primary colour of a bar series is the colour of its series, which it takes
 /// from the order when its face or edge needs it (see [`takes_order_for_bars`]), and is otherwise the colour of its
 /// face; that of stairs is the colour of their outline, which an automatic fill also takes. Contour, surface and
-/// image artists have no primary colour and receive `Paint::Colormapped`; none of them takes a colour from the colour
+/// image artists have no primary colour and receive `Paint::Colourmapped`; none of them takes a colour from the colour
 /// order.
 pub(super) fn primaries(figure: &Figure, axes: &Axes) -> Vec<Paint> {
     let mut next = 0usize;
@@ -550,30 +553,30 @@ pub(super) fn primaries(figure: &Figure, axes: &Axes) -> Vec<Paint> {
         .map(|artist| {
             let spec = match artist {
                 Artist::Series(series)
-                    if series.line.color == ColorSpec::Colormapped
+                    if series.line.colour == ColourSpec::Colourmapped
                         && takes_order_for_markers(figure, series) =>
                 {
-                    ColorSpec::Auto
+                    ColourSpec::Auto
                 }
-                Artist::Series(series) => series.line.color,
-                Artist::Quiver(quiver) => quiver.line.color,
-                Artist::Bar(bar) if takes_order_for_bars(bar) => ColorSpec::Auto,
+                Artist::Series(series) => series.line.colour,
+                Artist::Quiver(quiver) => quiver.line.colour,
+                Artist::Bar(bar) if takes_order_for_bars(bar) => ColourSpec::Auto,
                 Artist::Bar(bar) => bar.face,
                 Artist::Stairs(stairs)
-                    if [stairs.line.color, stairs.fill].contains(&ColorSpec::Auto) =>
+                    if [stairs.line.colour, stairs.fill].contains(&ColourSpec::Auto) =>
                 {
-                    ColorSpec::Auto
+                    ColourSpec::Auto
                 }
-                Artist::Stairs(stairs) => stairs.line.color,
+                Artist::Stairs(stairs) => stairs.line.colour,
                 // Artists coloured through a colour scale take no colour from the order.
                 Artist::Contour(_)
                 | Artist::Surface(_)
                 | Artist::Image(_)
                 | Artist::ScalarImage(_)
-                | Artist::Cells(_) => ColorSpec::Colormapped,
+                | Artist::Cells(_) => ColourSpec::Colourmapped,
             };
             match spec {
-                ColorSpec::Auto => auto(),
+                ColourSpec::Auto => auto(),
                 other => resolve(other, Paint::Fixed(None)),
             }
         })
@@ -693,7 +696,7 @@ pub(super) struct MarkerPlace {
 
 /// Builds one instance of a marker of `outline` at `place`.
 ///
-/// A face or edge set to `Auto` (or `Colormapped`) takes `auto`, the resolved colour of the artist or data point.
+/// A face or edge set to `Auto` (or `Colourmapped`) takes `auto`, the resolved colour of the artist or data point.
 /// Every colour is multiplied by `alpha`. An open marker (plus, cross or a vertical or horizontal tick) is stroked with its edge colour, or with
 /// its face colour when it has no edge colour, and a point marker is filled with its edge colour. Returns `None`
 /// for an unusable size or a marker with neither a face nor an edge to draw.
@@ -704,10 +707,10 @@ pub(super) fn marker_instance(
     auto: Option<Rgba>,
     alpha: f32,
 ) -> Option<MarkerInstance> {
-    let resolve = |spec: ColorSpec| match spec {
-        ColorSpec::Auto | ColorSpec::Colormapped => auto,
-        ColorSpec::Rgba { color } => Some(ir_colour(color)),
-        ColorSpec::None => None,
+    let resolve = |spec: ColourSpec| match spec {
+        ColourSpec::Auto | ColourSpec::Colourmapped => auto,
+        ColourSpec::Rgba { colour } => Some(ir_colour(colour)),
+        ColourSpec::None => None,
     };
     marker_instance_coloured(
         outline,

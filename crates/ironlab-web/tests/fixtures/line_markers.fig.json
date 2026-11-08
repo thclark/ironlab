@@ -391,7 +391,7 @@
         "type": "two_d"
       },
       "title": null,
-      "title_align": "center",
+      "title_align": "centre",
       "x": {
         "label": {
           "content": "Time $t$ (s)",
@@ -447,7 +447,7 @@
         "type": "auto"
       },
       "aspect_adjust": "box",
-      "colorbar": null,
+      "colourbar": null,
       "box": true,
       "legend": {
         "type": "inside",
@@ -476,7 +476,7 @@
           "y": 3,
           "z": null,
           "line": {
-            "color": {
+            "colour": {
               "type": "auto"
             },
             "width_pt": 0.75,
@@ -493,8 +493,8 @@
             }
           },
           "size_data": null,
-          "color_data": null,
-          "color_scale": null,
+          "colour_data": null,
+          "colour_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true
@@ -511,7 +511,7 @@
           "y": 6,
           "z": null,
           "line": {
-            "color": {
+            "colour": {
               "type": "auto"
             },
             "width_pt": 1.0,
@@ -528,8 +528,8 @@
             }
           },
           "size_data": null,
-          "color_data": null,
-          "color_scale": null,
+          "colour_data": null,
+          "colour_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true
@@ -546,9 +546,9 @@
           "y": 9,
           "z": null,
           "line": {
-            "color": {
+            "colour": {
               "type": "rgba",
-              "color": "#666666"
+              "colour": "#666666"
             },
             "width_pt": 0.75,
             "dash": "dotted"
@@ -564,8 +564,8 @@
             }
           },
           "size_data": null,
-          "color_data": null,
-          "color_scale": null,
+          "colour_data": null,
+          "colour_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true

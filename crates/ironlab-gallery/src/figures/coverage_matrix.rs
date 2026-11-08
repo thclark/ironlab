@@ -77,8 +77,8 @@ pub fn figure() -> Figure {
         .title("Branches taken by each case")
         .tag("cells")
         .tag("scatter")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .tag("legend")
         .tag("categorical")
         .tag("ticks")
@@ -95,27 +95,27 @@ pub fn figure() -> Figure {
         .parameter("has_legend", true);
     let edges: Vec<f64> = (0..=8).map(|k| f64::from(k) / 8.0).collect();
     let taken = fig
-        .color_scale()
-        .colormap(Colormap::Viridis)
+        .colour_scale()
+        .colourmap(Colourmap::Viridis)
         .discrete(&edges)
         .tick_step(0.25)
-        .non_finite(Color::rgb(0.85, 0.85, 0.85))
-        .key_label(ColorScaleKey::NonFinite, "not entered")
+        .non_finite(Colour::rgb(0.85, 0.85, 0.85))
+        .key_label(ColourScaleKey::NonFinite, "not entered")
         .title("Fraction of the subroutine's branches taken")
         .id();
     let key = fig.panel(2, 0).legend().boxed(false).id();
 
     let mut ax = fig.axes(0, 0);
     ax.cells(&fraction)
-        .color_scale(taken)
-        .edge_color(Color::WHITE)
+        .colour_scale(taken)
+        .edge_colour(Colour::WHITE)
         .edge_width(1.0);
     ax.scatter(&unique.0, &unique.1)
         .label("takes a branch that no other case takes")
         .marker(Marker::Circle)
         .marker_size(5.0)
-        .marker_face(Color::WHITE)
-        .marker_edge(Color::BLACK);
+        .marker_face(Colour::WHITE)
+        .marker_edge(Colour::BLACK);
     ax.xcategories(CASES.map(|case| format!(r"\texttt{{{case}}}")))
         .xtick_label_angle(90.0)
         .ycategories(SUBROUTINES.map(|name| format!(r"\texttt{{{name}}}")))
@@ -123,9 +123,9 @@ pub fn figure() -> Figure {
         .legend_in(key);
 
     fig.panel(1, 0)
-        .colorbar(taken)
-        .orientation(ColorbarOrientation::Horizontal)
-        .title_placement(ColorbarTitlePlacement::Above)
+        .colourbar(taken)
+        .orientation(ColourbarOrientation::Horizontal)
+        .title_placement(ColourbarTitlePlacement::Above)
         .length(0.8);
     fig
 }

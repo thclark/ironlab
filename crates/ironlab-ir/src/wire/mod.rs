@@ -80,7 +80,7 @@
 //! When decoding, an absent message, an absent field with presence, an unset oneof and
 //! an `_UNSPECIFIED` enum value take the value that the domain type's [`Default`] gives
 //! them in their context. For example, an absent line colour of a contour is
-//! colormapped, as in [`Contour::default`](crate::Contour::default), whereas an absent
+//! colourmapped, as in [`Contour::default`](crate::Contour::default), whereas an absent
 //! line colour of a line is automatic.
 //!
 //! Absence is an error, reported as
@@ -432,7 +432,7 @@ pub(crate) mod schema;
 
 mod artist;
 mod axes;
-mod color_scale;
+mod colour_scale;
 mod data;
 mod edit;
 mod figure;
@@ -445,7 +445,7 @@ mod text;
 
 pub use artist::*;
 pub use axes::*;
-pub use color_scale::*;
+pub use colour_scale::*;
 pub use data::*;
 pub use edit::*;
 pub use figure::*;
@@ -500,7 +500,7 @@ breaking:
 /// The `.proto` file of every module, in the order in which they are generated.
 pub(crate) const FILES: &[schema::FileDef] = &[
     figure::FILE,
-    color_scale::FILE,
+    colour_scale::FILE,
     axes::FILE,
     legend::FILE,
     panel::FILE,

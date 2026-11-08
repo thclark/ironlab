@@ -4,7 +4,7 @@ mod common;
 
 use common::{artist, axes, data, has_error_at, image, image_figure, is_3d, parent, scalar_image};
 use ironlab::ir::{
-    Artist, ColorScaleKind, ImagePlacement, IrError, IssueKind, NdArray, NdArrayElement,
+    Artist, ColourScaleKind, ImagePlacement, IrError, IssueKind, NdArray, NdArrayElement,
     PixelRange, Projection, View3d,
 };
 use ironlab::prelude::*;
@@ -72,7 +72,7 @@ fn image_stores_the_pixels_as_bytes_with_shape_rows_by_cols_by_channels() {
 // two-dimensional axes as MATLAB's `image` does: in the xy plane at the low end of z,
 // with pixel centres at 0 to n − 1 (an absent range), which are the IR defaults the file
 // format documents, and a scalar image must be coloured at once through the axes'
-// default scale, as `imagesc` is coloured through the axes' colormap. The axes must stay
+// default scale, as `imagesc` is coloured through the axes' colourmap. The axes must stay
 // two-dimensional, because a floor image is a planar plot, and the handle's identifier
 // must name an artist of the kind the function is named after.
 #[test]
@@ -91,8 +91,8 @@ fn every_image_kind_defaults_to_the_floor_plane_with_no_ranges() {
         assert!(artist(&fig, id).visible(), "{id}");
         assert!(!is_3d(parent(&fig, id)), "{id}");
     }
-    let default = fig.axes(0, 0).color_scale().id();
-    assert_eq!(scalar_image(&fig, scalar).color_scale, Some(default));
+    let default = fig.axes(0, 0).colour_scale().id();
+    assert_eq!(scalar_image(&fig, scalar).colour_scale, Some(default));
     assert!(fig.validate().is_valid());
 }
 
@@ -179,20 +179,20 @@ fn pixels_from_bytes_refuse_a_byte_count_that_does_not_match_the_shape() {
 }
 
 // WHY: rgb_from_fn is how computed pictures (domain colourings, fractals) are built
-// from Colors without the user quantising by hand. Every component must be quantised
+// from Colours without the user quantising by hand. Every component must be quantised
 // to the nearest of 256 levels (so 0.5 is 128, not 127 by truncation), clamped rather
 // than wrapped when a computation strays outside 0 to 1, laid out in row-major order
-// as Matrix::from_fn lays values out, and the alpha of the Color ignored so that an
+// as Matrix::from_fn lays values out, and the alpha of the Colour ignored so that an
 // opaque picture has three channels. The closure constructors are infallible like
 // Matrix::from_fn, so a non-finite component cannot be refused and must quantise to a
 // definite byte, 0, rather than to whatever a cast of NaN happens to give.
 #[test]
 fn rgb_from_fn_quantises_components_in_row_major_order_and_drops_alpha() {
     let pixels = Pixels::rgb_from_fn(2, 2, |row, col| match (row, col) {
-        (0, 0) => Color::rgb(0.5, 0.0, 1.0),
-        (0, 1) => Color::rgb(1.2, -0.3, 0.25),
-        (1, 0) => Color::rgba(1.0, 1.0, 1.0, 0.5),
-        _ => Color::rgb(f32::NAN, 0.5, 0.5),
+        (0, 0) => Colour::rgb(0.5, 0.0, 1.0),
+        (0, 1) => Colour::rgb(1.2, -0.3, 0.25),
+        (1, 0) => Colour::rgba(1.0, 1.0, 1.0, 0.5),
+        _ => Colour::rgb(f32::NAN, 0.5, 0.5),
     });
     assert_eq!((pixels.rows(), pixels.cols(), pixels.channels()), (2, 2, 3));
     assert_eq!(
@@ -202,15 +202,15 @@ fn rgb_from_fn_quantises_components_in_row_major_order_and_drops_alpha() {
 }
 
 // WHY: rgba_from_fn exists for pictures that fade out (the gallery fades a domain
-// colouring outside a disc), so the alpha of each Color must reach a fourth channel,
-// quantised like the colour components, with pixels four bytes apart; an opaque Color
+// colouring outside a disc), so the alpha of each Colour must reach a fourth channel,
+// quantised like the colour components, with pixels four bytes apart; an opaque Colour
 // must give a fully opaque alpha byte.
 #[test]
 fn rgba_from_fn_keeps_alpha_as_a_fourth_channel() {
     let pixels = Pixels::rgba_from_fn(1, 3, |_, col| match col {
-        0 => Color::rgba(1.0, 0.0, 0.0, 0.5),
-        1 => Color::rgb(0.0, 1.0, 0.0),
-        _ => Color::rgba(0.0, 0.0, 1.0, 0.0),
+        0 => Colour::rgba(1.0, 0.0, 0.0, 0.5),
+        1 => Colour::rgb(0.0, 1.0, 0.0),
+        _ => Colour::rgba(0.0, 0.0, 1.0, 0.0),
     });
     assert_eq!((pixels.rows(), pixels.cols(), pixels.channels()), (1, 3, 4));
     assert_eq!(
@@ -454,7 +454,7 @@ mod prelude_only {
         fn place(image: &mut ImageMut<'_>) {
             image.pixel_columns(0.0, 1.0);
         }
-        fn classify(scale: &mut ColorScaleMut<'_>) {
+        fn classify(scale: &mut ColourScaleMut<'_>) {
             scale.outside(OutOfRange::Clamp);
         }
         fn map(image: &mut ScalarImageMut<'_>) {
@@ -462,14 +462,14 @@ mod prelude_only {
         }
         let bytes = ByteMatrix::zeros(1, 1);
         let indices: ImageValues = ImageValues::from(&bytes);
-        let pixels: Pixels = Pixels::rgb_from_fn(1, 1, |_, _| Color::WHITE);
+        let pixels: Pixels = Pixels::rgb_from_fn(1, 1, |_, _| Colour::WHITE);
         let mut fig = Figure::new();
-        let mut palette = fig.indexed_scale(Colormap::Gray.sample(256));
+        let mut palette = fig.indexed_scale(Colourmap::Grey.sample(256));
         classify(&mut palette);
         let palette = palette.id();
         let mut ax = fig.axes(0, 0);
         place(&mut ax.image(&pixels));
-        ax.scalar_image(indices).color_scale(palette);
+        ax.scalar_image(indices).colour_scale(palette);
         map(&mut ax.scalar_image(Matrix::zeros(1, 1)));
         assert!(fig.validate().is_valid());
     }
@@ -618,35 +618,35 @@ fn a_wall_plane_keeps_the_view_of_an_axes_that_is_already_3d() {
 // WHY: the out-of-range categories of a scale are independent properties (the design
 // lets NaN be tolerated while values outside the range are refused, or the reverse), so
 // each setter must write only its own category and leave the others at their default;
-// a Color must become the fixed-colour policy, which is the common lenient choice, and
+// a Colour must become the fixed-colour policy, which is the common lenient choice, and
 // the enum variants must pass through unchanged. A setter that does not apply to the
 // kind of the scale (below on an indexed scale, outside on a continuous one) must leave
 // the scale as it was rather than invent a category.
 #[test]
 fn out_of_range_policies_map_to_their_ir_fields_on_a_scale() {
-    let red = Color::rgb(1.0, 0.0, 0.0);
-    let fixed = OutOfRange::Rgba { color: red };
+    let red = Colour::rgb(1.0, 0.0, 0.0);
+    let fixed = OutOfRange::Rgba { colour: red };
     let mut fig = Figure::new();
     let continuous = fig
-        .color_scale()
+        .colour_scale()
         .below(red)
         .above(OutOfRange::Transparent)
         .non_finite(OutOfRange::Strict)
         .outside(OutOfRange::Clamp)
         .id();
-    let only_below = fig.color_scale().below(red).id();
+    let only_below = fig.colour_scale().below(red).id();
     let indexed = fig
-        .indexed_scale([Color::BLACK, Color::WHITE])
+        .indexed_scale([Colour::BLACK, Colour::WHITE])
         .outside(OutOfRange::Clamp)
         .non_finite(red)
         .below(OutOfRange::Strict)
         .id();
 
     let policies = |id: NodeId| {
-        let scale = fig.ir().color_scale(id).expect("the scale exists");
+        let scale = fig.ir().colour_scale(id).expect("the scale exists");
         let kind = match &scale.kind {
-            ColorScaleKind::Continuous(k) => [k.below.policy, k.above.policy],
-            ColorScaleKind::Indexed(k) => [k.outside.policy, k.outside.policy],
+            ColourScaleKind::Continuous(k) => [k.below.policy, k.above.policy],
+            ColourScaleKind::Indexed(k) => [k.outside.policy, k.outside.policy],
             other => panic!("unexpected kind {other:?}"),
         };
         (kind, scale.non_finite.policy)
@@ -682,11 +682,11 @@ fn a_strict_policy_is_reported_at_the_handles_id_and_the_default_policy_is_lenie
         },
     );
     let mut fig = Figure::new().tiles(1, 2);
-    let refusing = fig.color_scale().non_finite(OutOfRange::Strict).id();
+    let refusing = fig.colour_scale().non_finite(OutOfRange::Strict).id();
     let strict = fig
         .axes(0, 0)
         .scalar_image(&with_nan)
-        .color_scale(refusing)
+        .colour_scale(refusing)
         .id();
     let lenient = fig.axes(0, 1).scalar_image(&with_nan).id();
 

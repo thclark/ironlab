@@ -35,7 +35,7 @@ use common::{
 };
 use ironlab::IssueKind;
 use ironlab::ir::{
-    Artist, Binning, ColorSpec, DashStyle, Limits, MarkerShape, PolarView, Projection, StairsData,
+    Artist, Binning, ColourSpec, DashStyle, Limits, MarkerShape, PolarView, Projection, StairsData,
     TickLabels, Ticks,
 };
 use ironlab::prelude::*;
@@ -112,22 +112,22 @@ fn the_fill_setters_store_the_base_the_fill_and_its_opacity() {
     let id = ax
         .plot([0.0, 1.0, 2.0], [1.0, 3.0, 2.0])
         .base(-1.0)
-        .fill(Color::rgb(0.0, 0.0, 1.0))
+        .fill(Colour::rgb(0.0, 0.0, 1.0))
         .fill_opacity(0.25)
         .id();
     let s = series(&fig, id);
     assert_eq!(s.base, Some(-1.0));
     assert_eq!(
         s.fill,
-        ColorSpec::Rgba {
-            color: Color::rgb(0.0, 0.0, 1.0)
+        ColourSpec::Rgba {
+            colour: Colour::rgb(0.0, 0.0, 1.0)
         }
     );
     assert_eq!(s.fill_opacity, 0.25);
     let p = series(&fig, plain);
     assert_eq!(
         (p.base, p.fill, p.fill_opacity),
-        (None, ColorSpec::None, 1.0)
+        (None, ColourSpec::None, 1.0)
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
@@ -141,7 +141,7 @@ fn a_fill_without_a_base_is_reported_by_validate() {
     let id = fig
         .axes(0, 0)
         .plot([0.0, 1.0, 2.0], [1.0, 3.0, 2.0])
-        .fill(ColorSpec::Auto)
+        .fill(ColourSpec::Auto)
         .id();
     assert_eq!(series(&fig, id).base, None);
     assert!(
@@ -197,10 +197,10 @@ fn radar_adds_a_closed_outline_with_markers_and_a_translucent_fill_to_the_centre
     assert_eq!(vector(&fig, s.x), vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
     assert_eq!(vector(&fig, s.y), vec![0.8, 0.4, 0.9, 0.3, 0.6, 0.8]);
     assert_ne!(s.line.dash, DashStyle::None, "the outline is drawn");
-    assert_ne!(s.line.color, ColorSpec::None, "the outline is drawn");
+    assert_ne!(s.line.colour, ColourSpec::None, "the outline is drawn");
     assert_eq!(s.marker.shape, MarkerShape::Circle);
     assert_eq!(s.base, Some(0.0));
-    assert_eq!(s.fill, ColorSpec::Auto, "the fill takes the series colour");
+    assert_eq!(s.fill, ColourSpec::Auto, "the fill takes the series colour");
     assert_eq!(s.fill_opacity, 0.25);
     let report = fig.validate();
     assert!(

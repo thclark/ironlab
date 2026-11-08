@@ -73,9 +73,9 @@ pub fn figure() -> Figure {
     // A surface in a two-dimensional axes is a pseudocolour plot. Its field belongs to the nodes of the grid, which
     // the logarithmic frequency axis places one by one, so the faces between them are as tall as the spacing of the
     // analysis frequencies makes them.
-    ax.surface(&time_s, &frequency_hz, &power).edge_color(None);
-    ax.color_scale()
-        .colormap(Colormap::Magma)
+    ax.surface(&time_s, &frequency_hz, &power).edge_colour(None);
+    ax.colour_scale()
+        .colourmap(Colourmap::Magma)
         .limits(NOISE_FLOOR_DB, 0.0);
     ax.yscale(Scale::Log)
         .xlabel("Time $t$ (s)")

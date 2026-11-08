@@ -11,18 +11,18 @@
 //!   creates it, and a `Binning2d` record of how the cells were binned (ADR 0029): the bins along x and y as given,
 //!   the explicit ranges, the normalisation, the minimum count, the total counted and the numbers excluded.
 //! - `Hist2dMut` setters `bins(Bins, Bins)`, `range((min, max), (min, max))`, `weights(impl Into<DataSource>)`,
-//!   `normalize(HistNorm)`, `min_count(f64)`, `gap(x, y)`, `color_scale(NodeId)` and `label`; and the getters
+//!   `normalise(HistNorm)`, `min_count(f64)`, `gap(x, y)`, `colour_scale(NodeId)` and `label`; and the getters
 //!   `id()`, `values_data()`, `summary() -> HistogramSummary` and `error() -> Option<&BinningError>`.
 //! - `AxesMut::density_contour(x, y) -> DensityContourMut`, binned as `hist2d` bins, which stores a `Contour` of the
 //!   normalised counts on the rectilinear grid of the bin centres, unfilled, through the default colour scale. The
 //!   contour artist is unchanged and carries no binning record.
-//! - `DensityContourMut` setters `bins`, `range`, `weights` and `normalize` as on `Hist2dMut`, and `levels(u32)`,
-//!   `level_values`, `filled(bool)`, `color_scale(NodeId)` and `label`; and the getters `id()`, `summary()` and
+//! - `DensityContourMut` setters `bins`, `range`, `weights` and `normalise` as on `Hist2dMut`, and `levels(u32)`,
+//!   `level_values`, `filled(bool)`, `colour_scale(NodeId)` and `label`; and the getters `id()`, `summary()` and
 //!   `error()`.
 
 mod common;
 
-use common::{artist, colorbar_span, compile, data, filled_paths, filled_shapes, has_warning};
+use common::{artist, colourbar_span, compile, data, filled_paths, filled_shapes, has_warning};
 use ironlab::IssueKind;
 use ironlab::binning::{BinningError, histogram2d};
 use ironlab::ir::{Artist, Binning2d, CellEdges, CellGap, Cells, Contour, Grid, Levels, NdArray};
@@ -162,7 +162,7 @@ fn hist2d_stores_seamless_cells_on_the_bin_edges_coloured_by_their_counts() {
             Bins::Edges(vec![0.0, 1.0, 2.0]),
         )
         .id();
-    let default = fig.axes(0, 0).color_scale().id();
+    let default = fig.axes(0, 0).colour_scale().id();
     let (columns, rows, values) = binned_cells(&fig, id);
     assert_eq!(columns, [0.0, 1.0, 2.0, 3.0]);
     assert_eq!(rows, [0.0, 1.0, 2.0]);
@@ -175,11 +175,11 @@ fn hist2d_stores_seamless_cells_on_the_bin_edges_coloured_by_their_counts() {
     let c = cells(&fig, id);
     assert_eq!(c.gap, CellGap { x: 0.0, y: 0.0 }, "the cells are seamless");
     assert_eq!(
-        c.color_scale,
+        c.colour_scale,
         Some(default),
         "the default scale of the axes"
     );
-    assert_eq!(fig.ir().color_scales.len(), 1);
+    assert_eq!(fig.ir().colour_scales.len(), 1);
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
     assert!(report.warnings.is_empty(), "{report:?}");
@@ -230,7 +230,7 @@ fn hist2d_draws_the_binning_of_the_pairs_with_every_setting_applied() {
             .weights(w)
             .bins(bx.clone(), by.clone())
             .range((0.0, 3.0), (0.0, 2.0))
-            .normalize(norm)
+            .normalise(norm)
             .min_count(1.0)
             .id();
         let (columns, rows, values) = binned_cells(&fig, id);
@@ -278,18 +278,18 @@ fn the_colourbar_of_a_2d_histogram_spans_its_counts() {
     let mut ax = fig.axes(0, 0);
     ax.hist2d(&x, &y)
         .bins(Bins::Edges(unit_edges()), Bins::Edges(unit_edges()));
-    let scale = ax.color_scale().id();
-    ax.colorbar(scale, InsideColorbarSide::East);
-    assert_eq!(colorbar_span(&fig, scale), (0.0, fullest));
+    let scale = ax.colour_scale().id();
+    ax.colourbar(scale, InsideColourbarSide::East);
+    assert_eq!(colourbar_span(&fig, scale), (0.0, fullest));
 
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
     ax.hist2d(&x, &y)
         .bins(Bins::Edges(unit_edges()), Bins::Edges(unit_edges()))
         .min_count(1.0);
-    let scale = ax.color_scale().norm(ColorScaleNorm::Log).id();
-    ax.colorbar(scale, InsideColorbarSide::East);
-    assert_eq!(colorbar_span(&fig, scale), (emptiest_drawn, fullest));
+    let scale = ax.colour_scale().norm(ColourScaleNorm::Log).id();
+    ax.colourbar(scale, InsideColourbarSide::East);
+    assert_eq!(colourbar_span(&fig, scale), (emptiest_drawn, fullest));
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
     assert!(report.warnings.is_empty(), "{report:?}");
@@ -323,7 +323,7 @@ fn min_count_makes_bins_with_fewer_samples_nan_whatever_the_normalisation() {
         .axes(0, 0)
         .hist2d(x, y)
         .bins(bins.0, bins.1)
-        .normalize(HistNorm::Probability)
+        .normalise(HistNorm::Probability)
         .min_count(2.0)
         .id();
     assert_eq!(
@@ -354,7 +354,7 @@ fn hist2d_records_the_bins_ranges_normalisation_minimum_count_total_and_exclusio
         .hist2d(x, y)
         .bins(Bins::Count(3), Bins::Edges(vec![0.0, 0.5, 1.0]))
         .range((0.0, 3.0), (0.0, 1.0))
-        .normalize(HistNorm::Density)
+        .normalise(HistNorm::Density)
         .min_count(1.0)
         .id();
     assert_eq!(
@@ -366,7 +366,7 @@ fn hist2d_records_the_bins_ranges_normalisation_minimum_count_total_and_exclusio
             y_bins: Bins::Edges(vec![0.0, 0.5, 1.0]),
             x_range: Some([0.0, 3.0]),
             y_range: Some([0.0, 1.0]),
-            normalization: HistNorm::Density,
+            normalisation: HistNorm::Density,
             min_count: Some(1.0),
             total: 3.0,
             excluded_non_finite: 2,
@@ -422,7 +422,7 @@ fn a_bare_2d_histogram_records_the_automatic_rule_no_ranges_and_counts() {
             y_bins: Bins::Rule(BinRule::Auto),
             x_range: None,
             y_range: None,
-            normalization: HistNorm::Count,
+            normalisation: HistNorm::Count,
             min_count: None,
             total: n,
             excluded_non_finite: 0,
@@ -451,7 +451,7 @@ fn the_datatip_of_each_cell_reports_its_count_and_density_from_the_record() {
             Bins::Edges(vec![0.0, 1.0, 2.0, 4.0]),
             Bins::Edges(vec![0.0, 1.0, 3.0]),
         )
-        .normalize(HistNorm::Probability)
+        .normalise(HistNorm::Probability)
         .id();
     let scene = compile(&fig);
     let hits: Vec<_> = scene
@@ -492,13 +492,13 @@ fn rebinning_a_2d_histogram_leaves_the_figure_as_the_final_settings_alone_would_
     let mut h = ax.hist2d(&x, &y);
     let id = h.id();
     h.bins(Bins::Count(20), Bins::Count(5))
-        .normalize(HistNorm::Probability)
+        .normalise(HistNorm::Probability)
         .range((-1.0, 1.0), (-1.0, 1.0))
         .min_count(3.0)
         .weights(&w)
         .bins(Bins::Count(6), Bins::Width(1.5))
         .range((-3.0, 3.0), (-3.0, 3.0))
-        .normalize(HistNorm::Density)
+        .normalise(HistNorm::Density)
         .min_count(2.0);
     assert_eq!(h.id(), id, "the histogram keeps its identifier");
 
@@ -509,7 +509,7 @@ fn rebinning_a_2d_histogram_leaves_the_figure_as_the_final_settings_alone_would_
         .bins(Bins::Count(6), Bins::Width(1.5))
         .range((-3.0, 3.0), (-3.0, 3.0))
         .weights(&w)
-        .normalize(HistNorm::Density)
+        .normalise(HistNorm::Density)
         .min_count(2.0)
         .id();
     let (tc, tr, tv) = binned_cells(&tried, id);
@@ -528,7 +528,7 @@ fn rebinning_a_2d_histogram_leaves_the_figure_as_the_final_settings_alone_would_
         "the record describes the final binning, not an earlier one"
     );
     assert_eq!(
-        tried.ir().color_scales.len(),
+        tried.ir().colour_scales.len(),
         1,
         "rebinning creates no second scale"
     );
@@ -544,17 +544,17 @@ fn rebinning_a_2d_histogram_leaves_the_figure_as_the_final_settings_alone_would_
 fn a_scale_the_author_names_replaces_the_default_and_survives_rebinning() {
     let (x, y, _) = blob();
     let mut fig = Figure::new();
-    let log = fig.color_scale().norm(ColorScaleNorm::Log).id();
+    let log = fig.colour_scale().norm(ColourScaleNorm::Log).id();
     let id = fig
         .axes(0, 0)
         .hist2d(&x, &y)
-        .color_scale(log)
+        .colour_scale(log)
         .bins(Bins::Count(5), Bins::Count(5))
         .min_count(1.0)
         .id();
-    assert_eq!(cells(&fig, id).color_scale, Some(log));
+    assert_eq!(cells(&fig, id).colour_scale, Some(log));
     assert_eq!(
-        fig.ir().color_scales.len(),
+        fig.ir().colour_scales.len(),
         1,
         "the default scale is deleted"
     );
@@ -565,10 +565,10 @@ fn a_scale_the_author_names_replaces_the_default_and_survives_rebinning() {
     let first = fig.axes(0, 0).hist2d(&x, &y).id();
     let second = fig.axes(0, 0).hist2d(&y, &x).id();
     assert_eq!(
-        cells(&fig, first).color_scale,
-        cells(&fig, second).color_scale
+        cells(&fig, first).colour_scale,
+        cells(&fig, second).colour_scale
     );
-    assert_eq!(fig.ir().color_scales.len(), 1);
+    assert_eq!(fig.ir().colour_scales.len(), 1);
 }
 
 // WHY: the gap and the label are the cells' own properties, written as `CellsMut` writes them: a gap sets bins apart
@@ -688,7 +688,7 @@ fn density_contour_stores_the_counts_on_the_grid_of_the_bin_centres() {
         .density_contour(&x, &y)
         .bins(Bins::Edges(unit_edges()), Bins::Edges(unit_edges()))
         .id();
-    let default = fig.axes(0, 0).color_scale().id();
+    let default = fig.axes(0, 0).colour_scale().id();
     let (gx, gy, z) = contoured(&fig, id);
     let expected_centres: Vec<f64> = (-3..=3).map(f64::from).collect();
     assert_eq!(gx, expected_centres);
@@ -698,7 +698,7 @@ fn density_contour_stores_the_counts_on_the_grid_of_the_bin_centres() {
     assert_eq!(z.as_f64(), Some(counts.values()));
     let c = contour(&fig, id);
     assert!(!c.fill, "isolines by default");
-    assert_eq!(c.color_scale, Some(default));
+    assert_eq!(c.colour_scale, Some(default));
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
     assert!(report.warnings.is_empty(), "{report:?}");
@@ -711,26 +711,26 @@ fn density_contour_stores_the_counts_on_the_grid_of_the_bin_centres() {
 fn density_contour_setters_write_levels_fill_and_normalisation_and_rebin_cleanly() {
     let (x, y, _) = blob();
     let mut fig = Figure::new();
-    let chosen = fig.color_scale().colormap(Colormap::Cividis).id();
+    let chosen = fig.colour_scale().colourmap(Colourmap::Cividis).id();
     let id = fig
         .axes(0, 0)
         .density_contour(&x, &y)
         .bins(Bins::Count(20), Bins::Count(20))
-        .normalize(HistNorm::Probability)
+        .normalise(HistNorm::Probability)
         .levels(6)
         .filled(true)
         .label("Joint density")
-        .color_scale(chosen)
+        .colour_scale(chosen)
         .bins(Bins::Count(7), Bins::Count(7))
-        .normalize(HistNorm::Density)
+        .normalise(HistNorm::Density)
         .id();
     let c = contour(&fig, id).clone();
     assert!(c.fill);
     assert_eq!(c.levels, Some(Levels::Auto { count: 6 }));
     assert_eq!(c.label, Some(Text::new("Joint density")));
-    assert_eq!(c.color_scale, Some(chosen));
+    assert_eq!(c.colour_scale, Some(chosen));
     assert_eq!(
-        fig.ir().color_scales.len(),
+        fig.ir().colour_scales.len(),
         1,
         "the default scale is deleted"
     );
@@ -751,13 +751,13 @@ fn density_contour_setters_write_levels_fill_and_normalisation_and_rebin_cleanly
     assert_eq!(z.as_f64(), Some(expected.values.values()));
 
     let mut direct = Figure::new();
-    let chosen = direct.color_scale().colormap(Colormap::Cividis).id();
+    let chosen = direct.colour_scale().colourmap(Colourmap::Cividis).id();
     direct
         .axes(0, 0)
         .density_contour(&x, &y)
         .bins(Bins::Count(7), Bins::Count(7))
-        .normalize(HistNorm::Density)
-        .color_scale(chosen);
+        .normalise(HistNorm::Density)
+        .colour_scale(chosen);
     assert_eq!(
         fig.ir().data.len(),
         direct.ir().data.len(),
@@ -908,17 +908,17 @@ fn a_density_contour_through_a_logarithmic_scale_draws_its_bands_despite_empty_b
     assert!(counts.values().contains(&0.0), "the blob has empty bins");
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
-    let log = ax.color_scale().norm(ColorScaleNorm::Log).id();
+    let log = ax.colour_scale().norm(ColourScaleNorm::Log).id();
     let id = ax
         .density_contour(&x, &y)
         .bins(Bins::Edges(unit_edges()), Bins::Edges(unit_edges()))
         .level_values([5.0, 10.0, 20.0])
         .filled(true)
-        .color_scale(log)
+        .colour_scale(log)
         .id();
-    ax.colorbar(log, InsideColorbarSide::East);
+    ax.colourbar(log, InsideColourbarSide::East);
     let c = contour(&fig, id);
-    assert_eq!(c.color_scale, Some(log));
+    assert_eq!(c.colour_scale, Some(log));
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
     assert!(report.warnings.is_empty(), "{report:?}");

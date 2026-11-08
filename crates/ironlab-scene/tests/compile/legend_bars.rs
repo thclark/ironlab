@@ -3,10 +3,10 @@
 //!
 //! A sample is only useful if it looks like what it names, so each test compares the colours a sample is painted in
 //! with those the artist itself is drawn in. The samples are found as the items of a legend panel drawn left of the
-//! label of their entry, as in `legend_color_keys`.
+//! label of their entry, as in `legend_colour_keys`.
 
 use ironlab_ir::{
-    Color, ColorScaleKind, ColorSpec, Colormap, ContinuousColorScale, LegendEntryColumns,
+    Colour, ColourScaleKind, ColourSpec, Colourmap, ContinuousColourScale, LegendEntryColumns,
     LegendEntryLayout, LegendEntryOrder, Limits, NodeId, Text,
 };
 use ironlab_scene::display::{Point, Rect, Rgba};
@@ -17,9 +17,9 @@ use crate::probe::{
     ImageRect, Leaf, from_source, leaves, panel_entries, pixel, runs_with_text, text_bbox,
 };
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
-const GREEN: Color = Color::rgb(0.0, 0.6, 0.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
+const GREEN: Colour = Colour::rgb(0.0, 0.6, 0.0);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Fixtures and probes
@@ -78,7 +78,7 @@ fn fills(sample: &[Leaf]) -> Vec<Rgba> {
     sample
         .iter()
         .filter_map(|l| l.path()?.fill)
-        .map(|f| f.color)
+        .map(|f| f.colour)
         .collect()
 }
 
@@ -87,7 +87,7 @@ fn strokes(sample: &[Leaf]) -> Vec<Rgba> {
     sample
         .iter()
         .filter_map(|l| l.path()?.stroke.as_ref())
-        .map(|s| s.color)
+        .map(|s| s.colour)
         .collect()
 }
 
@@ -95,8 +95,8 @@ fn is(colour: Rgba, expected: [u8; 3]) -> bool {
     rgb8_close(rgb8(colour), expected)
 }
 
-fn rgb8_of(color: Color) -> [u8; 3] {
-    rgb8(rgba(color))
+fn rgb8_of(colour: Colour) -> [u8; 3] {
+    rgb8(rgba(colour))
 }
 
 /// Returns the colour painted at `p` by the top-most filled path or image of a sample.
@@ -123,7 +123,7 @@ fn fill_under(sample: &[Leaf], p: Point) -> Option<Rgba> {
             ));
         }
         let fill = l.path()?.fill?;
-        l.bbox().filter(|b| b.contains(p)).map(|_| fill.color)
+        l.bbox().filter(|b| b.contains(p)).map(|_| fill.colour)
     })
 }
 
@@ -150,8 +150,8 @@ fn a_bar_series_is_keyed_by_a_swatch_filled_with_its_face_and_outlined_by_its_ed
         });
         fx.bar(ax, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
             b.label = text("Red on green");
-            b.face = ColorSpec::Rgba { color: RED };
-            b.edge.color = ColorSpec::Rgba { color: GREEN };
+            b.face = ColourSpec::Rgba { colour: RED };
+            b.edge.colour = ColourSpec::Rgba { colour: GREEN };
         });
     });
     let automatic = sample_beside(&scene, panel, "Automatic");
@@ -179,18 +179,18 @@ fn a_bar_series_is_keyed_by_a_swatch_filled_with_its_face_and_outlined_by_its_ed
 #[test]
 fn bars_coloured_by_data_are_keyed_by_a_sweep_of_their_scale() {
     let (scene, panel) = keyed(|fx, ax| {
-        let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-            colormap: Colormap::Listed {
-                colors: vec![RED, BLUE],
+        let scale = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+            colourmap: Colourmap::Listed {
+                colours: vec![RED, BLUE],
             },
             limits: Limits::Manual { min: 0.0, max: 1.0 },
-            ..ContinuousColorScale::default()
+            ..ContinuousColourScale::default()
         }));
         fx.bar(ax, &[0.0, 1.0], &[1.0, 2.0], |b, fx| {
             b.label = text("Mapped");
-            b.face = ColorSpec::Colormapped;
-            b.color_data = Some(fx.vector(&[0.0, 1.0]));
-            b.color_scale = Some(scale);
+            b.face = ColourSpec::Colourmapped;
+            b.colour_data = Some(fx.vector(&[0.0, 1.0]));
+            b.colour_scale = Some(scale);
         });
     });
     let sample = sample_beside(&scene, panel, "Mapped");
@@ -220,7 +220,7 @@ fn bars_coloured_by_data_are_keyed_by_a_sweep_of_their_scale() {
 // stands for.
 #[test]
 fn bar_entries_of_one_name_merge_when_they_look_alike_and_not_otherwise() {
-    let build = |second_face: Color| {
+    let build = |second_face: Colour| {
         let mut fx = Fx::new();
         fx.fig.layout.rows = 2;
         fx.fig.layout.cols = 2;
@@ -231,11 +231,13 @@ fn bar_entries_of_one_name_merge_when_they_look_alike_and_not_otherwise() {
         fx.legend_in(right, panel);
         let a = fx.bar(left, &[0.0], &[1.0], |b, _| {
             b.label = Some(Text::plain("Model A"));
-            b.face = ColorSpec::Rgba { color: RED };
+            b.face = ColourSpec::Rgba { colour: RED };
         });
         let b = fx.bar(right, &[0.0], &[1.0], |b, _| {
             b.label = Some(Text::plain("Model A"));
-            b.face = ColorSpec::Rgba { color: second_face };
+            b.face = ColourSpec::Rgba {
+                colour: second_face,
+            };
         });
         (compile_figure(&fx.build()), panel, [a, b])
     };
@@ -280,13 +282,13 @@ fn bar_entries_of_one_name_and_face_merge_whatever_their_widths_offsets_and_base
     fx.legend_in(right, panel);
     let a = fx.bar(left, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
         b.label = Some(Text::plain("Model A"));
-        b.face = ColorSpec::Rgba { color: RED };
+        b.face = ColourSpec::Rgba { colour: RED };
         b.width = BarWidth::Pitch(0.4);
         b.offset = BarOffset::Widths(-0.5);
     });
     let b = fx.bar(right, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
         b.label = Some(Text::plain("Model A"));
-        b.face = ColorSpec::Rgba { color: RED };
+        b.face = ColourSpec::Rgba { colour: RED };
         b.width = BarWidth::Constant(0.2);
         b.offset = BarOffset::Absolute(0.3);
         b.base = PerBar::Constant(1.0);
@@ -337,8 +339,8 @@ fn filled_stairs_are_keyed_by_a_patch_in_their_fill_outlined_by_their_line() {
         fx.stairs(ax, &[0.0, 1.0, 2.0], &[1.0, 2.0], |s| {
             s.label = text("Filled");
             s.base = Some(0.0);
-            s.fill = ColorSpec::Rgba { color: BLUE };
-            s.line.color = ColorSpec::Rgba { color: RED };
+            s.fill = ColourSpec::Rgba { colour: BLUE };
+            s.line.colour = ColourSpec::Rgba { colour: RED };
         });
     });
     let sample = sample_beside(&scene, panel, "Filled");

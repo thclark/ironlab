@@ -14,22 +14,22 @@
 //!     Custom { label: Text, sample: LegendSample },
 //!     /// The colour scale with this node identifier: one entry per category of a
 //!     /// categorical scale, and a vertical bar for any other kind.
-//!     ColorScale(NodeId),                                   // new
-//!     // (became `ColorScale { scale: NodeId, rows: u32 }` in the layout stage; see
-//!     // `colorbar_layout.rs`)
+//!     ColourScale(NodeId),                                   // new
+//!     // (became `ColourScale { scale: NodeId, rows: u32 }` in the layout stage; see
+//!     // `colourbar_layout.rs`)
 //! }
 //! impl LegendItem {
 //!     /// An item, not on a row of its own, that shows the colour scale with this node
 //!     /// identifier.
-//!     pub fn color_scale(scale: NodeId) -> Self;           // new
+//!     pub fn colour_scale(scale: NodeId) -> Self;           // new
 //! }
-//! // JSON: {"type": "color_scale", "value": {"scale": <scale id>, "rows": 5}}, as the other
+//! // JSON: {"type": "colour_scale", "value": {"scale": <scale id>, "rows": 5}}, as the other
 //! // variants are tagged.
 //! // `From<NodeId> for LegendItem` still makes an artist item.
 //!
 //! // crates/ironlab-ir/src/validate.rs: no new issue kind.
-//! //   A `ColorScale` item naming no node      -> UnknownColorScale, against the legend's owner
-//! //   A `ColorScale` item naming another kind -> WrongNodeKind,     against the legend's owner
+//! //   A `ColourScale` item naming no node      -> UnknownColourScale, against the legend's owner
+//! //   A `ColourScale` item naming another kind -> WrongNodeKind,     against the legend's owner
 //! //   (the owner is the panel for a legend panel and the axes for an inside legend,
 //! //   as for every other legend item).
 //! ```
@@ -37,7 +37,7 @@
 //! The rules these tests pin:
 //!
 //! - **References.** A scale item names its scale as an artist or a colourbar does, so the
-//!   kinds of issue are those of every scale reference (`UnknownColorScale`,
+//!   kinds of issue are those of every scale reference (`UnknownColourScale`,
 //!   `WrongNodeKind`), not `DanglingLegendItem`, which is about artists. A scale is a node of
 //!   the figure rather than of an axes, so a legend inside a plot area may list any scale of
 //!   the figure, whichever axes its artists belong to.
@@ -64,9 +64,9 @@ use common::{
 use ironlab_ir::*;
 use serde_json::{Value as JsonValue, json};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 /// Returns whether a list of issues holds one of the given kind against the given node.
 fn has(issues: &[ValidationIssue], kind: IssueKind, node: NodeId) -> bool {
@@ -104,8 +104,8 @@ fn keys() -> Keys {
     let mut b = FigureBuilder::new();
     b.fig.layout = TileLayout::new(1, 2);
     let axes = b.axes2d(0, 0);
-    let speed = b.color_scale(continuous(named(ColormapName::Viridis), Limits::Auto));
-    let status = b.color_scale(categorical(vec![RED, GREEN, BLUE], OutOfRange::Strict));
+    let speed = b.colour_scale(continuous(named(ColourmapName::Viridis), Limits::Auto));
+    let status = b.colour_scale(categorical(vec![RED, GREEN, BLUE], OutOfRange::Strict));
     let data = b.matrix(2, 2, |j, i| (j * 2 + i) as f64);
     let image = b.scalar_image(axes, data, Some(speed));
     if let Some(Artist::ScalarImage(image)) = b.axes(axes).artists.last_mut() {
@@ -122,7 +122,7 @@ fn keys() -> Keys {
         },
     ));
     let mut fig = b.build();
-    panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::color_scale(status)]);
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::colour_scale(status)]);
     Keys {
         fig,
         axes,
@@ -153,9 +153,9 @@ fn inside_listing(entries: LegendEntries) -> Option<Legend> {
 fn a_scale_item_is_an_ordinary_item_and_a_bare_identifier_still_names_an_artist() {
     let scale = NodeId(7);
     assert_eq!(
-        LegendItem::color_scale(scale),
+        LegendItem::colour_scale(scale),
         LegendItem {
-            content: LegendItemContent::ColorScale { scale, rows: 5 },
+            content: LegendItemContent::ColourScale { scale, rows: 5 },
             full_row: false,
         }
     );
@@ -175,7 +175,7 @@ fn the_json_form_of_a_scale_item_is_tagged_as_the_other_items_are() {
             "value": [
                 {
                     "content": {
-                        "type": "color_scale",
+                        "type": "colour_scale",
                         "value": { "scale": k.status.0, "rows": 5 }
                     },
                     "full_row": false
@@ -196,15 +196,15 @@ fn scale_items_round_trip_through_json_and_protobuf_in_both_kinds_of_legend() {
     let mut k = keys();
     panel_legend_mut(&mut k.fig.panels[0]).entries = explicit([
         LegendItem::artist(k.image),
-        LegendItem::color_scale(k.status),
+        LegendItem::colour_scale(k.status),
         LegendItem {
             full_row: true,
-            ..LegendItem::color_scale(k.speed)
+            ..LegendItem::colour_scale(k.speed)
         },
         LegendItem::custom(LegendSample::swatch(RED), "Hand-written"),
     ]);
     k.fig.axes[0].legend = inside_listing(explicit([
-        LegendItem::color_scale(k.speed),
+        LegendItem::colour_scale(k.speed),
         LegendItem::artist(k.image),
     ]));
     assert!(k.fig.validate().is_valid(), "{:?}", k.fig.validate());
@@ -225,7 +225,7 @@ fn the_kitchen_sink_figure_holds_a_scale_item_and_round_trips() {
         .iter()
         .filter_map(|p| match &p.content {
             PanelContent::Legend(legend) => Some(&legend.entries),
-            PanelContent::Colorbar(_) => None,
+            PanelContent::Colourbar(_) => None,
         })
         .collect();
     entries.extend(fig.axes.iter().filter_map(|a| match &a.legend {
@@ -240,7 +240,7 @@ fn the_kitchen_sink_figure_holds_a_scale_item_and_round_trips() {
         })
         .flatten()
         .filter_map(|item| match item.content {
-            LegendItemContent::ColorScale { scale, .. } => Some(scale),
+            LegendItemContent::ColourScale { scale, .. } => Some(scale),
             _ => None,
         })
         .collect();
@@ -249,7 +249,7 @@ fn the_kitchen_sink_figure_holds_a_scale_item_and_round_trips() {
         "some legend of the kitchen sink lists a scale"
     );
     for scale in named_scales {
-        assert!(fig.color_scale(scale).is_some(), "{scale} is a scale");
+        assert!(fig.colour_scale(scale).is_some(), "{scale} is a scale");
     }
     assert_eq!(Figure::from_json(&fig.to_json()).unwrap(), fig);
     assert_eq!(Figure::from_protobuf(&fig.to_protobuf()).unwrap(), fig);
@@ -272,7 +272,7 @@ fn a_panel_listing_scales_that_no_artist_names_is_valid_without_warnings() {
 
     let bands = {
         let id = NodeId(900);
-        k.fig.color_scales.push(ColorScale {
+        k.fig.colour_scales.push(ColourScale {
             id,
             title: None,
             kind: discrete(&[0.0, 1.0, 2.0]),
@@ -282,7 +282,7 @@ fn a_panel_listing_scales_that_no_artist_names_is_valid_without_warnings() {
     };
     let palette = {
         let id = NodeId(901);
-        k.fig.color_scales.push(ColorScale {
+        k.fig.colour_scales.push(ColourScale {
             id,
             title: None,
             kind: indexed(vec![RED, GREEN], OutOfRange::Strict),
@@ -293,7 +293,7 @@ fn a_panel_listing_scales_that_no_artist_names_is_valid_without_warnings() {
     panel_legend_mut(&mut k.fig.panels[0]).entries = explicit(
         [k.status, k.speed, bands, palette]
             .into_iter()
-            .map(LegendItem::color_scale),
+            .map(LegendItem::colour_scale),
     );
     let report = k.fig.validate();
     assert_eq!(report.errors, vec![], "every kind of scale");
@@ -308,8 +308,8 @@ fn an_inside_legend_may_list_any_scale_of_the_figure() {
     let mut k = keys();
     k.fig.panels.clear();
     k.fig.axes[0].legend = inside_listing(explicit([
-        LegendItem::color_scale(k.status),
-        LegendItem::color_scale(k.speed),
+        LegendItem::colour_scale(k.status),
+        LegendItem::colour_scale(k.speed),
     ]));
     let report = k.fig.validate();
     assert_eq!(report.errors, vec![]);
@@ -321,15 +321,15 @@ fn an_inside_legend_may_list_any_scale_of_the_figure() {
 // holds the reference, so that the viewer can select it, and it is an unknown scale rather
 // than a dangling artist item, so that the author looks for a missing scale.
 #[test]
-fn a_scale_item_naming_no_node_is_unknown_color_scale_against_the_legend_s_owner() {
+fn a_scale_item_naming_no_node_is_unknown_colour_scale_against_the_legend_s_owner() {
     let k = keys();
     let missing = NodeId(4_242);
 
     let mut fig = k.fig.clone();
-    panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::color_scale(missing)]);
+    panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::colour_scale(missing)]);
     let report = fig.validate();
     assert!(
-        has(&report.errors, IssueKind::UnknownColorScale, k.panel),
+        has(&report.errors, IssueKind::UnknownColourScale, k.panel),
         "{report:?}"
     );
     assert!(
@@ -339,10 +339,10 @@ fn a_scale_item_naming_no_node_is_unknown_color_scale_against_the_legend_s_owner
 
     let mut fig = k.fig.clone();
     fig.panels.clear();
-    fig.axes[0].legend = inside_listing(explicit([LegendItem::color_scale(missing)]));
+    fig.axes[0].legend = inside_listing(explicit([LegendItem::colour_scale(missing)]));
     let report = fig.validate();
     assert!(
-        has(&report.errors, IssueKind::UnknownColorScale, k.axes),
+        has(&report.errors, IssueKind::UnknownColourScale, k.axes),
         "{report:?}"
     );
     assert!(
@@ -366,21 +366,21 @@ fn a_scale_item_naming_a_node_of_another_kind_is_wrong_node_kind() {
         ("the figure", k.fig.id),
     ] {
         let mut fig = k.fig.clone();
-        panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::color_scale(target)]);
+        panel_legend_mut(&mut fig.panels[0]).entries = explicit([LegendItem::colour_scale(target)]);
         let report = fig.validate();
         assert!(
             has(&report.errors, IssueKind::WrongNodeKind, k.panel),
             "{what} in a panel: {report:?}"
         );
         assert!(
-            !kinds(&report.errors).contains(&IssueKind::UnknownColorScale),
+            !kinds(&report.errors).contains(&IssueKind::UnknownColourScale),
             "{what} in a panel: {report:?}"
         );
 
         // The panel is kept, so that it stays a node of the figure for the inside legend to
         // name; its own list names a valid scale.
         let mut fig = k.fig.clone();
-        fig.axes[0].legend = inside_listing(explicit([LegendItem::color_scale(target)]));
+        fig.axes[0].legend = inside_listing(explicit([LegendItem::colour_scale(target)]));
         let report = fig.validate();
         assert!(
             has(&report.errors, IssueKind::WrongNodeKind, k.axes),
@@ -408,10 +408,10 @@ fn a_repeated_scale_item_is_a_warning_and_the_figure_stays_valid() {
     let k = keys();
     let mut fig = k.fig.clone();
     panel_legend_mut(&mut fig.panels[0]).entries = explicit([
-        LegendItem::color_scale(k.status),
+        LegendItem::colour_scale(k.status),
         LegendItem {
             full_row: true,
-            ..LegendItem::color_scale(k.status)
+            ..LegendItem::colour_scale(k.status)
         },
     ]);
     let report = fig.validate();
@@ -424,7 +424,7 @@ fn a_repeated_scale_item_is_a_warning_and_the_figure_stays_valid() {
 
     let mut fig = k.fig.clone();
     panel_legend_mut(&mut fig.panels[0]).entries = explicit([
-        LegendItem::color_scale(k.speed),
+        LegendItem::colour_scale(k.speed),
         LegendItem::artist(k.image),
     ]);
     assert_eq!(
@@ -440,9 +440,9 @@ fn a_repeated_scale_item_is_a_warning_and_the_figure_stays_valid() {
 #[test]
 fn a_scale_item_naming_an_empty_categorical_scale_is_reported_against_the_scale_only() {
     let mut k = keys();
-    if let ColorScaleKind::Categorical(c) = &mut k
+    if let ColourScaleKind::Categorical(c) = &mut k
         .fig
-        .color_scales
+        .colour_scales
         .iter_mut()
         .find(|s| s.id == k.status)
         .unwrap()
@@ -452,7 +452,7 @@ fn a_scale_item_naming_an_empty_categorical_scale_is_reported_against_the_scale_
     }
     let report = k.fig.validate();
     assert!(
-        has(&report.errors, IssueKind::InvalidColorScale, k.status),
+        has(&report.errors, IssueKind::InvalidColourScale, k.status),
         "{report:?}"
     );
     assert!(
@@ -477,7 +477,7 @@ fn a_scale_item_naming_an_empty_categorical_scale_is_reported_against_the_scale_
 #[test]
 fn removing_a_scale_that_a_legend_item_names_is_refused_unless_the_legend_goes_too() {
     let mut k = keys();
-    k.fig.axes[0].legend = inside_listing(explicit([LegendItem::color_scale(k.status)]));
+    k.fig.axes[0].legend = inside_listing(explicit([LegendItem::colour_scale(k.status)]));
     assert!(k.fig.validate().is_valid(), "{:?}", k.fig.validate());
 
     let mut edited = k.fig.clone();
@@ -486,11 +486,11 @@ fn removing_a_scale_that_a_legend_item_names_is_refused_unless_the_legend_goes_t
         panic!("removing the scale was not refused: {result:?}");
     };
     assert!(
-        has(issues, IssueKind::UnknownColorScale, k.panel),
+        has(issues, IssueKind::UnknownColourScale, k.panel),
         "{issues:?}"
     );
     assert!(
-        has(issues, IssueKind::UnknownColorScale, k.axes),
+        has(issues, IssueKind::UnknownColourScale, k.axes),
         "{issues:?}"
     );
     assert_eq!(edited, k.fig, "a refused transaction changes nothing");
@@ -501,7 +501,7 @@ fn removing_a_scale_that_a_legend_item_names_is_refused_unless_the_legend_goes_t
         Edit::Remove { node: k.status },
     ]);
     let (removed, inverse) = applied(&k.fig, &both).unwrap();
-    assert!(removed.color_scale(k.status).is_none());
+    assert!(removed.colour_scale(k.status).is_none());
     assert!(removed.panels.is_empty());
     assert_eq!(removed.axes[0].legend, None);
     assert_eq!(applied(&removed, &inverse).unwrap().0, k.fig);

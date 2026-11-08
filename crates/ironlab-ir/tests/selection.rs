@@ -271,17 +271,17 @@ fn images_figure() -> (Figure, [NodeId; 3], [NodeId; 3]) {
     let indexed = b.node();
     let mapped = b.node();
     // A palette of 256 entries, which every 8-bit index names.
-    let palette = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![Color::BLACK; 256],
-        ..IndexedColorScale::default()
+    let palette = b.colour_scale(ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![Colour::BLACK; 256],
+        ..IndexedColourScale::default()
     }));
-    let continuous = b.color_scale(ColorScaleKind::default());
+    let continuous = b.colour_scale(ColourScaleKind::default());
     b.push(
         axes,
         Artist::ScalarImage(ScalarImage {
             id: indexed,
             values: indices,
-            color_scale: Some(palette),
+            colour_scale: Some(palette),
             ..ScalarImage::default()
         }),
     );
@@ -290,7 +290,7 @@ fn images_figure() -> (Figure, [NodeId; 3], [NodeId; 3]) {
         Artist::ScalarImage(ScalarImage {
             id: mapped,
             values,
-            color_scale: Some(continuous),
+            colour_scale: Some(continuous),
             ..ScalarImage::default()
         }),
     );

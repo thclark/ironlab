@@ -9,8 +9,8 @@
 //! side is its diameter), never from the compiler's own mapping.
 
 use ironlab_ir::{
-    Color, ColorSpec, Coords, DashStyle, Limits, MarkerShape, NodeId, PolarView, Projection, Scale,
-    Series,
+    Colour, ColourSpec, Coords, DashStyle, Limits, MarkerShape, NodeId, PolarView, Projection,
+    Scale, Series,
 };
 use ironlab_scene::display::{PathSegment, Point, Rect, Rgba};
 use ironlab_scene::hit::LegendOwner;
@@ -25,8 +25,8 @@ use crate::probe::{
 /// Agreement expected of a vertex placed on the page from data, in points.
 const TOL: f64 = 1e-6;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Probes
@@ -54,7 +54,7 @@ fn fill_colour(scene: &Scene, id: NodeId) -> Rgba {
     fill_leaves(scene, id)
         .first()
         .and_then(|l| l.path()?.fill)
-        .map(|f| f.color)
+        .map(|f| f.colour)
         .expect("the series is filled")
 }
 
@@ -62,7 +62,7 @@ fn fill_colour(scene: &Scene, id: NodeId) -> Rgba {
 fn line_colour(scene: &Scene, id: NodeId) -> Rgba {
     from_source(&leaves(scene), id)
         .iter()
-        .find_map(|l| l.path().and_then(|p| p.stroke.as_ref()).map(|s| s.color))
+        .find_map(|l| l.path().and_then(|p| p.stroke.as_ref()).map(|s| s.colour))
         .expect("the line is stroked")
 }
 
@@ -166,10 +166,10 @@ fn polar_axes(fx: &mut Fx, r: (f64, f64)) -> NodeId {
 }
 
 /// Gives a series a fill of the given colour down to `base`.
-fn fill_to(base: f64, color: ColorSpec) -> impl FnOnce(&mut Series) {
+fn fill_to(base: f64, colour: ColourSpec) -> impl FnOnce(&mut Series) {
     move |s| {
         s.base = Some(base);
-        s.fill = color;
+        s.fill = colour;
     }
 }
 
@@ -188,7 +188,7 @@ fn in_cartesian_axes_the_fill_is_the_run_closed_straight_down_to_the_base_at_its
     let ax = cartesian_axes(&mut fx, xl, yl);
     let x = [0.0, 1.0, 3.0, 4.0];
     let y = [2.0, 5.0, 1.0, 3.0];
-    let id = fx.line(ax, &x, &y, None, fill_to(-1.0, ColorSpec::Auto));
+    let id = fx.line(ax, &x, &y, None, fill_to(-1.0, ColourSpec::Auto));
     let scene = compile_figure(&fx.build());
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
     let plot = axes_hit(&scene, ax).plot_rect;
@@ -224,7 +224,7 @@ fn in_polar_axes_a_base_at_the_lower_radial_limit_closes_the_fill_at_the_centre_
         &[0.0, 90.0, 200.0],
         &[1.0, 2.0, 1.5],
         None,
-        fill_to(0.0, ColorSpec::Auto),
+        fill_to(0.0, ColourSpec::Auto),
     );
     let scene = compile_figure(&fx.build());
     let (c, rim) = circle(&scene, ax);
@@ -256,7 +256,7 @@ fn in_polar_axes_a_base_above_the_centre_is_joined_by_one_straight_chord() {
         &[0.0, 90.0, 200.0],
         &[1.0, 2.0, 1.5],
         None,
-        fill_to(0.5, ColorSpec::Auto),
+        fill_to(0.5, ColourSpec::Auto),
     );
     let scene = compile_figure(&fx.build());
     let (c, rim) = circle(&scene, ax);
@@ -288,7 +288,7 @@ fn each_run_of_a_line_broken_by_a_missing_value_is_filled_as_its_own_polygon() {
         &[0.0, 1.0, 2.0, 3.0, 4.0],
         &[1.0, 2.0, f64::NAN, 3.0, 2.0],
         None,
-        fill_to(0.5, ColorSpec::Auto),
+        fill_to(0.5, ColourSpec::Auto),
     );
     let scene = compile_figure(&fx.build());
     let plot = axes_hit(&scene, ax).plot_rect;
@@ -322,7 +322,7 @@ fn a_decimated_line_is_filled_through_the_points_it_draws() {
         .unzip();
     let mut fx = Fx::new();
     let ax = cartesian_axes(&mut fx, (0.0, (n - 1) as f64), (0.0, 4.0));
-    let id = fx.line(ax, &x, &y, None, fill_to(0.0, ColorSpec::Auto));
+    let id = fx.line(ax, &x, &y, None, fill_to(0.0, ColourSpec::Auto));
     let scene = compile_figure(&fx.build());
     let line: Vec<Point> = from_source(&leaves(&scene), id)
         .iter()
@@ -368,7 +368,7 @@ fn the_fill_is_painted_beneath_the_line_and_markers_in_the_same_clip() {
     let ax = cartesian_axes(&mut fx, (0.0, 2.0), (0.0, 4.0));
     let id = fx.line(ax, &[0.0, 1.0, 2.0], &[1.0, 3.0, 2.0], None, |s| {
         s.base = Some(0.0);
-        s.fill = ColorSpec::Auto;
+        s.fill = ColourSpec::Auto;
         s.marker.shape = MarkerShape::Circle;
     });
     let scene = compile_figure(&fx.build());
@@ -409,7 +409,7 @@ fn an_automatic_fill_takes_the_colour_of_the_series() {
         &[0.0, 1.0, 2.0],
         &[1.0, 3.0, 2.0],
         None,
-        fill_to(0.0, ColorSpec::Auto),
+        fill_to(0.0, ColourSpec::Auto),
     );
     let scene = compile_figure(&fx.build());
     assert_colour(
@@ -428,11 +428,11 @@ fn the_fill_opacity_multiplies_the_alpha_of_the_fill_and_not_of_the_line() {
     let ax = cartesian_axes(&mut fx, (0.0, 2.0), (0.0, 4.0));
     let id = fx.line(ax, &[0.0, 1.0, 2.0], &[1.0, 3.0, 2.0], None, |s| {
         s.base = Some(0.0);
-        s.fill = ColorSpec::Rgba {
-            color: Color::rgba(0.0, 0.0, 1.0, 0.8),
+        s.fill = ColourSpec::Rgba {
+            colour: Colour::rgba(0.0, 0.0, 1.0, 0.8),
         };
         s.fill_opacity = 0.5;
-        s.line.color = ColorSpec::Rgba { color: RED };
+        s.line.colour = ColourSpec::Rgba { colour: RED };
     });
     let scene = compile_figure(&fx.build());
     assert_close(f64::from(fill_colour(&scene, id).a), 0.4, 1e-6);
@@ -465,7 +465,7 @@ fn on_a_logarithmic_y_axis_a_base_that_cannot_be_placed_drops_to_the_low_edge() 
         &[0.0, 1.0, 2.0],
         &[20.0, 300.0, 50.0],
         None,
-        fill_to(0.0, ColorSpec::Auto),
+        fill_to(0.0, ColourSpec::Auto),
     );
     let scene = compile_figure(&fx.build());
     let plot = axes_hit(&scene, ax).plot_rect;
@@ -491,7 +491,7 @@ fn the_base_is_read_in_the_coordinates_of_y() {
     let id = fx.line(ax, &[0.0, 1.0, 2.0], &[0.25, 0.75, 0.5], None, |s| {
         s.y_coords = Coords::AxesFraction;
         s.base = Some(0.0);
-        s.fill = ColorSpec::Auto;
+        s.fill = ColourSpec::Auto;
     });
     let scene = compile_figure(&fx.build());
     let plot = axes_hit(&scene, ax).plot_rect;
@@ -567,12 +567,12 @@ fn a_filled_series_is_keyed_by_a_swatch_of_its_fill_behind_its_line() {
         fx.line(ax, &[0.0, 1.0], &[1.0, 2.0], None, |s| {
             s.label = text("Filled");
             s.base = Some(0.0);
-            s.fill = ColorSpec::Rgba { color: BLUE };
-            s.line.color = ColorSpec::Rgba { color: RED };
+            s.fill = ColourSpec::Rgba { colour: BLUE };
+            s.line.colour = ColourSpec::Rgba { colour: RED };
         });
         fx.line(ax, &[0.0, 1.0], &[2.0, 3.0], None, |s| {
             s.label = text("Open");
-            s.line.color = ColorSpec::Rgba { color: RED };
+            s.line.colour = ColourSpec::Rgba { colour: RED };
         });
     });
     let sample = sample_beside(&scene, panel, "Filled");
@@ -581,7 +581,7 @@ fn a_filled_series_is_keyed_by_a_swatch_of_its_fill_behind_its_line() {
         .position(|l| {
             l.path()
                 .and_then(|p| p.fill)
-                .is_some_and(|f| rgb8(f.color) == rgb8(rgba(BLUE)))
+                .is_some_and(|f| rgb8(f.colour) == rgb8(rgba(BLUE)))
         })
         .unwrap_or_else(|| panic!("a swatch in the fill colour: {sample:?}"));
     let line = sample
@@ -589,7 +589,7 @@ fn a_filled_series_is_keyed_by_a_swatch_of_its_fill_behind_its_line() {
         .position(|l| {
             l.path()
                 .and_then(|p| p.stroke.as_ref())
-                .is_some_and(|s| rgb8(s.color) == rgb8(rgba(RED)))
+                .is_some_and(|s| rgb8(s.colour) == rgb8(rgba(RED)))
         })
         .unwrap_or_else(|| panic!("a line in the line colour: {sample:?}"));
     assert!(
@@ -616,12 +616,12 @@ fn entries_of_the_same_name_that_differ_only_in_their_fill_are_not_merged() {
     let left = fx.axes2d(0, 0);
     let right = fx.axes2d(0, 1);
     let panel = fx.panel(cell(1, 0, 1, 2));
-    let red = |s: &mut Series| s.line.color = ColorSpec::Rgba { color: RED };
+    let red = |s: &mut Series| s.line.colour = ColourSpec::Rgba { colour: RED };
     let a = fx.named_line(left, "Sensor A", red);
     let b = fx.named_line(right, "Sensor A", |s| {
         red(s);
         s.base = Some(0.0);
-        s.fill = ColorSpec::Auto;
+        s.fill = ColourSpec::Auto;
     });
     fx.legend_in(left, panel);
     fx.legend_in(right, panel);
@@ -649,10 +649,10 @@ fn entries_of_the_same_name_that_differ_only_in_their_fill_are_not_merged() {
     let right = fx.axes2d(0, 1);
     let panel = fx.panel(cell(1, 0, 1, 2));
     let filled = |s: &mut Series| {
-        s.line.color = ColorSpec::Rgba { color: RED };
+        s.line.colour = ColourSpec::Rgba { colour: RED };
         s.line.dash = DashStyle::Solid;
         s.base = Some(0.0);
-        s.fill = ColorSpec::Rgba { color: BLUE };
+        s.fill = ColourSpec::Rgba { colour: BLUE };
     };
     let a = fx.named_line(left, "Sensor A", filled);
     let b = fx.named_line(right, "Sensor A", filled);

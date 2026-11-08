@@ -12,7 +12,7 @@ use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, Origin, ROTATE_DEGREES_
 use std::f64::consts::TAU;
 
 use ironlab_ir::{
-    Artist, Aspect, AspectAdjust, Axes, Color, ColorScaleKind, Coords, Dimension, Figure, Image,
+    Artist, Aspect, AspectAdjust, Axes, Colour, ColourScaleKind, Coords, Dimension, Figure, Image,
     ImagePlacement, Limits, NdArray, NodeId, OutOfRange, PixelRange, PolarView, Projection,
     ScalarImage, Scale, Series, SphericalView, Text, Value, View3d,
 };
@@ -29,7 +29,7 @@ fn single_2d() -> (FigureState, HitMap) {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -45,7 +45,7 @@ fn single_3d() -> (FigureState, HitMap) {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -119,7 +119,7 @@ fn wheel_zoom_in_then_out_restores_the_limits() {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -157,7 +157,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -187,7 +187,7 @@ fn wheel_zoom_keeps_the_data_point_under_the_cursor_on_log_axes() {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -216,7 +216,7 @@ fn wheel_zoom_on_automatic_limits_writes_manual_limits_from_the_resolved_ones() 
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -343,7 +343,7 @@ fn pan_on_a_log_axis_keeps_the_grabbed_value_under_the_pointer() {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -401,7 +401,7 @@ fn pan_on_x_linked_axes_moves_the_partner_x_only_and_leaves_unlinked_axes_alone(
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -650,7 +650,7 @@ fn double_click_restores_only_the_axes_under_the_pointer_and_its_linked_axes() {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -773,7 +773,7 @@ fn figure_with_legend() -> (FigureState, HitMap) {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -828,7 +828,7 @@ fn figure_with_a_merged_panel_entry() -> (FigureState, HitMap) {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -932,7 +932,7 @@ fn figure_with_an_explicit_key() -> (FigureState, HitMap) {
             row: 2,
             ..Cell::default()
         },
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: ironlab_ir::TitleAlign::Left,
         content: PanelContent::Legend(PanelLegend {
@@ -942,7 +942,7 @@ fn figure_with_an_explicit_key() -> (FigureState, HitMap) {
             },
             entries: LegendEntries::Explicit(vec![
                 LegendItem::artist(NodeId(10)),
-                LegendItem::custom(LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)), "upper"),
+                LegendItem::custom(LegendSample::swatch(Colour::rgb(0.9, 0.6, 0.0)), "upper"),
             ]),
             ..PanelLegend::default()
         }),
@@ -985,29 +985,29 @@ fn clicking_an_explicit_item_toggles_its_series_and_a_custom_item_does_nothing()
 #[test]
 fn clicking_a_bar_item_or_a_category_entry_does_nothing() {
     use ironlab_ir::{
-        CategoricalColorScale, ColorCategory, ColorScale, ColorScaleOutOfRange,
-        ContinuousColorScale, LegendEntries, LegendItem, PanelContent,
+        CategoricalColourScale, ColourCategory, ColourScale, ColourScaleOutOfRange,
+        ContinuousColourScale, LegendEntries, LegendItem, PanelContent,
     };
-    use ironlab_scene::hit::ColorbarOwner;
+    use ironlab_scene::hit::ColourbarOwner;
     let (state, _) = figure_with_an_explicit_key();
     let mut figure = state.figure().clone();
-    let outside = ColorScaleOutOfRange {
+    let outside = ColourScaleOutOfRange {
         policy: OutOfRange::Strict,
         show_key: false,
         label: None,
     };
-    figure.color_scales.push(ColorScale {
+    figure.colour_scales.push(ColourScale {
         id: NodeId(60),
         title: Some(Text::plain("Speed")),
-        kind: ColorScaleKind::Continuous(ContinuousColorScale::default()),
+        kind: ColourScaleKind::Continuous(ContinuousColourScale::default()),
         non_finite: outside.clone(),
     });
-    figure.color_scales.push(ColorScale {
+    figure.colour_scales.push(ColourScale {
         id: NodeId(61),
         title: None,
-        kind: ColorScaleKind::Categorical(CategoricalColorScale {
-            categories: vec![ColorCategory {
-                color: Color::rgb(0.0, 0.6, 0.3),
+        kind: ColourScaleKind::Categorical(CategoricalColourScale {
+            categories: vec![ColourCategory {
+                colour: Colour::rgb(0.0, 0.6, 0.3),
                 label: Text::plain("taken"),
             }],
             outside: outside.clone(),
@@ -1025,8 +1025,8 @@ fn clicking_a_bar_item_or_a_category_entry_does_nothing() {
     };
     legend.entries = LegendEntries::Explicit(vec![
         LegendItem::artist(NodeId(10)),
-        LegendItem::color_scale(NodeId(60)),
-        LegendItem::color_scale(NodeId(61)),
+        LegendItem::colour_scale(NodeId(60)),
+        LegendItem::colour_scale(NodeId(61)),
     ]);
     let mut state = FigureState::new(figure);
     let hit = ironlab_scene::compile(state.figure(), &TEXT).hit_map;
@@ -1036,9 +1036,9 @@ fn clicking_a_bar_item_or_a_category_entry_does_nothing() {
         "only the artist item is a click target"
     );
     let bar = hit
-        .colorbars
+        .colourbars
         .iter()
-        .find(|c| c.owner == ColorbarOwner::Legend(LegendOwner::Panel(NodeId(50))))
+        .find(|c| c.owner == ColourbarOwner::Legend(LegendOwner::Panel(NodeId(50))))
         .expect("the legend draws a bar item")
         .bar;
     let panel = hit.panels[0].rect;
@@ -1463,7 +1463,7 @@ fn figure_of(data: Vec<NdArray>, artists: Vec<Artist>) -> Figure {
             artists,
             ..Axes::default()
         }],
-        color_scales: image_scales(),
+        colour_scales: image_scales(),
         ..Figure::new()
     }
 }
@@ -1498,7 +1498,7 @@ fn scalar_image(id: u64, values: u64, placement: ImagePlacement) -> Artist {
     Artist::ScalarImage(ScalarImage {
         id: NodeId(id),
         values: array_id(values),
-        color_scale: Some(CONTINUOUS_SCALE),
+        colour_scale: Some(CONTINUOUS_SCALE),
         placement,
         ..ScalarImage::default()
     })
@@ -1760,7 +1760,7 @@ fn a_pixel_datatip_on_an_indexed_image_reports_the_stored_index_untruncated() {
         Artist::ScalarImage(ScalarImage {
             id: NodeId(id),
             values: array_id(indices),
-            color_scale: Some(PALETTE_SCALE),
+            colour_scale: Some(PALETTE_SCALE),
             ..ScalarImage::default()
         })
     };
@@ -1806,7 +1806,7 @@ fn a_pixel_datatip_on_an_indexed_image_reports_the_stored_index_untruncated() {
 // datatip reports the index alone rather than the label of a neighbouring category.
 #[test]
 fn a_pixel_datatip_through_a_categorical_scale_names_the_category_of_the_index() {
-    use ironlab_ir::{CategoricalColorScale, ColorCategory, ColorScale, ColorScaleOutOfRange};
+    use ironlab_ir::{CategoricalColourScale, ColourCategory, ColourScale, ColourScaleOutOfRange};
 
     const CLASSES: NodeId = NodeId(92);
     let indices =
@@ -1816,23 +1816,23 @@ fn a_pixel_datatip_through_a_categorical_scale_names_the_category_of_the_index()
         vec![Artist::ScalarImage(ScalarImage {
             id: NodeId(3),
             values: array_id(0),
-            color_scale: Some(CLASSES),
+            colour_scale: Some(CLASSES),
             ..ScalarImage::default()
         })],
     );
-    figure.color_scales.push(ColorScale {
+    figure.colour_scales.push(ColourScale {
         id: CLASSES,
-        kind: ColorScaleKind::Categorical(CategoricalColorScale {
+        kind: ColourScaleKind::Categorical(CategoricalColourScale {
             categories: ["Water", "Forest"]
                 .into_iter()
-                .map(|label| ColorCategory {
-                    color: Color::rgb(0.0, 0.5, 1.0),
+                .map(|label| ColourCategory {
+                    colour: Colour::rgb(0.0, 0.5, 1.0),
                     label: Text::plain(label),
                 })
                 .collect(),
-            outside: ColorScaleOutOfRange::new(OutOfRange::Transparent),
+            outside: ColourScaleOutOfRange::new(OutOfRange::Transparent),
         }),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     let (state, hit) = compiled(figure);
     assert_eq!(
@@ -1944,7 +1944,7 @@ fn a_pixel_datatip_is_read_only_where_a_drawn_image_lies_in_a_two_dimensional_ax
     let solid = Figure {
         id: NodeId(1),
         data: data_arrays([(array_id(0), numbered(2, 2))]),
-        color_scales: image_scales(),
+        colour_scales: image_scales(),
         axes: vec![Axes {
             artists: vec![scalar_image(3, 0, ImagePlacement::default())],
             ..axes_3d(2)
@@ -2103,7 +2103,7 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
             CONTINUOUS_SCALE.0,
             "kind.continuous.below.policy",
             Value::OutOfRange(OutOfRange::Rgba {
-                color: Color::rgb(1.0, 0.0, 0.0)
+                colour: Colour::rgb(1.0, 0.0, 0.0)
             })
         )),
         "the edit is accepted: {:?}",
@@ -2128,10 +2128,10 @@ fn setting_the_below_policy_to_a_colour_recolours_the_transparent_pixels_of_the_
     assert!(state.problems().is_empty(), "{:?}", state.problems());
     match state
         .source()
-        .color_scale(CONTINUOUS_SCALE)
+        .colour_scale(CONTINUOUS_SCALE)
         .map(|scale| &scale.kind)
     {
-        Some(ColorScaleKind::Continuous(scale)) => assert_eq!(
+        Some(ColourScaleKind::Continuous(scale)) => assert_eq!(
             scale.below.policy,
             OutOfRange::Transparent,
             "the source keeps its own policy"
@@ -2259,10 +2259,10 @@ fn a_datatip_on_a_series_coloured_by_data_reports_the_colour_value_of_its_point(
             vec![0.0, 1.0, 2.0],
             vec![0.0, 1.0, 0.0],
             Series {
-                color_data: Some(array_id(2)),
-                color_scale: Some(NodeId(90)),
+                colour_data: Some(array_id(2)),
+                colour_scale: Some(NodeId(90)),
                 line: ironlab_ir::LineStyle {
-                    color: ironlab_ir::ColorSpec::Colormapped,
+                    colour: ironlab_ir::ColourSpec::Colourmapped,
                     ..ironlab_ir::LineStyle::default()
                 },
                 ..Series::default()
@@ -2273,9 +2273,9 @@ fn a_datatip_on_a_series_coloured_by_data_reports_the_colour_value_of_its_point(
             name: None,
             array: NdArray::vector(colours),
         });
-        figure.color_scales.push(ironlab_ir::ColorScale {
+        figure.colour_scales.push(ironlab_ir::ColourScale {
             id: NodeId(90),
-            ..ironlab_ir::ColorScale::default()
+            ..ironlab_ir::ColourScale::default()
         });
         figure
     };
@@ -2294,21 +2294,21 @@ fn a_datatip_on_a_series_coloured_by_data_reports_the_colour_value_of_its_point(
 
     let tip = tip_at(coloured(vec![10.0, 20.5, 30.0]), 1);
     assert_eq!(tip.index, 1);
-    assert_eq!(tip.color, Some(20.5), "the value of the point itself");
+    assert_eq!(tip.colour, Some(20.5), "the value of the point itself");
     let text = ironlab_canvas::figure_canvas::datatip_text(&tip);
     assert!(text.contains("c = 20.5"), "{text}");
 
     let per_segment = coloured(vec![-1.0, 4.0]);
-    assert_eq!(tip_at(per_segment.clone(), 1).color, Some(4.0));
+    assert_eq!(tip_at(per_segment.clone(), 1).colour, Some(4.0));
     assert_eq!(
-        tip_at(per_segment, 2).color,
+        tip_at(per_segment, 2).colour,
         None,
         "no segment leaves the last point"
     );
 
     let plain = figure_with_line(vec![0.0, 1.0], vec![0.0, 1.0], Series::default());
     let tip = tip_at(plain, 0);
-    assert_eq!(tip.color, None);
+    assert_eq!(tip.colour, None);
     assert!(
         !ironlab_canvas::figure_canvas::datatip_text(&tip).contains("c ="),
         "a series without colour data reports no colour value"
@@ -3115,7 +3115,7 @@ fn hit_of(axes: Vec<AxesHit>) -> HitMap {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],

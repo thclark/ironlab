@@ -49,17 +49,17 @@ fn height(lon: f64, lat: f64) -> f64 {
 
 /// The colour of the surface at a longitude and latitude: ice near the poles, land from green to brown by height,
 /// and sea from pale to deep blue by depth.
-fn colour(lon: f64, lat: f64) -> Color {
+fn colour(lon: f64, lat: f64) -> Colour {
     let h = height(lon, lat);
     if lat.abs() > 72.0 {
-        return Color::rgb(0.93, 0.95, 0.97);
+        return Colour::rgb(0.93, 0.95, 0.97);
     }
     if h > 0.0 {
         let t = (h / 0.6).min(1.0) as f32;
-        Color::rgb(0.25 + 0.4 * t, 0.55 - 0.15 * t, 0.2 + 0.05 * t)
+        Colour::rgb(0.25 + 0.4 * t, 0.55 - 0.15 * t, 0.2 + 0.05 * t)
     } else {
         let t = (-h / 0.45).min(1.0) as f32;
-        Color::rgb(0.25 - 0.2 * t, 0.5 - 0.3 * t, 0.8 - 0.25 * t)
+        Colour::rgb(0.25 - 0.2 * t, 0.5 - 0.3 * t, 0.8 - 0.25 * t)
     }
 }
 
@@ -114,7 +114,7 @@ pub fn figure() -> Figure {
         .pixel_rows(latitude(0), latitude(ROWS - 1))
         .plane(ImagePlane::Xy { z: Some(1.0) });
     ax.plot3(&route_lon, &route_lat, &route_radius)
-        .color(Color::rgb(0.85, 0.1, 0.1))
+        .colour(Colour::rgb(0.85, 0.1, 0.1))
         .line_width(1.5);
     ax.zlim(0.0, 1.0)
         .ztick_labels_hidden()

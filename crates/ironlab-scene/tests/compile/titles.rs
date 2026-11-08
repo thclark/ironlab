@@ -57,7 +57,7 @@ fn a_right_aligned_title_ends_at_the_right_edge_of_the_plot_area() {
 // Why: the default stays as it was, the title centred over the plot area, so existing figures do not move.
 #[test]
 fn a_centred_title_is_centred_over_the_plot_area() {
-    let (fx, ax) = titled(TitleAlign::Center);
+    let (fx, ax) = titled(TitleAlign::Centre);
     let scene = compile_figure(&fx.fig);
     let plot = axes_hit(&scene, ax).plot_rect;
     assert_close(centre(title_box(&scene)).x, centre(plot).x, BEARING);

@@ -54,7 +54,7 @@ use prost_reflect::{
 const MODULES: [&str; 12] = [
     "artist",
     "axes",
-    "color_scale",
+    "colour_scale",
     "data",
     "edit",
     "figure",
@@ -630,7 +630,7 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
             (2, "label", "Text"),
             (3, "visible", "bool"),
             (4, "values", "uint64"),
-            (5, "color_scale", "uint64"),
+            (5, "colour_scale", "uint64"),
             (6, "placement", "ImagePlacement"),
             (7, "alpha", "uint64"),
             (8, "opacity", "double"),
@@ -671,7 +671,7 @@ fn the_image_messages_declare_the_agreed_fields_at_the_agreed_numbers() {
     expect("OutOfRangeStrict", &[]);
     expect("OutOfRangeTransparent", &[]);
     expect("OutOfRangeClamp", &[]);
-    expect("OutOfRangeRgba", &[(1, "color", "Color")]);
+    expect("OutOfRangeRgba", &[(1, "colour", "Colour")]);
     for (wrapper, inner) in [
         ("ValueImagePlacement", "ImagePlacement"),
         ("ValuePixelRange", "PixelRange"),
@@ -746,14 +746,14 @@ fn the_surface_message_declares_its_alpha_and_opacities_after_its_existing_field
             (4, "grid", "Grid"),
             (5, "z", "uint64"),
             (6, "c", "uint64"),
-            (7, "face", "ColorSpec"),
-            (8, "edge", "ColorSpec"),
+            (7, "face", "ColourSpec"),
+            (8, "edge", "ColourSpec"),
             (9, "edge_width_pt", "double"),
             (10, "face_alpha", "uint64"),
             (11, "edge_alpha", "uint64"),
             (12, "face_opacity", "double"),
             (13, "edge_opacity", "double"),
-            (14, "color_scale", "uint64"),
+            (14, "colour_scale", "uint64"),
         ]
         .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
     );
@@ -798,7 +798,7 @@ fn the_contour_message_declares_its_opacities_after_its_existing_fields() {
             (9, "line", "LineStyle"),
             (10, "line_opacity", "double"),
             (11, "fill_opacity", "double"),
-            (12, "color_scale", "uint64"),
+            (12, "colour_scale", "uint64"),
         ]
         .map(|(number, field, kind)| (number, field.to_owned(), kind.to_owned()))
     );
@@ -813,7 +813,7 @@ fn the_contour_message_declares_its_opacities_after_its_existing_fields() {
     }
 }
 
-// Why: clients in other languages read colour scales and scalar images from the schema, so the figure, node and artist oneofs must carry them, every scale reference must have presence (absent means none), and the replaced image kinds and axes colormap must be gone.
+// Why: clients in other languages read colour scales and scalar images from the schema, so the figure, node and artist oneofs must carry them, every scale reference must have presence (absent means none), and the replaced image kinds and axes colourmap must be gone.
 #[test]
 fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_them() {
     let pool = compile();
@@ -822,8 +822,8 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
             .iter()
             .any(|(_, name, k)| name == field && k == kind)
     };
-    assert!(has_field("Figure", "color_scales", "ColorScale"));
-    assert!(has_field("Node", "color_scale", "ColorScale"));
+    assert!(has_field("Figure", "colour_scales", "ColourScale"));
+    assert!(has_field("Node", "colour_scale", "ColourScale"));
     assert!(has_field("Artist", "scalar_image", "ScalarImage"));
     let names = |message: &str| -> BTreeSet<String> {
         declared_fields(&pool, message)
@@ -832,11 +832,11 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
             .collect()
     };
     assert_eq!(
-        names("ColorScale"),
+        names("ColourScale"),
         BTreeSet::from(["id", "title", "kind", "non_finite"].map(str::to_owned)),
     );
     assert_eq!(
-        names("ColorScaleOutOfRange"),
+        names("ColourScaleOutOfRange"),
         BTreeSet::from(["policy", "show_key", "label"].map(str::to_owned)),
     );
     assert_eq!(
@@ -847,7 +847,7 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
                 "label",
                 "visible",
                 "values",
-                "color_scale",
+                "colour_scale",
                 "placement",
                 "alpha",
                 "opacity",
@@ -856,11 +856,11 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
         ),
     );
     for message in [
-        "ContinuousColorScale",
-        "DiscreteColorScale",
-        "IndexedColorScale",
-        "CategoricalColorScale",
-        "ColorCategory",
+        "ContinuousColourScale",
+        "DiscreteColourScale",
+        "IndexedColourScale",
+        "CategoricalColourScale",
+        "ColourCategory",
     ] {
         assert!(
             pool.get_message_by_name(&format!("ironlab.ir.v0.{message}"))
@@ -873,10 +873,10 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
             .get_message_by_name(&format!("ironlab.ir.v0.{message}"))
             .expect("the package declares the message");
         let field = descriptor
-            .get_field_by_name("color_scale")
-            .unwrap_or_else(|| panic!("{message} declares color_scale"));
-        assert_eq!(field.kind(), Kind::Uint64, "{message}.color_scale");
-        assert!(field.supports_presence(), "{message}.color_scale");
+            .get_field_by_name("colour_scale")
+            .unwrap_or_else(|| panic!("{message} declares colour_scale"));
+        assert_eq!(field.kind(), Kind::Uint64, "{message}.colour_scale");
+        assert!(field.supports_presence(), "{message}.colour_scale");
     }
     let levels = pool
         .get_message_by_name("ironlab.ir.v0.Contour")
@@ -895,7 +895,7 @@ fn the_colour_scale_and_scalar_image_messages_are_declared_where_clients_read_th
     }
     let axes = names("Axes");
     assert!(
-        !axes.contains("colormap") && !axes.contains("clim"),
+        !axes.contains("colourmap") && !axes.contains("clim"),
         "{axes:?}"
     );
 }
@@ -951,8 +951,8 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "width",
                 "offset",
                 "face",
-                "color_data",
-                "color_scale",
+                "colour_data",
+                "colour_scale",
                 "edge",
                 "face_opacity",
                 "edge_opacity",
@@ -987,7 +987,7 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "rows",
                 "gap",
                 "edge",
-                "color_scale",
+                "colour_scale",
                 "alpha",
                 "face_opacity",
                 "edge_opacity",
@@ -999,7 +999,7 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
             &[
                 "bins",
                 "range",
-                "normalization",
+                "normalisation",
                 "total",
                 "excluded_non_finite",
                 "excluded_out_of_range",
@@ -1013,7 +1013,7 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
                 "y_bins",
                 "x_range",
                 "y_range",
-                "normalization",
+                "normalisation",
                 "min_count",
                 "total",
                 "excluded_non_finite",
@@ -1036,14 +1036,14 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
     for (message, field) in [
         ("Bar", "margin"),
         ("Bar", "binning"),
-        ("Bar", "color_data"),
-        ("Bar", "color_scale"),
+        ("Bar", "colour_data"),
+        ("Bar", "colour_scale"),
         ("Bar", "face_opacity"),
         ("Bar", "edge_opacity"),
         ("Stairs", "base"),
         ("Stairs", "line_opacity"),
         ("Stairs", "fill_opacity"),
-        ("Cells", "color_scale"),
+        ("Cells", "colour_scale"),
         ("Cells", "alpha"),
         ("Cells", "face_opacity"),
         ("Cells", "edge_opacity"),
@@ -1067,7 +1067,7 @@ fn the_bar_stairs_and_cells_messages_are_declared_where_clients_read_them() {
         assert!(field.supports_presence(), "{message}.{}", field.name());
     }
     for (message, number, name) in [
-        ("Bar", 12, "colors"),
+        ("Bar", 12, "colours"),
         ("Bar", 8, "slot"),
         ("Bar", 9, "gap"),
         ("Bar", 10, "group"),
@@ -1186,7 +1186,7 @@ fn every_enum_has_an_unspecified_zero_value_and_prefixed_values() {
 fn singular_numeric_and_boolean_fields_have_presence_except_colour_components() {
     let pool = compile();
     for message in pool.all_messages() {
-        if message.is_map_entry() || message.name() == "Color" {
+        if message.is_map_entry() || message.name() == "Colour" {
             continue;
         }
         for field in message.fields() {

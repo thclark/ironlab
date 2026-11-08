@@ -99,7 +99,7 @@ pub fn figure() -> Figure {
         .tag("surface")
         .tag("scatter")
         .tag("line")
-        .tag("color-scale")
+        .tag("colour-scale")
         .tag("legend")
         .tag("measurements")
         .parameter("dimensionality", "3D")
@@ -107,15 +107,15 @@ pub fn figure() -> Figure {
         .parameter("data_points", (2 * NODES + NODES * NODES + surveyed + site) as i64)
         .parameter("has_legend", true);
     let height = fig
-        .color_scale()
-        .colormap(Colormap::Viridis)
+        .colour_scale()
+        .colourmap(Colourmap::Viridis)
         .limits(100.0, 500.0)
         .tick_step(100.0)
         .title("Elevation (m)")
         .id();
     let steepness = fig
-        .color_scale()
-        .colormap(Colormap::Plasma)
+        .colour_scale()
+        .colourmap(Colourmap::Plasma)
         .discrete([0.0, 3.0, 6.0, 9.0, 12.0])
         .title("Gradient (%)")
         .id();
@@ -129,16 +129,16 @@ pub fn figure() -> Figure {
 
     let mut ax = fig.axes_span(0, 0, 4, 1);
     ax.surf(&x, &y, &z)
-        .color_scale(height)
-        .edge_color(Color::rgba(0.0, 0.0, 0.0, 0.25));
+        .colour_scale(height)
+        .edge_colour(Colour::rgba(0.0, 0.0, 0.0, 0.25));
     let (gx, gy, gz) = survey(14, 2.0, 1.8, 0.0);
     let gnss = ax
         .scatter3(&gx, &gy, &gz)
         .label("GNSS")
         .marker(Marker::Circle)
         .marker_size(6.0)
-        .marker_face(Color::WHITE)
-        .marker_edge(Color::BLACK)
+        .marker_face(Colour::WHITE)
+        .marker_edge(Colour::BLACK)
         .id();
     let (tx, ty, tz) = survey(9, 1.0, 1.4, 1.3);
     let station = ax
@@ -146,22 +146,22 @@ pub fn figure() -> Figure {
         .label("Total station")
         .marker(Marker::TriangleUp)
         .marker_size(7.0)
-        .marker_face(Color::rgb(0.85, 0.25, 0.10))
-        .marker_edge(Color::BLACK)
+        .marker_face(Colour::rgb(0.85, 0.25, 0.10))
+        .marker_edge(Colour::BLACK)
         .id();
     let (rx, ry, rz, gradient) = road();
     let road = ax
         .plot3(&rx, &ry, &rz)
         .label("Road")
-        .color_scale(steepness)
-        .color_data(gradient)
+        .colour_scale(steepness)
+        .colour_data(gradient)
         .line_width(3.0)
         .id();
     let (px, py, pz) = footpath();
     let path = ax
         .plot3(&px, &py, &pz)
         .label("Footpath")
-        .color(Color::rgb(0.15, 0.15, 0.15))
+        .colour(Colour::rgb(0.15, 0.15, 0.15))
         .dash(Dash::Dashed)
         .line_width(1.2)
         .id();
@@ -173,16 +173,16 @@ pub fn figure() -> Figure {
         .label("Benchmarks")
         .marker(Marker::Square)
         .marker_size(6.0)
-        .marker_face(Color::rgb(0.6, 0.6, 0.6))
-        .marker_edge(Color::BLACK)
+        .marker_face(Colour::rgb(0.6, 0.6, 0.6))
+        .marker_edge(Colour::BLACK)
         .id();
     let pillar = ax
         .scatter3([0.0], [0.0], [elevation(0.0, 0.0) + 10.0])
         .label("Trig pillar")
         .marker(Marker::Diamond)
         .marker_size(8.0)
-        .marker_face(Color::rgb(0.2, 0.45, 0.85))
-        .marker_edge(Color::BLACK)
+        .marker_face(Colour::rgb(0.2, 0.45, 0.85))
+        .marker_edge(Colour::BLACK)
         .id();
     ax.xlabel("East (km)")
         .ylabel("North (km)")
@@ -196,14 +196,14 @@ pub fn figure() -> Figure {
         .legend()
         .item(gnss)
         .item(station)
-        .item(LegendItem::color_scale(height).with_rows(7));
+        .item(LegendItem::colour_scale(height).with_rows(7));
     // The site key fills its columns from the top, column by column: the bar of the gradient takes the five rows of
     // the first column, and the four features fill the second.
     fig.panel(2, 1)
         .title("Site")
         .align(PanelLocation::NorthWest)
         .legend()
-        .item(LegendItem::color_scale(steepness).with_rows(5))
+        .item(LegendItem::colour_scale(steepness).with_rows(5))
         .item(road)
         .item(path)
         .item(benchmarks)

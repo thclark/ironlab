@@ -7,35 +7,35 @@
 //! plot boxes it spans, equal margins, an order along the bar, a tick at the place of its value) rather than as
 //! numbers of points, so that the tests survive a change of style constants.
 //!
-//! The scene API these tests assume, beyond the IR of `crates/ironlab-ir/tests/colorbars.rs`:
+//! The scene API these tests assume, beyond the IR of `crates/ironlab-ir/tests/colourbars.rs`:
 //!
 //! ```text
 //! // crates/ironlab-scene/src/hit.rs
 //! #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-//! pub enum ColorbarOwner { Panel(NodeId), Axes(NodeId) }
+//! pub enum ColourbarOwner { Panel(NodeId), Axes(NodeId) }
 //!
 //! #[derive(Clone, Debug, PartialEq)]
-//! pub struct ColorbarHit {
-//!     pub owner: ColorbarOwner,
+//! pub struct ColourbarHit {
+//!     pub owner: ColourbarOwner,
 //!     pub scale: NodeId,
 //!     /// Vertical or horizontal; an inside colourbar is horizontal on the south and north edges and
 //!     /// vertical on the east and west edges.
-//!     pub orientation: ironlab_ir::ColorbarOrientation,
+//!     pub orientation: ironlab_ir::ColourbarOrientation,
 //!     /// The bar, in figure space: for a continuous, discrete or indexed scale the coloured bar itself, without
 //!     /// ticks, labels, title or keys; for a categorical scale the union of its category squares.
 //!     pub bar: Rect,
 //!     /// The squares of a categorical scale, one per category in category order; empty for any other kind.
 //!     pub entries: Vec<Rect>,
-//!     /// The out-of-range keys drawn, each with the category it shows (`ironlab_ir::ColorScaleKey`).
-//!     pub keys: Vec<ColorbarKeyHit>,
+//!     /// The out-of-range keys drawn, each with the category it shows (`ironlab_ir::ColourScaleKey`).
+//!     pub keys: Vec<ColourbarKeyHit>,
 //!     /// The box behind an inside colourbar, enclosing all of it; `None` for a panel colourbar.
 //!     pub backdrop: Option<Rect>,
 //! }
 //!
 //! #[derive(Clone, Copy, Debug, PartialEq)]
-//! pub struct ColorbarKeyHit { pub key: ColorScaleKey, pub rect: Rect }
+//! pub struct ColourbarKeyHit { pub key: ColourScaleKey, pub rect: Rect }
 //!
-//! pub struct HitMap { ..., pub colorbars: Vec<ColorbarHit> }
+//! pub struct HitMap { ..., pub colourbars: Vec<ColourbarHit> }
 //! ```
 //!
 //! Every display item of a colourbar names its owner as its source: the panel for a panel colourbar, the axes for
@@ -46,7 +46,7 @@
 //!
 //! The rules these tests pin, beyond those the plan states:
 //!
-//! - **Low values at the bottom or the left, always.** A reversed colormap reverses the colours along the bar, never
+//! - **Low values at the bottom or the left, always.** A reversed colourmap reverses the colours along the bar, never
 //!   the direction of the values.
 //! - **Panel bars keep the span.** A panel colourbar is exactly as long as its cell span inset by the aligned margins
 //!   of the spanned rows or columns, which is the area the hit map publishes for the panel, except that a fixed
@@ -54,13 +54,13 @@
 //!   drawn box to the far edge of the last among the axes in those rows or columns. Out-of-range keys, when
 //!   shown, fit inside that length: the bar shrinks to make room for them. These tests give a horizontal panel bar
 //!   the full length (`length: Some(1.0)`) wherever they are about the span, because its automatic length is half
-//!   the span; the automatic lengths and shorter bars belong to `colorbar_layout.rs`. A title placed `Above` is a
+//!   the span; the automatic lengths and shorter bars belong to `colourbar_layout.rs`. A title placed `Above` is a
 //!   heading above the bar, so above a vertical panel bar it lies in the margin above the panel's area, as an axes
 //!   title lies above its plot box, and adds to the top margin of the first row it spans, which keeps the bar as long
-//!   as the plots. The default placement, along the bar, belongs to `colorbar_layout.rs`.
+//!   as the plots. The default placement, along the bar, belongs to `colourbar_layout.rs`.
 //! - **Categorical order.** The squares of a categorical scale are read like a list: category 0 at the top of a
 //!   vertical key and at the left of a horizontal one, then its out-of-range keys after the last category.
-//! - **Inside bars.** An inside bar is boxed as a boxed inside legend is (`ColorbarHit::backdrop`, a white filled
+//! - **Inside bars.** An inside bar is boxed as a boxed inside legend is (`ColourbarHit::backdrop`, a white filled
 //!   rectangle with a frame, drawn over the artists and beneath the bar). The box encloses the title, the bar, the
 //!   keys and every label; it is `length` × the edge long, centred along the edge, and inset from the edge by one
 //!   margin that is the same on every side. The bar together with its keys is centred in the box, and the bar shrinks
@@ -72,29 +72,31 @@
 //!   drawn, and the compiler warns against its owner rather than failing.
 
 use ironlab_ir::{
-    Aspect, CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKey, ColorScaleKind,
-    ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorbarOrientation,
-    ColorbarTitlePlacement, Colormap, ColormapName, ContinuousColorScale, DiscreteColorScale,
-    FigureSize, IndexedColorScale, InsideColorbar, InsideColorbarSide, Limits, NodeId, OutOfRange,
-    Panel, PanelColorbar, PanelContent, PanelLocation, Text, TickLabels, Ticks, TitleAlign,
-    TrackSize, View3d,
+    Aspect, CategoricalColourScale, Cell, Colour, ColourCategory, ColourScaleKey, ColourScaleKind,
+    ColourScaleLevels, ColourScaleNorm, ColourScaleOutOfRange, ColourbarOrientation,
+    ColourbarTitlePlacement, Colourmap, ColourmapName, ContinuousColourScale, DiscreteColourScale,
+    FigureSize, IndexedColourScale, InsideColourbar, InsideColourbarSide, Limits, NodeId,
+    OutOfRange, Panel, PanelColourbar, PanelContent, PanelLocation, Text, TickLabels, Ticks,
+    TitleAlign, TrackSize, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Point, Rect, Rgba};
-use ironlab_scene::hit::{AxesHitKind, ColorbarHit, ColorbarOwner, LegendOwner};
-use ironlab_scene::maths::colormap::VIRIDIS;
+use ironlab_scene::hit::{AxesHitKind, ColourbarHit, ColourbarOwner, LegendOwner};
+use ironlab_scene::maths::colourmap::VIRIDIS;
 use ironlab_text::FontId;
 
-use crate::common::{Fx, cell, compile_figure, out_of_range, palette_colors, rgb8, rgb8_close, xy};
+use crate::common::{
+    Fx, cell, compile_figure, out_of_range, palette_colours, rgb8, rgb8_close, xy,
+};
 use crate::probe::{
     ImageRect, Leaf, assert_close, axes_hit, from_source, glyph_runs, leaves, panel_rect,
     parse_number, pixel, union,
 };
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
-const GREY: Color = Color::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
+const GREY: Colour = Colour::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0);
 
 /// The default base font size of a figure, in points.
 const FONT_SIZE: f64 = 9.0;
@@ -107,10 +109,10 @@ const EXACT: f64 = 1e-6;
 // ---------------------------------------------------------------------------------------------------------------
 
 /// A continuous scale of viridis with the given limits and the defaults of its kind otherwise.
-fn viridis(limits: Limits) -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale {
+fn viridis(limits: Limits) -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale {
         limits,
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     })
 }
 
@@ -120,30 +122,30 @@ fn manual(min: f64, max: f64) -> Limits {
 }
 
 /// A discrete scale of viridis with the given band edges and the defaults of its kind otherwise.
-fn bands(edges: &[f64]) -> ColorScaleKind {
-    ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Explicit {
+fn bands(edges: &[f64]) -> ColourScaleKind {
+    ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Explicit {
             values: edges.to_vec(),
         },
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     })
 }
 
 /// An indexed scale of the given colours, strict outside them, with the defaults of its kind otherwise.
-fn palette(colors: Vec<Color>) -> ColorScaleKind {
-    ColorScaleKind::Indexed(IndexedColorScale {
-        colors,
-        ..IndexedColorScale::default()
+fn palette(colours: Vec<Colour>) -> ColourScaleKind {
+    ColourScaleKind::Indexed(IndexedColourScale {
+        colours,
+        ..IndexedColourScale::default()
     })
 }
 
 /// A categorical scale of the given colours and plain labels, strict outside them.
-fn categories(entries: &[(Color, &str)]) -> ColorScaleKind {
-    ColorScaleKind::Categorical(CategoricalColorScale {
+fn categories(entries: &[(Colour, &str)]) -> ColourScaleKind {
+    ColourScaleKind::Categorical(CategoricalColourScale {
         categories: entries
             .iter()
-            .map(|&(color, label)| ColorCategory {
-                color,
+            .map(|&(colour, label)| ColourCategory {
+                colour,
                 label: Text::plain(label),
             })
             .collect(),
@@ -152,8 +154,8 @@ fn categories(entries: &[(Color, &str)]) -> ColorScaleKind {
 }
 
 /// An out-of-range category with the given policy whose key is shown with the default label.
-fn keyed(policy: OutOfRange) -> ColorScaleOutOfRange {
-    ColorScaleOutOfRange {
+fn keyed(policy: OutOfRange) -> ColourScaleOutOfRange {
+    ColourScaleOutOfRange {
         policy,
         show_key: true,
         label: None,
@@ -161,40 +163,40 @@ fn keyed(policy: OutOfRange) -> ColorScaleOutOfRange {
 }
 
 /// Adds a colourbar panel of `scale` in `cell` with the given orientation, centred, and returns its identifier.
-fn colorbar_panel(
+fn colourbar_panel(
     fx: &mut Fx,
     cell: Cell,
     scale: NodeId,
-    orientation: ColorbarOrientation,
+    orientation: ColourbarOrientation,
 ) -> NodeId {
     let id = fx.node();
     fx.fig.panels.push(Panel {
         id,
         cell,
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: TitleAlign::Left,
-        content: PanelContent::Colorbar(PanelColorbar {
+        content: PanelContent::Colourbar(PanelColourbar {
             scale,
             orientation,
-            ..PanelColorbar::default()
+            ..PanelColourbar::default()
         }),
     });
     id
 }
 
 /// Returns the colourbar of the colourbar panel with the given identifier for modification.
-fn bar_mut(fx: &mut Fx, id: NodeId) -> &mut PanelColorbar {
+fn bar_mut(fx: &mut Fx, id: NodeId) -> &mut PanelColourbar {
     match &mut fx.panel_mut(id).content {
-        PanelContent::Colorbar(colorbar) => colorbar,
+        PanelContent::Colourbar(colourbar) => colourbar,
         PanelContent::Legend(_) => panic!("panel {id} holds a legend"),
     }
 }
 
 /// Returns the continuous scale with the given identifier for modification.
-fn continuous_mut(fx: &mut Fx, id: NodeId) -> &mut ContinuousColorScale {
+fn continuous_mut(fx: &mut Fx, id: NodeId) -> &mut ContinuousColourScale {
     match &mut fx.scale_mut(id).kind {
-        ColorScaleKind::Continuous(scale) => scale,
+        ColourScaleKind::Continuous(scale) => scale,
         other => panic!("the scale is continuous, found {other:?}"),
     }
 }
@@ -207,7 +209,7 @@ fn column_beside_stack(rows: u32, column: TrackSize) -> (Fx, Vec<NodeId>, NodeId
     fx.fig.layout.rows = rows;
     fx.fig.layout.cols = 2;
     fx.fig.layout.col_weights = vec![TrackSize::Weight(1.0), column];
-    let scale = fx.color_scale(viridis(Limits::Auto));
+    let scale = fx.colour_scale(viridis(Limits::Auto));
     let axes: Vec<NodeId> = (0..rows).map(|row| fx.axes2d(row, 0)).collect();
     for &ax in &axes {
         fx.scalar_image(
@@ -219,11 +221,11 @@ fn column_beside_stack(rows: u32, column: TrackSize) -> (Fx, Vec<NodeId>, NodeId
             |_| {},
         );
     }
-    let panel = colorbar_panel(
+    let panel = colourbar_panel(
         &mut fx,
         cell(0, 1, rows, 1),
         scale,
-        ColorbarOrientation::Vertical,
+        ColourbarOrientation::Vertical,
     );
     (fx, axes, scale, panel)
 }
@@ -237,7 +239,7 @@ fn row_over_fitted_bar() -> (Fx, Vec<NodeId>, NodeId, NodeId) {
     fx.fig.layout.rows = 2;
     fx.fig.layout.cols = 3;
     fx.fig.layout.row_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
-    let scale = fx.color_scale(viridis(manual(0.0, 10.0)));
+    let scale = fx.colour_scale(viridis(manual(0.0, 10.0)));
     let axes: Vec<NodeId> = (0..3).map(|col| fx.axes2d(0, col)).collect();
     for &ax in &axes {
         fx.scalar_image(
@@ -249,11 +251,11 @@ fn row_over_fitted_bar() -> (Fx, Vec<NodeId>, NodeId, NodeId) {
             |_| {},
         );
     }
-    let panel = colorbar_panel(
+    let panel = colourbar_panel(
         &mut fx,
         cell(1, 0, 1, 3),
         scale,
-        ColorbarOrientation::Horizontal,
+        ColourbarOrientation::Horizontal,
     );
     bar_mut(&mut fx, panel).length = Some(1.0);
     (fx, axes, scale, panel)
@@ -261,33 +263,33 @@ fn row_over_fitted_bar() -> (Fx, Vec<NodeId>, NodeId, NodeId) {
 
 /// A figure of one 2D axes beside a fitted column holding a vertical colourbar panel of a scale of the given kind
 /// that no artist names, so that the bar shows the scale alone. Returns the figure, the axes, the scale and the panel.
-fn lone_bar(kind: ColorScaleKind) -> (Fx, NodeId, NodeId, NodeId) {
+fn lone_bar(kind: ColourScaleKind) -> (Fx, NodeId, NodeId, NodeId) {
     let mut fx = Fx::new();
     fx.fig.layout.cols = 2;
     fx.fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(kind);
-    let panel = colorbar_panel(
+    let scale = fx.colour_scale(kind);
+    let panel = colourbar_panel(
         &mut fx,
         cell(0, 1, 1, 1),
         scale,
-        ColorbarOrientation::Vertical,
+        ColourbarOrientation::Vertical,
     );
     (fx, ax, scale, panel)
 }
 
 /// As [`lone_bar`], horizontal, in a fitted row under the axes.
-fn lone_horizontal_bar(kind: ColorScaleKind) -> (Fx, NodeId, NodeId, NodeId) {
+fn lone_horizontal_bar(kind: ColourScaleKind) -> (Fx, NodeId, NodeId, NodeId) {
     let mut fx = Fx::new();
     fx.fig.layout.rows = 2;
     fx.fig.layout.row_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(kind);
-    let panel = colorbar_panel(
+    let scale = fx.colour_scale(kind);
+    let panel = colourbar_panel(
         &mut fx,
         cell(1, 0, 1, 1),
         scale,
-        ColorbarOrientation::Horizontal,
+        ColourbarOrientation::Horizontal,
     );
     (fx, ax, scale, panel)
 }
@@ -295,10 +297,10 @@ fn lone_horizontal_bar(kind: ColorScaleKind) -> (Fx, NodeId, NodeId, NodeId) {
 /// A figure of one 2D axes holding an image of the values 0 to 10 through a continuous scale of viridis with
 /// manual limits [0, 10], and an inside colourbar of that scale on the given side with the given length. Returns
 /// the figure, the axes, the image and the scale.
-fn inside_bar(side: InsideColorbarSide, length: f64) -> (Fx, NodeId, NodeId, NodeId) {
+fn inside_bar(side: InsideColourbarSide, length: f64) -> (Fx, NodeId, NodeId, NodeId) {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(viridis(manual(0.0, 10.0)));
+    let scale = fx.colour_scale(viridis(manual(0.0, 10.0)));
     let image = fx.scalar_image(
         ax,
         vec![2, 2],
@@ -307,11 +309,11 @@ fn inside_bar(side: InsideColorbarSide, length: f64) -> (Fx, NodeId, NodeId, Nod
         xy(None, None),
         |_| {},
     );
-    fx.ax(ax).colorbar = Some(InsideColorbar {
+    fx.ax(ax).colourbar = Some(InsideColourbar {
         scale,
         side,
         length,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     (fx, ax, image, scale)
 }
@@ -322,10 +324,10 @@ fn inside_bar(side: InsideColorbarSide, length: f64) -> (Fx, NodeId, NodeId, Nod
 
 /// Returns the hit geometry of the colourbar of an owner.
 #[track_caller]
-fn bar_of(scene: &Scene, owner: ColorbarOwner) -> ColorbarHit {
-    let found: Vec<&ColorbarHit> = scene
+fn bar_of(scene: &Scene, owner: ColourbarOwner) -> ColourbarHit {
+    let found: Vec<&ColourbarHit> = scene
         .hit_map
-        .colorbars
+        .colourbars
         .iter()
         .filter(|c| c.owner == owner)
         .collect();
@@ -333,17 +335,17 @@ fn bar_of(scene: &Scene, owner: ColorbarOwner) -> ColorbarHit {
         found.len(),
         1,
         "one colourbar of {owner:?}: {:?}",
-        scene.hit_map.colorbars
+        scene.hit_map.colourbars
     );
     found[0].clone()
 }
 
 /// Returns the leaves that a colourbar's owner drew, in paint order.
-fn owned(scene: &Scene, owner: ColorbarOwner) -> Vec<Leaf> {
+fn owned(scene: &Scene, owner: ColourbarOwner) -> Vec<Leaf> {
     let id = match owner {
-        ColorbarOwner::Panel(id)
-        | ColorbarOwner::Axes(id)
-        | ColorbarOwner::Legend(LegendOwner::Panel(id) | LegendOwner::Axes(id)) => id,
+        ColourbarOwner::Panel(id)
+        | ColourbarOwner::Axes(id)
+        | ColourbarOwner::Legend(LegendOwner::Panel(id) | LegendOwner::Axes(id)) => id,
     };
     from_source(&leaves(scene), id)
 }
@@ -375,7 +377,7 @@ fn filled_rects(leaves: &[Leaf]) -> Vec<(Rect, Rgba)> {
     leaves
         .iter()
         .filter(|l| is_rectangle(l))
-        .filter_map(|l| Some((l.bbox()?, l.path()?.fill?.color)))
+        .filter_map(|l| Some((l.bbox()?, l.path()?.fill?.colour)))
         .collect()
 }
 
@@ -384,7 +386,7 @@ fn stroked_rects(leaves: &[Leaf]) -> Vec<(Rect, Rgba)> {
     leaves
         .iter()
         .filter(|l| is_rectangle(l))
-        .filter_map(|l| Some((l.bbox()?, l.path()?.stroke.as_ref()?.color)))
+        .filter_map(|l| Some((l.bbox()?, l.path()?.stroke.as_ref()?.colour)))
         .collect()
 }
 
@@ -429,11 +431,13 @@ fn bar_image(leaves: &[Leaf], bar: Rect) -> Leaf {
 
 /// Returns the point on the centre line of a bar at the fraction `f` of its length from its low end: the bottom of a
 /// vertical bar and the left of a horizontal one.
-fn along(hit: &ColorbarHit, f: f64) -> Point {
+fn along(hit: &ColourbarHit, f: f64) -> Point {
     let b = hit.bar;
     match hit.orientation {
-        ColorbarOrientation::Vertical => Point::new(b.x + b.width / 2.0, b.bottom() - f * b.height),
-        ColorbarOrientation::Horizontal => Point::new(b.x + f * b.width, b.y + b.height / 2.0),
+        ColourbarOrientation::Vertical => {
+            Point::new(b.x + b.width / 2.0, b.bottom() - f * b.height)
+        }
+        ColourbarOrientation::Horizontal => Point::new(b.x + f * b.width, b.y + b.height / 2.0),
     }
 }
 
@@ -461,14 +465,14 @@ fn samples_along(leaf: &Leaf) -> u32 {
 }
 
 /// Returns the colour of the bar at the fraction `f` of its length from its low end.
-fn bar_colour(leaves: &[Leaf], hit: &ColorbarHit, f: f64) -> [u8; 3] {
+fn bar_colour(leaves: &[Leaf], hit: &ColourbarHit, f: f64) -> [u8; 3] {
     let px = sample_at(&bar_image(leaves, hit.bar), along(hit, f));
     [px[0], px[1], px[2]]
 }
 
 /// The 8-bit colour of an IR colour.
-fn rgb8_of(color: Color) -> [u8; 3] {
-    [color.r, color.g, color.b].map(|c| (c * 255.0).round() as u8)
+fn rgb8_of(colour: Colour) -> [u8; 3] {
+    [colour.r, colour.g, colour.b].map(|c| (c * 255.0).round() as u8)
 }
 
 /// The 8-bit colour of the viridis table entry at the normalised position `t`.
@@ -530,49 +534,49 @@ fn label_box(leaves: &[Leaf], text: &str) -> Rect {
 
 /// Returns the coordinate along the bar of the centre of a box: its centre y for a vertical bar, x for a
 /// horizontal one.
-fn centre_along(orientation: ColorbarOrientation, b: Rect) -> f64 {
+fn centre_along(orientation: ColourbarOrientation, b: Rect) -> f64 {
     match orientation {
-        ColorbarOrientation::Vertical => b.y + b.height / 2.0,
-        ColorbarOrientation::Horizontal => b.x + b.width / 2.0,
+        ColourbarOrientation::Vertical => b.y + b.height / 2.0,
+        ColourbarOrientation::Horizontal => b.x + b.width / 2.0,
     }
 }
 
 /// Returns half the extent of a box along a bar, which is how far a label centred on its tick may lie from it.
-fn half_size_along(orientation: ColorbarOrientation, b: Rect) -> f64 {
+fn half_size_along(orientation: ColourbarOrientation, b: Rect) -> f64 {
     match orientation {
-        ColorbarOrientation::Vertical => b.height / 2.0,
-        ColorbarOrientation::Horizontal => b.width / 2.0,
+        ColourbarOrientation::Vertical => b.height / 2.0,
+        ColourbarOrientation::Horizontal => b.width / 2.0,
     }
 }
 
 /// Returns the coordinate along a bar of the value `v` on a linear bar from `min` to `max`.
-fn place(hit: &ColorbarHit, v: f64, min: f64, max: f64) -> f64 {
+fn place(hit: &ColourbarHit, v: f64, min: f64, max: f64) -> f64 {
     let f = (v - min) / (max - min);
     let p = along(hit, f);
     match hit.orientation {
-        ColorbarOrientation::Vertical => p.y,
-        ColorbarOrientation::Horizontal => p.x,
+        ColourbarOrientation::Vertical => p.y,
+        ColourbarOrientation::Horizontal => p.x,
     }
 }
 
 /// Returns the thickness of a bar: its extent across its length.
-fn thickness(hit: &ColorbarHit) -> f64 {
+fn thickness(hit: &ColourbarHit) -> f64 {
     match hit.orientation {
-        ColorbarOrientation::Vertical => hit.bar.width,
-        ColorbarOrientation::Horizontal => hit.bar.height,
+        ColourbarOrientation::Vertical => hit.bar.width,
+        ColourbarOrientation::Horizontal => hit.bar.height,
     }
 }
 
 /// Returns the length of a bar.
-fn length(hit: &ColorbarHit) -> f64 {
+fn length(hit: &ColourbarHit) -> f64 {
     match hit.orientation {
-        ColorbarOrientation::Vertical => hit.bar.height,
-        ColorbarOrientation::Horizontal => hit.bar.width,
+        ColourbarOrientation::Vertical => hit.bar.height,
+        ColourbarOrientation::Horizontal => hit.bar.width,
     }
 }
 
 /// Returns the rectangle of the key of the given category, if one is drawn.
-fn key_rect(hit: &ColorbarHit, key: ColorScaleKey) -> Option<Rect> {
+fn key_rect(hit: &ColourbarHit, key: ColourScaleKey) -> Option<Rect> {
     hit.keys.iter().find(|k| k.key == key).map(|k| k.rect)
 }
 
@@ -601,9 +605,9 @@ fn a_vertical_bar_spanning_two_rows_is_as_long_as_the_span_of_their_plot_boxes()
     fx.ax(axes[0]).title = Some(Text::plain("Upper"));
     fx.ax(axes[1]).x.label = Some(Text::plain("Time (s)"));
     let scene = compile_figure(&fx.build());
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel));
     assert_eq!(bar.scale, scale);
-    assert_eq!(bar.orientation, ColorbarOrientation::Vertical);
+    assert_eq!(bar.orientation, ColourbarOrientation::Vertical);
     let top = axes_hit(&scene, axes[0]).plot_rect;
     let bottom = axes_hit(&scene, axes[1]).plot_rect;
     assert_close(bar.bar.y, top.y, EXACT);
@@ -622,8 +626,8 @@ fn a_horizontal_bar_under_a_row_of_three_axes_is_as_long_as_the_span_of_their_pl
     // A y label widens the left margin of the first column only, so the span is not the row inset by equal margins.
     fx.ax(axes[0]).y.label = Some(Text::plain("Depth (m)"));
     let scene = compile_figure(&fx.build());
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
-    assert_eq!(bar.orientation, ColorbarOrientation::Horizontal);
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel));
+    assert_eq!(bar.orientation, ColourbarOrientation::Horizontal);
     let left = axes_hit(&scene, axes[0]).plot_rect;
     let right = axes_hit(&scene, axes[2]).plot_rect;
     assert_close(bar.bar.x, left.x, EXACT);
@@ -641,7 +645,7 @@ fn a_bar_under_an_axes_spanning_more_columns_stays_within_its_own_columns() {
     fx.fig.layout.rows = 2;
     fx.fig.layout.cols = 2;
     fx.fig.layout.row_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
-    let scale = fx.color_scale(viridis(manual(0.0, 10.0)));
+    let scale = fx.colour_scale(viridis(manual(0.0, 10.0)));
     let ax = fx.axes2d(0, 0);
     fx.ax(ax).cell = cell(0, 0, 1, 2);
     fx.scalar_image(
@@ -654,16 +658,16 @@ fn a_bar_under_an_axes_spanning_more_columns_stays_within_its_own_columns() {
     );
     let legend = fx.panel(cell(1, 0, 1, 1));
     fx.legend_in(ax, legend);
-    let panel = colorbar_panel(
+    let panel = colourbar_panel(
         &mut fx,
         cell(1, 1, 1, 1),
         scale,
-        ColorbarOrientation::Horizontal,
+        ColourbarOrientation::Horizontal,
     );
     // The full length, so that the bar would reach the end of the plot box if nothing held it within its columns.
     bar_mut(&mut fx, panel).length = Some(1.0);
     let scene = compile_figure(&fx.build());
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel)).bar;
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel)).bar;
     let area = panel_rect(&scene, panel);
     let legend_area = panel_rect(&scene, legend);
     let plot = axes_hit(&scene, ax).plot_rect;
@@ -699,7 +703,7 @@ fn equal_aspect_beside_bar(
         width_mm,
         height_mm,
     };
-    let scale = fx.color_scale(viridis(manual(0.0, 10.0)));
+    let scale = fx.colour_scale(viridis(manual(0.0, 10.0)));
     let tracks = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     let axes: Vec<NodeId> = if vertical {
         fx.fig.layout.rows = count;
@@ -717,11 +721,11 @@ fn equal_aspect_beside_bar(
         fx.ax(ax).aspect = Aspect::Equal;
     }
     let (cell, orientation) = if vertical {
-        (cell(0, 1, count, 1), ColorbarOrientation::Vertical)
+        (cell(0, 1, count, 1), ColourbarOrientation::Vertical)
     } else {
-        (cell(1, 0, 1, count), ColorbarOrientation::Horizontal)
+        (cell(1, 0, 1, count), ColourbarOrientation::Horizontal)
     };
-    let panel = colorbar_panel(&mut fx, cell, scale, orientation);
+    let panel = colourbar_panel(&mut fx, cell, scale, orientation);
     bar_mut(&mut fx, panel).length = Some(1.0);
     (fx, axes, panel)
 }
@@ -733,7 +737,7 @@ fn equal_aspect_beside_bar(
 fn a_horizontal_bar_under_equal_aspect_plots_spans_their_drawn_boxes() {
     let (fx, axes, panel) = equal_aspect_beside_bar(3, false, (1.0, 10.0), (160.0, 200.0));
     let scene = compile_figure(&fx.build());
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel));
     let left = axes_hit(&scene, axes[0]).plot_rect;
     let right = axes_hit(&scene, axes[2]).plot_rect;
     // The aspect did shrink the boxes, or the test would not tell the boxes from the areas.
@@ -749,7 +753,7 @@ fn a_horizontal_bar_under_equal_aspect_plots_spans_their_drawn_boxes() {
 fn a_vertical_bar_beside_equal_aspect_plots_spans_their_drawn_boxes() {
     let (fx, axes, panel) = equal_aspect_beside_bar(2, true, (10.0, 1.0), (200.0, 120.0));
     let scene = compile_figure(&fx.build());
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel));
     let top = axes_hit(&scene, axes[0]).plot_rect;
     let bottom = axes_hit(&scene, axes[1]).plot_rect;
     assert!(bottom.bottom() - top.y < panel_rect(&scene, panel).height - 1.0);
@@ -766,15 +770,15 @@ fn the_thickness_of_a_bar_follows_the_font_size_and_not_the_space_of_its_cell() 
     let thick = |column: TrackSize, font_size: f64| {
         let (mut fx, axes, scale, panel) = column_beside_stack(1, column);
         fx.fig.font_size_pt = font_size;
-        fx.ax(axes[0]).colorbar = Some(InsideColorbar {
+        fx.ax(axes[0]).colourbar = Some(InsideColourbar {
             scale,
-            side: InsideColorbarSide::South,
+            side: InsideColourbarSide::South,
             length: 0.8,
-            ..InsideColorbar::default()
+            ..InsideColourbar::default()
         });
         let scene = compile_figure(&fx.build());
-        let in_panel = thickness(&bar_of(&scene, ColorbarOwner::Panel(panel)));
-        let inside = thickness(&bar_of(&scene, ColorbarOwner::Axes(axes[0])));
+        let in_panel = thickness(&bar_of(&scene, ColourbarOwner::Panel(panel)));
+        let inside = thickness(&bar_of(&scene, ColourbarOwner::Axes(axes[0])));
         assert_close(inside, in_panel, EXACT);
         in_panel
     };
@@ -790,8 +794,8 @@ fn the_thickness_of_a_bar_follows_the_font_size_and_not_the_space_of_its_cell() 
 fn a_panel_bar_has_its_tick_labels_on_the_right_or_below() {
     let (fx, _, _, panel) = column_beside_stack(1, TrackSize::Fit);
     let scene = compile_figure(&fx.build());
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let ticks = numeric(&owned(&scene, ColorbarOwner::Panel(panel)));
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let ticks = numeric(&owned(&scene, ColourbarOwner::Panel(panel)));
     assert!(ticks.len() >= 2, "{ticks:?}");
     for (_, b, text) in &ticks {
         assert!(b.x >= bar.bar.right(), "{text} lies right of the bar");
@@ -799,8 +803,8 @@ fn a_panel_bar_has_its_tick_labels_on_the_right_or_below() {
 
     let (fx, _, _, panel) = row_over_fitted_bar();
     let scene = compile_figure(&fx.build());
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let ticks = numeric(&owned(&scene, ColorbarOwner::Panel(panel)));
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let ticks = numeric(&owned(&scene, ColourbarOwner::Panel(panel)));
     assert!(ticks.len() >= 2, "{ticks:?}");
     for (_, b, text) in &ticks {
         assert!(b.y >= bar.bar.bottom(), "{text} lies below the bar");
@@ -820,7 +824,7 @@ fn longer_tick_labels_widen_a_fitted_column_by_their_extra_width() {
         c.tick_labels = TickLabels::Text(vec![Text::plain(first), Text::plain("b")]);
         let scene = compile_figure(&fx.build());
         let area = panel_rect(&scene, panel);
-        let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+        let drawn = owned(&scene, ColourbarOwner::Panel(panel));
         for label in labels(&drawn) {
             assert!(
                 label.bbox.x >= area.x - EXACT && label.bbox.right() <= area.right() + 0.5,
@@ -849,8 +853,8 @@ fn a_fitted_row_holds_a_horizontal_bar_and_its_labels_without_slack() {
     let (fx, _, _, panel) = row_over_fitted_bar();
     let scene = compile_figure(&fx.build());
     let area = panel_rect(&scene, panel);
-    let bar = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let bar = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let lowest = labels(&drawn)
         .iter()
         .map(|l| l.bbox.bottom())
@@ -874,10 +878,10 @@ fn a_panel_bar_is_placed_across_its_track_by_the_alignment_of_the_panel() {
         let (mut fx, _, _, panel) = column_beside_stack(1, TrackSize::Weight(1.0));
         fx.panel_mut(panel).align = align;
         let scene = compile_figure(&fx.build());
-        bar_of(&scene, ColorbarOwner::Panel(panel)).bar
+        bar_of(&scene, ColourbarOwner::Panel(panel)).bar
     };
     let west = place_with(PanelLocation::West);
-    let centre = place_with(PanelLocation::Center);
+    let centre = place_with(PanelLocation::Centre);
     let east = place_with(PanelLocation::East);
     assert!(
         west.x < centre.x && centre.x < east.x,
@@ -899,12 +903,12 @@ fn the_scale_title_placed_above_is_a_heading_above_the_bar() {
         } else {
             row_over_fitted_bar()
         };
-        bar_mut(&mut fx, panel).title_placement = ColorbarTitlePlacement::Above;
+        bar_mut(&mut fx, panel).title_placement = ColourbarTitlePlacement::Above;
         let untitled = compile_figure(&fx.fig.clone());
         fx.scale_mut(scale).title = Some(Text::plain("Speed (m/s)"));
         let scene = compile_figure(&fx.build());
-        let bar = bar_of(&scene, ColorbarOwner::Panel(panel)).bar;
-        let title = label_box(&owned(&scene, ColorbarOwner::Panel(panel)), "Speed (m/s)");
+        let bar = bar_of(&scene, ColourbarOwner::Panel(panel)).bar;
+        let title = label_box(&owned(&scene, ColourbarOwner::Panel(panel)), "Speed (m/s)");
         assert!(
             title.bottom() <= bar.y + EXACT,
             "vertical {vertical}: {title:?} above {bar:?}"
@@ -949,13 +953,13 @@ fn the_scale_title_placed_above_is_a_heading_above_the_bar() {
 #[test]
 fn a_title_above_wider_than_the_bar_widens_its_fitted_column_to_hold_it() {
     let (mut fx, _, scale, panel) = column_beside_stack(1, TrackSize::Fit);
-    bar_mut(&mut fx, panel).title_placement = ColorbarTitlePlacement::Above;
+    bar_mut(&mut fx, panel).title_placement = ColourbarTitlePlacement::Above;
     let narrow = panel_rect(&compile_figure(&fx.fig.clone()), panel).width;
     fx.scale_mut(scale).title = Some(Text::plain("Velocity magnitude in the wake (m/s)"));
     let scene = compile_figure(&fx.build());
     let area = panel_rect(&scene, panel);
     let title = label_box(
-        &owned(&scene, ColorbarOwner::Panel(panel)),
+        &owned(&scene, ColourbarOwner::Panel(panel)),
         "Velocity magnitude in the wake (m/s)",
     );
     assert!(area.width > narrow);
@@ -975,8 +979,8 @@ fn a_title_above_wider_than_the_bar_widens_its_fitted_column_to_hold_it() {
 fn a_continuous_bar_is_an_image_of_the_scale_from_its_lower_to_its_upper_limit() {
     let (fx, _, _, panel) = lone_bar(viridis(manual(0.0, 10.0)));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let image = bar_image(&drawn, hit.bar);
     assert!(samples_along(&image) >= 256);
     for f in [0.01, 0.25, 0.5, 0.75, 0.99] {
@@ -991,18 +995,18 @@ fn a_continuous_bar_is_an_image_of_the_scale_from_its_lower_to_its_upper_limit()
     assert!(hit.entries.is_empty());
 }
 
-// Why: a reader looks for low values at the bottom (or the left) of every bar; reversing the colormap reverses the
+// Why: a reader looks for low values at the bottom (or the left) of every bar; reversing the colourmap reverses the
 // colours along the bar, never the direction of the values, which the ticks still show increasing upwards.
 #[test]
-fn a_reversed_colormap_reverses_the_colours_but_low_values_stay_at_the_bottom_and_left() {
+fn a_reversed_colourmap_reverses_the_colours_but_low_values_stay_at_the_bottom_and_left() {
     for vertical in [true, false] {
-        let kind = ColorScaleKind::Continuous(ContinuousColorScale {
-            colormap: Colormap::Named {
-                name: ColormapName::Viridis,
+        let kind = ColourScaleKind::Continuous(ContinuousColourScale {
+            colourmap: Colourmap::Named {
+                name: ColourmapName::Viridis,
                 reverse: true,
             },
             limits: manual(0.0, 10.0),
-            ..ContinuousColorScale::default()
+            ..ContinuousColourScale::default()
         });
         let (fx, _, _, panel) = if vertical {
             lone_bar(kind)
@@ -1010,8 +1014,8 @@ fn a_reversed_colormap_reverses_the_colours_but_low_values_stay_at_the_bottom_an
             lone_horizontal_bar(kind)
         };
         let scene = compile_figure(&fx.build());
-        let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-        let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+        let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+        let drawn = owned(&scene, ColourbarOwner::Panel(panel));
         assert_rgb(
             bar_colour(&drawn, &hit, 0.005),
             VIRIDIS[255],
@@ -1045,8 +1049,8 @@ fn a_reversed_colormap_reverses_the_colours_but_low_values_stay_at_the_bottom_an
 fn continuous_tick_labels_sit_at_the_places_of_their_values() {
     let (fx, _, _, panel) = lone_bar(viridis(manual(0.0, 10.0)));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let ticks = numeric(&owned(&scene, ColorbarOwner::Panel(panel)));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let ticks = numeric(&owned(&scene, ColourbarOwner::Panel(panel)));
     assert!(ticks.len() >= 3, "{ticks:?}");
     let values: Vec<f64> = ticks.iter().map(|t| t.0).collect();
     assert!(
@@ -1070,8 +1074,8 @@ fn each_tick_mark_leaves_the_bar_on_its_label_side_at_the_place_of_its_value() {
     let (mut fx, _, scale, panel) = lone_bar(viridis(manual(0.0, 10.0)));
     continuous_mut(&mut fx, scale).ticks = Ticks::Values(vec![0.0, 2.5, 10.0]);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let segments: Vec<(Point, Point)> = drawn.iter().flat_map(Leaf::line_segments).collect();
     for v in [0.0, 2.5, 10.0] {
         let y = place(&hit, v, 0.0, 10.0);
@@ -1095,15 +1099,15 @@ fn each_tick_mark_leaves_the_bar_on_its_label_side_at_the_place_of_its_value() {
 // middle of the limits.
 #[test]
 fn a_log_bar_places_decades_evenly_and_labels_them_as_decades() {
-    let kind = ColorScaleKind::Continuous(ContinuousColorScale {
+    let kind = ColourScaleKind::Continuous(ContinuousColourScale {
         limits: manual(1.0, 1000.0),
-        norm: ColorScaleNorm::Log,
-        ..ContinuousColorScale::default()
+        norm: ColourScaleNorm::Log,
+        ..ContinuousColourScale::default()
     });
     let (fx, _, _, panel) = lone_bar(kind);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let math: Vec<(Rect, String, f64)> = glyph_runs(&drawn)
         .into_iter()
         .filter(|(_, g)| g.font == FontId::Math)
@@ -1166,8 +1170,8 @@ fn a_log_bar_places_decades_evenly_and_labels_them_as_decades() {
 fn a_discrete_bar_draws_uneven_bands_in_proportion_to_their_values() {
     let (fx, _, _, panel) = lone_bar(bands(&[0.0, 1.0, 5.0, 10.0]));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let mut inside: Vec<(Rect, Rgba)> = filled_rects(&drawn)
         .into_iter()
         .filter(|(r, _)| {
@@ -1213,23 +1217,23 @@ fn a_discrete_bar_draws_uneven_bands_in_proportion_to_their_values() {
 // colour, from entry 0 at the bottom.
 #[test]
 fn an_indexed_bar_draws_one_adjoining_block_per_entry_from_the_bottom() {
-    let colors = vec![RED, GREEN, BLUE, GREY];
-    let (fx, _, _, panel) = lone_bar(palette(colors.clone()));
+    let colours = vec![RED, GREEN, BLUE, GREY];
+    let (fx, _, _, panel) = lone_bar(palette(colours.clone()));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
-    for (i, color) in colors.iter().enumerate() {
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
+    for (i, colour) in colours.iter().enumerate() {
         let f = (i as f64 + 0.5) / 4.0;
-        assert_eq!(bar_colour(&drawn, &hit, f), rgb8_of(*color), "entry {i}");
+        assert_eq!(bar_colour(&drawn, &hit, f), rgb8_of(*colour), "entry {i}");
         // The blocks adjoin: just inside each end of a block is still that block.
         assert_eq!(
             bar_colour(&drawn, &hit, (i as f64 + 0.02) / 4.0),
-            rgb8_of(*color),
+            rgb8_of(*colour),
             "entry {i}, low end"
         );
         assert_eq!(
             bar_colour(&drawn, &hit, (i as f64 + 0.98) / 4.0),
-            rgb8_of(*color),
+            rgb8_of(*colour),
             "entry {i}, high end"
         );
     }
@@ -1241,8 +1245,8 @@ fn an_indexed_bar_draws_one_adjoining_block_per_entry_from_the_bottom() {
 fn indexed_ticks_sit_at_entry_centres_and_automatic_ticks_are_whole_numbers() {
     let (mut fx, _, scale, panel) = lone_bar(palette(vec![RED, GREEN, BLUE, GREY]));
     let scene = compile_figure(&fx.fig.clone());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let ticks = numeric(&owned(&scene, ColorbarOwner::Panel(panel)));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let ticks = numeric(&owned(&scene, ColourbarOwner::Panel(panel)));
     assert!(ticks.len() >= 2, "{ticks:?}");
     for (v, b, text) in &ticks {
         assert_eq!(v.fract(), 0.0, "{text} is a whole number");
@@ -1255,13 +1259,13 @@ fn indexed_ticks_sit_at_entry_centres_and_automatic_ticks_are_whole_numbers() {
     }
 
     // Labelled entries, as an indexed image's few named classes are.
-    if let ColorScaleKind::Indexed(indexed) = &mut fx.scale_mut(scale).kind {
+    if let ColourScaleKind::Indexed(indexed) = &mut fx.scale_mut(scale).kind {
         indexed.ticks = Ticks::Values(vec![0.0, 2.0]);
         indexed.tick_labels = TickLabels::Text(vec![Text::plain("water"), Text::plain("ice")]);
     }
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     for (text, entry) in [("water", 0.0), ("ice", 2.0)] {
         let b = label_box(&drawn, text);
         assert_close(
@@ -1277,10 +1281,10 @@ fn indexed_ticks_sit_at_entry_centres_and_automatic_ticks_are_whole_numbers() {
 // numbers within the palette, few enough to read.
 #[test]
 fn a_256_entry_palette_is_ticked_at_a_few_whole_numbers() {
-    let (fx, _, _, panel) = lone_bar(palette(palette_colors(&VIRIDIS)));
+    let (fx, _, _, panel) = lone_bar(palette(palette_colours(&VIRIDIS)));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     assert!(samples_along(&bar_image(&drawn, hit.bar)) >= 256);
     let ticks = numeric(&drawn);
     assert!((3..=12).contains(&ticks.len()), "{ticks:?}");
@@ -1298,8 +1302,8 @@ fn a_256_entry_palette_is_ticked_at_a_few_whole_numbers() {
 fn a_one_entry_palette_is_one_block_labelled_zero_at_its_centre() {
     let (fx, _, _, panel) = lone_bar(palette(vec![GREEN]));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     for f in [0.02, 0.5, 0.98] {
         assert_eq!(bar_colour(&drawn, &hit, f), rgb8_of(GREEN));
     }
@@ -1323,8 +1327,8 @@ fn a_categorical_scale_is_drawn_as_separate_outlined_squares_each_with_its_label
     let entries = [(RED, "alpha"), (GREEN, "beta"), (BLUE, "gamma")];
     let (fx, _, _, panel) = lone_bar(categories(&entries));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     assert!(
         drawn.iter().all(|l| l.image().is_none()),
         "no bar of adjoining blocks"
@@ -1332,12 +1336,12 @@ fn a_categorical_scale_is_drawn_as_separate_outlined_squares_each_with_its_label
     assert_eq!(hit.entries.len(), 3);
     let side = hit.entries[0].width;
     let mut gaps = Vec::new();
-    for (k, (square, (color, label))) in hit.entries.iter().zip(entries).enumerate() {
+    for (k, (square, (colour, label))) in hit.entries.iter().zip(entries).enumerate() {
         assert_close(square.width, side, EXACT);
         assert_close(square.height, side, EXACT);
         assert_close(square.x, hit.entries[0].x, EXACT);
         let fill = fill_at(&drawn, *square).unwrap_or_else(|| panic!("category {k} is filled"));
-        assert_eq!(rgb8(fill), rgb8_of(color), "category {k}");
+        assert_eq!(rgb8(fill), rgb8_of(colour), "category {k}");
         assert!(
             outlined_in_black(&drawn, *square),
             "category {k} has a black outline"
@@ -1364,8 +1368,8 @@ fn a_horizontal_categorical_key_reads_from_left_to_right_with_labels_below() {
     let entries = [(RED, "alpha"), (GREEN, "beta"), (BLUE, "gamma")];
     let (fx, _, _, panel) = lone_horizontal_bar(categories(&entries));
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     for (k, (square, (_, label))) in hit.entries.iter().zip(entries).enumerate() {
         if k > 0 {
             assert!(
@@ -1393,7 +1397,7 @@ fn keyed_bar() -> (Fx, Vec<NodeId>, NodeId, NodeId) {
     let (mut fx, axes, scale, panel) = column_beside_stack(2, TrackSize::Fit);
     let c = continuous_mut(&mut fx, scale);
     c.limits = manual(0.0, 1.0);
-    c.above = keyed(OutOfRange::Rgba { color: RED });
+    c.above = keyed(OutOfRange::Rgba { colour: RED });
     c.below = keyed(OutOfRange::Clamp);
     fx.scale_mut(scale).non_finite = keyed(OutOfRange::Transparent);
     (fx, axes, scale, panel)
@@ -1407,11 +1411,11 @@ fn keyed_bar() -> (Fx, Vec<NodeId>, NodeId, NodeId) {
 fn keys_of_a_vertical_bar_lie_above_and_below_it_with_equal_margins_within_the_span() {
     let (fx, axes, _, panel) = keyed_bar();
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let above = key_rect(&hit, ColorScaleKey::Above).expect("the above key is drawn");
-    let below = key_rect(&hit, ColorScaleKey::Below).expect("the below key is drawn");
-    let nan = key_rect(&hit, ColorScaleKey::NonFinite).expect("the non-finite key is drawn");
-    assert!(key_rect(&hit, ColorScaleKey::Outside).is_none());
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let above = key_rect(&hit, ColourScaleKey::Above).expect("the above key is drawn");
+    let below = key_rect(&hit, ColourScaleKey::Below).expect("the below key is drawn");
+    let nan = key_rect(&hit, ColourScaleKey::NonFinite).expect("the non-finite key is drawn");
+    assert!(key_rect(&hit, ColourScaleKey::Outside).is_none());
     let t = thickness(&hit);
     for (name, key) in [("above", above), ("below", below), ("non-finite", nan)] {
         assert!(
@@ -1443,12 +1447,12 @@ fn keys_of_a_horizontal_bar_lie_non_finite_below_bar_above_from_the_left() {
     let c = continuous_mut(&mut fx, scale);
     c.above = keyed(OutOfRange::Clamp);
     c.below = keyed(OutOfRange::Clamp);
-    fx.scale_mut(scale).non_finite = keyed(OutOfRange::Rgba { color: GREY });
+    fx.scale_mut(scale).non_finite = keyed(OutOfRange::Rgba { colour: GREY });
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let nan = key_rect(&hit, ColorScaleKey::NonFinite).unwrap();
-    let below = key_rect(&hit, ColorScaleKey::Below).unwrap();
-    let above = key_rect(&hit, ColorScaleKey::Above).unwrap();
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let nan = key_rect(&hit, ColourScaleKey::NonFinite).unwrap();
+    let below = key_rect(&hit, ColourScaleKey::Below).unwrap();
+    let above = key_rect(&hit, ColourScaleKey::Above).unwrap();
     let margin = below.x - nan.right();
     assert!(margin > 0.0);
     assert_close(hit.bar.x - below.right(), margin, EXACT);
@@ -1465,7 +1469,7 @@ fn keys_of_a_horizontal_bar_lie_non_finite_below_bar_above_from_the_left() {
         EXACT,
     );
     // The labels of the keys are below them, on the label side of the bar.
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let b = label_box(&drawn, "NaN / Inf");
     assert!(b.y >= nan.bottom());
 }
@@ -1476,7 +1480,7 @@ fn keys_of_a_horizontal_bar_lie_non_finite_below_bar_above_from_the_left() {
 #[test]
 fn each_policy_fills_its_key_with_what_is_painted() {
     for (policy, expected) in [
-        (OutOfRange::Rgba { color: RED }, Some(rgb8_of(RED))),
+        (OutOfRange::Rgba { colour: RED }, Some(rgb8_of(RED))),
         (OutOfRange::Clamp, Some(VIRIDIS[255])),
         (OutOfRange::Transparent, None),
         (OutOfRange::Strict, None),
@@ -1484,9 +1488,9 @@ fn each_policy_fills_its_key_with_what_is_painted() {
         let (mut fx, _, scale, panel) = lone_bar(viridis(manual(0.0, 1.0)));
         continuous_mut(&mut fx, scale).above = keyed(policy);
         let scene = compile_figure(&fx.build());
-        let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-        let drawn = owned(&scene, ColorbarOwner::Panel(panel));
-        let key = key_rect(&hit, ColorScaleKey::Above)
+        let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+        let drawn = owned(&scene, ColourbarOwner::Panel(panel));
+        let key = key_rect(&hit, ColourScaleKey::Above)
             .unwrap_or_else(|| panic!("{policy:?}: a key is drawn"));
         match expected {
             Some(colour) => {
@@ -1515,12 +1519,12 @@ fn each_policy_fills_its_key_with_what_is_painted() {
     continuous_mut(&mut fx, scale).below = keyed(OutOfRange::Clamp);
     let scene = compile_figure(&fx.build());
     let key = key_rect(
-        &bar_of(&scene, ColorbarOwner::Panel(panel)),
-        ColorScaleKey::Below,
+        &bar_of(&scene, ColourbarOwner::Panel(panel)),
+        ColourScaleKey::Below,
     )
     .unwrap();
-    let fill =
-        fill_at(&owned(&scene, ColorbarOwner::Panel(panel)), key).expect("the below key is filled");
+    let fill = fill_at(&owned(&scene, ColourbarOwner::Panel(panel)), key)
+        .expect("the below key is filled");
     assert!(rgb8_close(rgb8(fill), VIRIDIS[0]));
 }
 
@@ -1531,8 +1535,8 @@ fn each_policy_fills_its_key_with_what_is_painted() {
 fn default_key_labels_use_strict_inequalities_with_the_limits_formatted_as_ticks() {
     let (fx, _, scale, panel) = keyed_bar();
     let scene = compile_figure(&fx.fig.clone());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let ticks = numeric(&drawn);
     let text_at = |v: f64| {
         ticks
@@ -1541,10 +1545,10 @@ fn default_key_labels_use_strict_inequalities_with_the_limits_formatted_as_ticks
             .map(|t| t.2.clone())
             .unwrap_or_else(|| panic!("a tick at {v}: {ticks:?}"))
     };
-    let expected: [(ColorScaleKey, String); 3] = [
-        (ColorScaleKey::Above, format!("> {}", text_at(1.0))),
-        (ColorScaleKey::Below, format!("< {}", text_at(0.0))),
-        (ColorScaleKey::NonFinite, String::from("NaN / Inf")),
+    let expected: [(ColourScaleKey, String); 3] = [
+        (ColourScaleKey::Above, format!("> {}", text_at(1.0))),
+        (ColourScaleKey::Below, format!("< {}", text_at(0.0))),
+        (ColourScaleKey::NonFinite, String::from("NaN / Inf")),
     ];
     for (key, text) in expected {
         let square = key_rect(&hit, key).unwrap();
@@ -1560,7 +1564,7 @@ fn default_key_labels_use_strict_inequalities_with_the_limits_formatted_as_ticks
     let mut fx = fx;
     continuous_mut(&mut fx, scale).below.label = Some(Text::plain("too cold"));
     let scene = compile_figure(&fx.build());
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     label_box(&drawn, "too cold");
     assert!(
         labels(&drawn).iter().all(|l| !l.text.starts_with('<')),
@@ -1573,17 +1577,17 @@ fn default_key_labels_use_strict_inequalities_with_the_limits_formatted_as_ticks
 // "above the last", in the format of its ticks.
 #[test]
 fn the_default_key_labels_of_a_discrete_scale_name_its_first_and_last_edges() {
-    let kind = ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Explicit {
+    let kind = ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Explicit {
             values: vec![0.0, 2.5, 5.0, 12.0],
         },
         below: keyed(OutOfRange::Clamp),
         above: keyed(OutOfRange::Clamp),
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     });
     let (fx, _, _, panel) = lone_bar(kind);
     let scene = compile_figure(&fx.build());
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     let ticks = numeric(&drawn);
     let text_at = |v: f64| {
         ticks
@@ -1600,25 +1604,25 @@ fn the_default_key_labels_of_a_discrete_scale_name_its_first_and_last_edges() {
 // below key, under the bar, followed by the non-finite key, and is labelled "Out of range".
 #[test]
 fn an_indexed_bar_shows_its_outside_key_below_the_bar_then_the_non_finite_key() {
-    let kind = ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![RED, GREEN, BLUE],
-        outside: keyed(OutOfRange::Rgba { color: GREY }),
-        ..IndexedColorScale::default()
+    let kind = ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![RED, GREEN, BLUE],
+        outside: keyed(OutOfRange::Rgba { colour: GREY }),
+        ..IndexedColourScale::default()
     });
     let (mut fx, _, scale, panel) = lone_bar(kind);
     fx.scale_mut(scale).non_finite = keyed(OutOfRange::Transparent);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     assert!(
-        key_rect(&hit, ColorScaleKey::Below).is_none()
-            && key_rect(&hit, ColorScaleKey::Above).is_none()
+        key_rect(&hit, ColourScaleKey::Below).is_none()
+            && key_rect(&hit, ColourScaleKey::Above).is_none()
     );
-    let outside = key_rect(&hit, ColorScaleKey::Outside).expect("the outside key is drawn");
-    let nan = key_rect(&hit, ColorScaleKey::NonFinite).unwrap();
+    let outside = key_rect(&hit, ColourScaleKey::Outside).expect("the outside key is drawn");
+    let nan = key_rect(&hit, ColourScaleKey::NonFinite).unwrap();
     let margin = outside.y - hit.bar.bottom();
     assert!(margin > 0.0);
     assert_close(nan.y - outside.bottom(), margin, EXACT);
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     assert!(rgb8_close(
         rgb8(fill_at(&drawn, outside).expect("filled")),
         rgb8_of(GREY)
@@ -1636,19 +1640,19 @@ fn an_indexed_bar_shows_its_outside_key_below_the_bar_then_the_non_finite_key() 
 #[test]
 fn the_keys_of_a_categorical_scale_follow_its_categories_as_further_squares() {
     let mut kind = categories(&[(RED, "taken"), (GREEN, "skipped")]);
-    if let ColorScaleKind::Categorical(c) = &mut kind {
-        c.outside = keyed(OutOfRange::Rgba { color: GREY });
+    if let ColourScaleKind::Categorical(c) = &mut kind {
+        c.outside = keyed(OutOfRange::Rgba { colour: GREY });
     }
     let (mut fx, _, scale, panel) = lone_bar(kind);
-    fx.scale_mut(scale).non_finite = ColorScaleOutOfRange {
+    fx.scale_mut(scale).non_finite = ColourScaleOutOfRange {
         policy: OutOfRange::Transparent,
         show_key: true,
         label: Some(Text::plain("not entered")),
     };
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let outside = key_rect(&hit, ColorScaleKey::Outside).unwrap();
-    let nan = key_rect(&hit, ColorScaleKey::NonFinite).unwrap();
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let outside = key_rect(&hit, ColourScaleKey::Outside).unwrap();
+    let nan = key_rect(&hit, ColourScaleKey::NonFinite).unwrap();
     let margin = hit.entries[1].y - hit.entries[0].bottom();
     assert_close(outside.y - hit.entries[1].bottom(), margin, EXACT);
     assert_close(nan.y - outside.bottom(), margin, EXACT);
@@ -1656,7 +1660,7 @@ fn the_keys_of_a_categorical_scale_follow_its_categories_as_further_squares() {
         assert_close(key.width, hit.entries[0].width, EXACT);
         assert_close(key.x, hit.entries[0].x, EXACT);
     }
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     label_box(&drawn, "Out of range");
     label_box(&drawn, "not entered");
     assert!(labels(&drawn).iter().all(|l| l.text != "NaN / Inf"));
@@ -1668,11 +1672,11 @@ fn the_keys_of_a_categorical_scale_follow_its_categories_as_further_squares() {
 fn nothing_is_drawn_beyond_the_ends_of_a_bar_without_keys() {
     let (mut fx, _, scale, panel) = lone_bar(viridis(manual(0.0, 1.0)));
     let c = continuous_mut(&mut fx, scale);
-    c.below = out_of_range(OutOfRange::Rgba { color: RED });
-    c.above = out_of_range(OutOfRange::Rgba { color: BLUE });
+    c.below = out_of_range(OutOfRange::Rgba { colour: RED });
+    c.above = out_of_range(OutOfRange::Rgba { colour: BLUE });
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let drawn = owned(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let drawn = owned(&scene, ColourbarOwner::Panel(panel));
     assert!(hit.keys.is_empty());
     for (r, c) in filled_rects(&drawn) {
         assert!(
@@ -1697,9 +1701,9 @@ fn nothing_is_drawn_beyond_the_ends_of_a_bar_without_keys() {
 // in a fitted track is for), and it is drawn over the artists, which it would otherwise be hidden behind.
 #[test]
 fn an_inside_bar_takes_no_margin_and_is_drawn_over_the_artists() {
-    let (mut fx, ax, image, _) = inside_bar(InsideColorbarSide::South, 0.8);
+    let (mut fx, ax, image, _) = inside_bar(InsideColourbarSide::South, 0.8);
     let with = compile_figure(&fx.fig.clone());
-    fx.ax(ax).colorbar = None;
+    fx.ax(ax).colourbar = None;
     let without = compile_figure(&fx.build());
     let plot = axes_hit(&with, ax).plot_rect;
     assert!(
@@ -1707,7 +1711,7 @@ fn an_inside_bar_takes_no_margin_and_is_drawn_over_the_artists() {
         "the plot box is unchanged"
     );
 
-    let hit = bar_of(&with, ColorbarOwner::Axes(ax));
+    let hit = bar_of(&with, ColourbarOwner::Axes(ax));
     let all = leaves(&with);
     let bar_index = all
         .iter()
@@ -1725,38 +1729,41 @@ fn an_inside_bar_takes_no_margin_and_is_drawn_over_the_artists() {
         bar_index > last_artist,
         "the bar is painted after the image"
     );
-    assert!(without.hit_map.colorbars.is_empty());
+    assert!(without.hit_map.colourbars.is_empty());
 }
 
 // Why: an inside bar lies along the named edge in a box that is centred, `length` of that edge long and inset from it
-// by one margin that is the same on every side, with its ticks and labels toward the plot's interior so that nothing
+// by one margin that is the same on every side, with its ticks and labels towards the plot's interior so that nothing
 // leaves the plot box.
 #[test]
 fn an_inside_bar_lies_along_its_edge_centred_inset_and_labelled_toward_the_interior() {
     let mut margins = Vec::new();
     for side in [
-        InsideColorbarSide::South,
-        InsideColorbarSide::North,
-        InsideColorbarSide::East,
-        InsideColorbarSide::West,
+        InsideColourbarSide::South,
+        InsideColourbarSide::North,
+        InsideColourbarSide::East,
+        InsideColourbarSide::West,
     ] {
         let (fx, ax, _, _) = inside_bar(side, 0.8);
         let scene = compile_figure(&fx.build());
         let plot = axes_hit(&scene, ax).plot_rect;
-        let hit = bar_of(&scene, ColorbarOwner::Axes(ax));
+        let hit = bar_of(&scene, ColourbarOwner::Axes(ax));
         let bar = hit.bar;
         let backdrop = hit.backdrop.expect("an inside bar is boxed");
         assert!(
             rect_close(union(backdrop, bar), backdrop, EXACT),
             "{side:?}: the box encloses the bar"
         );
-        let horizontal = matches!(side, InsideColorbarSide::South | InsideColorbarSide::North);
+        let horizontal = matches!(
+            side,
+            InsideColourbarSide::South | InsideColourbarSide::North
+        );
         assert_eq!(
             hit.orientation,
             if horizontal {
-                ColorbarOrientation::Horizontal
+                ColourbarOrientation::Horizontal
             } else {
-                ColorbarOrientation::Vertical
+                ColourbarOrientation::Vertical
             },
             "{side:?}"
         );
@@ -1777,16 +1784,16 @@ fn an_inside_bar_lies_along_its_edge_centred_inset_and_labelled_toward_the_inter
             );
         }
         let margin = match side {
-            InsideColorbarSide::South => plot.bottom() - backdrop.bottom(),
-            InsideColorbarSide::North => backdrop.y - plot.y,
-            InsideColorbarSide::East => plot.right() - backdrop.right(),
-            InsideColorbarSide::West => backdrop.x - plot.x,
+            InsideColourbarSide::South => plot.bottom() - backdrop.bottom(),
+            InsideColourbarSide::North => backdrop.y - plot.y,
+            InsideColourbarSide::East => plot.right() - backdrop.right(),
+            InsideColourbarSide::West => backdrop.x - plot.x,
         };
         assert!(margin > 0.0, "{side:?} is inset from its edge");
         margins.push(margin);
 
         // The tick labels of the bar: the numeric runs of the axes inside the plot box.
-        let ticks: Vec<Rect> = numeric(&owned(&scene, ColorbarOwner::Axes(ax)))
+        let ticks: Vec<Rect> = numeric(&owned(&scene, ColourbarOwner::Axes(ax)))
             .into_iter()
             .map(|t| t.1)
             .filter(|b| {
@@ -1802,16 +1809,16 @@ fn an_inside_bar_lies_along_its_edge_centred_inset_and_labelled_toward_the_inter
         );
         for b in ticks {
             match side {
-                InsideColorbarSide::South => {
+                InsideColourbarSide::South => {
                     assert!(b.bottom() <= bar.y + EXACT, "{side:?}: labels above")
                 }
-                InsideColorbarSide::North => {
+                InsideColourbarSide::North => {
                     assert!(b.y >= bar.bottom() - EXACT, "{side:?}: labels below")
                 }
-                InsideColorbarSide::East => {
+                InsideColourbarSide::East => {
                     assert!(b.right() <= bar.x + EXACT, "{side:?}: labels to the left")
                 }
-                InsideColorbarSide::West => {
+                InsideColourbarSide::West => {
                     assert!(b.x >= bar.right() - EXACT, "{side:?}: labels to the right")
                 }
             }
@@ -1825,10 +1832,10 @@ fn an_inside_bar_lies_along_its_edge_centred_inset_and_labelled_toward_the_inter
 // Why: the length is the author's choice of how much of the edge the boxed bar takes; half is half.
 #[test]
 fn the_length_of_an_inside_bar_is_its_fraction_of_the_edge() {
-    let (fx, ax, _, _) = inside_bar(InsideColorbarSide::East, 0.5);
+    let (fx, ax, _, _) = inside_bar(InsideColourbarSide::East, 0.5);
     let scene = compile_figure(&fx.build());
     let plot = axes_hit(&scene, ax).plot_rect;
-    let hit = bar_of(&scene, ColorbarOwner::Axes(ax));
+    let hit = bar_of(&scene, ColourbarOwner::Axes(ax));
     assert_close(
         hit.backdrop.expect("an inside bar is boxed").height,
         0.5 * plot.height,
@@ -1842,16 +1849,16 @@ fn the_length_of_an_inside_bar_is_its_fraction_of_the_edge() {
 // (two beyond the low end, one beyond the high end), so a bar centred on its own with keys hung outside it fails.
 #[test]
 fn the_keys_of_an_inside_bar_fit_within_its_length() {
-    let (mut fx, ax, _, scale) = inside_bar(InsideColorbarSide::South, 0.8);
+    let (mut fx, ax, _, scale) = inside_bar(InsideColourbarSide::South, 0.8);
     let c = continuous_mut(&mut fx, scale);
     c.below = keyed(OutOfRange::Clamp);
     c.above = keyed(OutOfRange::Clamp);
     fx.scale_mut(scale).non_finite = keyed(OutOfRange::Transparent);
     let scene = compile_figure(&fx.build());
     let plot = axes_hit(&scene, ax).plot_rect;
-    let hit = bar_of(&scene, ColorbarOwner::Axes(ax));
-    let nan = key_rect(&hit, ColorScaleKey::NonFinite).unwrap();
-    let above = key_rect(&hit, ColorScaleKey::Above).unwrap();
+    let hit = bar_of(&scene, ColourbarOwner::Axes(ax));
+    let nan = key_rect(&hit, ColourScaleKey::NonFinite).unwrap();
+    let above = key_rect(&hit, ColourScaleKey::Above).unwrap();
     let backdrop = hit.backdrop.expect("an inside bar is boxed");
     assert_close(backdrop.width, 0.8 * plot.width, EXACT);
     assert!(nan.x >= backdrop.x && above.right() <= backdrop.right());
@@ -1876,17 +1883,17 @@ fn an_inside_bar_works_on_a_three_dimensional_axes() {
     fx.surface(ax, &g, &g, |x, y| x + y, |_| {});
     let scale = fx.axes_scale(ax);
     let without = compile_figure(&fx.fig.clone());
-    fx.ax(ax).colorbar = Some(InsideColorbar {
+    fx.ax(ax).colourbar = Some(InsideColourbar {
         scale,
-        side: InsideColorbarSide::East,
+        side: InsideColourbarSide::East,
         length: 0.8,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     let scene = compile_figure(&fx.build());
     let plot = axes_hit(&scene, ax).plot_rect;
     assert!(rect_close(plot, axes_hit(&without, ax).plot_rect, EXACT));
-    let hit = bar_of(&scene, ColorbarOwner::Axes(ax));
-    assert_eq!(hit.orientation, ColorbarOrientation::Vertical);
+    let hit = bar_of(&scene, ColourbarOwner::Axes(ax));
+    assert_eq!(hit.orientation, ColourbarOrientation::Vertical);
     let backdrop = hit.backdrop.expect("an inside bar is boxed");
     assert!(
         backdrop.x >= plot.x
@@ -1905,14 +1912,14 @@ fn an_inside_bar_works_on_a_three_dimensional_axes() {
 #[test]
 fn an_inside_bar_stands_on_a_box_over_the_artists_that_encloses_all_of_it() {
     for (side, placement) in [
-        (InsideColorbarSide::South, ColorbarTitlePlacement::Along),
-        (InsideColorbarSide::South, ColorbarTitlePlacement::Above),
-        (InsideColorbarSide::East, ColorbarTitlePlacement::Along),
-        (InsideColorbarSide::East, ColorbarTitlePlacement::Above),
+        (InsideColourbarSide::South, ColourbarTitlePlacement::Along),
+        (InsideColourbarSide::South, ColourbarTitlePlacement::Above),
+        (InsideColourbarSide::East, ColourbarTitlePlacement::Along),
+        (InsideColourbarSide::East, ColourbarTitlePlacement::Above),
     ] {
         let (mut fx, ax, image, scale) = inside_bar(side, 0.8);
         fx.ax(ax)
-            .colorbar
+            .colourbar
             .as_mut()
             .expect("the fixture's bar")
             .title_placement = placement;
@@ -1922,7 +1929,7 @@ fn an_inside_bar_stands_on_a_box_over_the_artists_that_encloses_all_of_it() {
         c.above = keyed(OutOfRange::Clamp);
         fx.scale_mut(scale).non_finite = keyed(OutOfRange::Transparent);
         let scene = compile_figure(&fx.build());
-        let hit = bar_of(&scene, ColorbarOwner::Axes(ax));
+        let hit = bar_of(&scene, ColourbarOwner::Axes(ax));
         let backdrop = hit.backdrop.expect("an inside bar is boxed");
         let all = leaves(&scene);
         let at = all
@@ -1933,7 +1940,7 @@ fn an_inside_bar_stands_on_a_box_over_the_artists_that_encloses_all_of_it() {
                     && l.bbox().is_some_and(|b| rect_close(b, backdrop, EXACT))
                     && l.path()
                         .and_then(|p| p.fill)
-                        .is_some_and(|f| rgb8(f.color) == [255, 255, 255])
+                        .is_some_and(|f| rgb8(f.colour) == [255, 255, 255])
             })
             .unwrap_or_else(|| panic!("{side:?}: a white box is drawn at {backdrop:?}"));
         let last_artist = all
@@ -1954,7 +1961,7 @@ fn an_inside_bar_stands_on_a_box_over_the_artists_that_encloses_all_of_it() {
             "{side:?}: the bar is painted on the box"
         );
         assert!(
-            labels(&owned(&scene, ColorbarOwner::Axes(ax)))
+            labels(&owned(&scene, ColourbarOwner::Axes(ax)))
                 .iter()
                 .any(|l| l.text == "Speed (m/s)"),
             "{side:?}: the title is drawn"
@@ -1983,15 +1990,15 @@ fn an_inside_bar_stands_on_a_box_over_the_artists_that_encloses_all_of_it() {
 #[test]
 fn two_bars_of_one_scale_agree_on_their_ticks_and_colours() {
     let (mut fx, axes, scale, panel) = column_beside_stack(1, TrackSize::Fit);
-    fx.ax(axes[0]).colorbar = Some(InsideColorbar {
+    fx.ax(axes[0]).colourbar = Some(InsideColourbar {
         scale,
-        side: InsideColorbarSide::West,
+        side: InsideColourbarSide::West,
         length: 1.0,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     let scene = compile_figure(&fx.build());
-    let in_panel = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let inside = bar_of(&scene, ColorbarOwner::Axes(axes[0]));
+    let in_panel = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let inside = bar_of(&scene, ColourbarOwner::Axes(axes[0]));
     assert!(
         length(&inside) < length(&in_panel)
             && length(&in_panel) - length(&inside) < 2.0 * FONT_SIZE,
@@ -2000,8 +2007,8 @@ fn two_bars_of_one_scale_agree_on_their_ticks_and_colours() {
         length(&in_panel)
     );
     let plot = axes_hit(&scene, axes[0]).plot_rect;
-    let panel_drawn = owned(&scene, ColorbarOwner::Panel(panel));
-    let axes_drawn = owned(&scene, ColorbarOwner::Axes(axes[0]));
+    let panel_drawn = owned(&scene, ColourbarOwner::Panel(panel));
+    let axes_drawn = owned(&scene, ColourbarOwner::Axes(axes[0]));
     let texts = |ticks: Vec<(f64, Rect, String)>, within: Option<Rect>| {
         let mut t: Vec<String> = ticks
             .into_iter()
@@ -2033,7 +2040,7 @@ fn two_bars_of_one_scale_agree_on_their_ticks_and_colours() {
 #[test]
 fn the_bar_of_a_scale_whose_artist_is_hidden_still_spans_its_values() {
     let (mut fx, ax, _, panel) = lone_bar(viridis(Limits::Auto));
-    let scale = fx.fig.color_scales[0].id;
+    let scale = fx.fig.colour_scales[0].id;
     fx.scalar_image(
         ax,
         vec![1, 2],
@@ -2043,7 +2050,7 @@ fn the_bar_of_a_scale_whose_artist_is_hidden_still_spans_its_values() {
         |image| image.visible = false,
     );
     let scene = compile_figure(&fx.build());
-    let values: Vec<f64> = numeric(&owned(&scene, ColorbarOwner::Panel(panel)))
+    let values: Vec<f64> = numeric(&owned(&scene, ColourbarOwner::Panel(panel)))
         .into_iter()
         .map(|t| t.0)
         .collect();
@@ -2065,7 +2072,7 @@ fn a_bar_of_a_scale_that_no_artist_names_shows_its_limits_or_the_default_range()
     ] {
         let (fx, _, scale, panel) = lone_bar(kind);
         let scene = compile_figure(&fx.build());
-        let ticks = numeric(&owned(&scene, ColorbarOwner::Panel(panel)));
+        let ticks = numeric(&owned(&scene, ColourbarOwner::Panel(panel)));
         let values: Vec<f64> = ticks.iter().map(|t| t.0).collect();
         assert!(
             values.contains(&low) && values.contains(&high),
@@ -2082,13 +2089,13 @@ fn a_bar_of_a_scale_that_no_artist_names_shows_its_limits_or_the_default_range()
             scene.warnings
         );
     }
-    let log = ColorScaleKind::Continuous(ContinuousColorScale {
-        norm: ColorScaleNorm::Log,
-        ..ContinuousColorScale::default()
+    let log = ColourScaleKind::Continuous(ContinuousColourScale {
+        norm: ColourScaleNorm::Log,
+        ..ContinuousColourScale::default()
     });
     let (fx, _, _, panel) = lone_bar(log);
     let scene = compile_figure(&fx.build());
-    let decades = glyph_runs(&owned(&scene, ColorbarOwner::Panel(panel)))
+    let decades = glyph_runs(&owned(&scene, ColourbarOwner::Panel(panel)))
         .into_iter()
         .filter(|(_, g)| g.font == FontId::Math && g.text == "10")
         .count();
@@ -2100,20 +2107,20 @@ fn a_bar_of_a_scale_that_no_artist_names_shows_its_limits_or_the_default_range()
 #[test]
 fn a_colourbar_naming_no_scale_is_left_out_with_a_warning_against_its_owner() {
     let (mut fx, axes, _, panel) = column_beside_stack(1, TrackSize::Fit);
-    if let PanelContent::Colorbar(colorbar) = &mut fx.panel_mut(panel).content {
-        colorbar.scale = NodeId(9_999);
+    if let PanelContent::Colourbar(colourbar) = &mut fx.panel_mut(panel).content {
+        colourbar.scale = NodeId(9_999);
     }
-    fx.ax(axes[0]).colorbar = Some(InsideColorbar {
+    fx.ax(axes[0]).colourbar = Some(InsideColourbar {
         scale: axes[0],
-        side: InsideColorbarSide::South,
+        side: InsideColourbarSide::South,
         length: 0.8,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     let scene = compile_figure(&fx.build());
     assert!(
-        scene.hit_map.colorbars.is_empty(),
+        scene.hit_map.colourbars.is_empty(),
         "{:?}",
-        scene.hit_map.colorbars
+        scene.hit_map.colourbars
     );
     assert!(
         !warnings_naming(&scene, panel).is_empty(),

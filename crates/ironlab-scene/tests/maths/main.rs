@@ -1,7 +1,7 @@
 //! Intent-capturing tests for the pure plotting mathematics in `ironlab_scene::maths`.
 
 mod camera;
-mod colormap;
+mod colourmap;
 mod contour;
 mod decimate;
 mod polygon;

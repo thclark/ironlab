@@ -29,7 +29,7 @@ use ironlab_canvas::{
     with_shared_renderer,
 };
 use ironlab_ir::{
-    Artist, Axes, Axis, Cell, Color, ColorSpec, Embolden, Figure, Grid, Limits, NdArray, NodeId,
+    Artist, Axes, Axis, Cell, Colour, ColourSpec, Embolden, Figure, Grid, Limits, NdArray, NodeId,
     Projection, Series, Surface, Text, TileLayout, View3d,
 };
 use ironlab_pdf::{
@@ -144,7 +144,7 @@ fn field(side: usize, f: impl Fn(f64, f64) -> f64) -> (Vec<f64>, Vec<f64>) {
 
 /// A figure of one surface of `side` by `side` nodes, two-dimensional or three-dimensional, titled and labelled so
 /// that the text around the surface can be looked for in the exported PDF.
-fn surface_figure(side: usize, projection: Projection, edge: ColorSpec) -> Figure {
+fn surface_figure(side: usize, projection: Projection, edge: ColourSpec) -> Figure {
     // A field of alternating blocks about eight faces across, rather than a smooth one. Its edges are what make a
     // misplaced or rescaled raster measurable: a smooth field looks almost the same wherever it is put.
     surface_figure_of(side, projection, edge, |x, y| {
@@ -156,7 +156,7 @@ fn surface_figure(side: usize, projection: Projection, edge: ColorSpec) -> Figur
 fn surface_figure_of(
     side: usize,
     projection: Projection,
-    edge: ColorSpec,
+    edge: ColourSpec,
     f: impl Fn(f64, f64) -> f64,
 ) -> Figure {
     let (axis, values) = field(side, f);
@@ -195,12 +195,12 @@ fn surface_figure_of(
                 grid: Grid::Rectilinear { x: gx, y: gy },
                 z,
                 edge,
-                color_scale: Some(NodeId(20)),
+                colour_scale: Some(NodeId(20)),
                 ..Surface::default()
             })],
             ..Axes::default()
         }],
-        color_scales: vec![continuous_scale(20)],
+        colour_scales: vec![continuous_scale(20)],
         ..Figure::new()
     }
 }
@@ -248,7 +248,7 @@ fn a_rasterised_2d_surface_is_the_same_picture_as_the_paths_it_replaces() {
     let ws = Workspace::new("surface-2d");
     // The faces are drawn without edges, so that the comparison measures where the raster is, how large it is and
     // what colours it holds, rather than how two rasterisers each anti-alias a grid of ten thousand hairlines.
-    let figure = surface_figure(DENSE_SIDE, Projection::TwoD, ColorSpec::None);
+    let figure = surface_figure(DENSE_SIDE, Projection::TwoD, ColourSpec::None);
     let Some((vector, raster)) = vector_and_raster_pages(&ws, &figure, 300.0) else {
         return;
     };
@@ -276,7 +276,7 @@ fn a_rasterised_3d_surface_is_the_same_picture_as_the_paths_it_replaces() {
         Projection::ThreeD {
             view3d: View3d::default(),
         },
-        ColorSpec::None,
+        ColourSpec::None,
     );
     let Some((vector, raster)) = vector_and_raster_pages(&ws, &figure, 300.0) else {
         return;
@@ -300,7 +300,7 @@ fn only_the_surface_is_rasterised_and_the_text_around_it_stays_selectable() {
         return;
     }
     let ws = Workspace::new("furniture");
-    let figure = surface_figure(DENSE_SIDE, Projection::TwoD, ColorSpec::default());
+    let figure = surface_figure(DENSE_SIDE, Projection::TwoD, ColourSpec::default());
     // The default options, with no policy set, to show that a dense surface rasterises without being asked.
     let Some(exported) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
@@ -333,7 +333,7 @@ fn only_the_surface_is_rasterised_and_the_text_around_it_stays_selectable() {
 // exactly what a build server or a container without a GPU is.
 #[test]
 fn a_figure_with_nothing_dense_exports_without_a_renderer() {
-    let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
+    let figure = surface_figure(4, Projection::TwoD, ColourSpec::default());
     let exported = ironlab_canvas::export_pdf(&figure, &TEXT, &PdfOptions::default())
         .expect("a figure with no dense content exports without any renderer");
 
@@ -353,7 +353,7 @@ fn a_figure_with_nothing_dense_exports_without_a_renderer() {
 // and an override of the figure's own step, like no override, must leave the export as it was.
 #[test]
 fn the_embolden_option_draws_the_figure_at_that_step_in_place_of_its_own() {
-    let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
+    let figure = surface_figure(4, Projection::TwoD, ColourSpec::default());
     let stored_heavy = Figure {
         embolden: Embolden::Semibold,
         ..figure.clone()
@@ -491,7 +491,7 @@ fn kinds(warnings: &[ExportWarning]) -> Vec<(Option<NodeId>, ExportWarningKind)>
 }
 
 /// A three-dimensional figure of two planes that cut through each other along the diagonal `x + y = 1`, which runs
-/// through the middle of the faces rather than along their edges: `z = 0.2 + 0.6x` coloured through the colormap
+/// through the middle of the faces rather than along their edges: `z = 0.2 + 0.6x` coloured through the colourmap
 /// and `z = 0.8 − 0.6y` in grey, with a line from `(0, 0, 0.1)` to `(1, 1, 0.9)` passing through both. The axes is
 /// node 2, the planes 3 and 4 and the line 5.
 fn crossing_planes_figure() -> Figure {
@@ -536,18 +536,18 @@ fn crossing_planes_figure() -> Figure {
                     id: NodeId(3),
                     grid: Grid::Rectilinear { x: gx, y: gy },
                     z: z1,
-                    edge: ColorSpec::None,
-                    color_scale: Some(NodeId(20)),
+                    edge: ColourSpec::None,
+                    colour_scale: Some(NodeId(20)),
                     ..Surface::default()
                 }),
                 Artist::Surface(Surface {
                     id: NodeId(4),
                     grid: Grid::Rectilinear { x: gx, y: gy },
                     z: z2,
-                    face: ColorSpec::Rgba {
-                        color: Color::rgb(0.8, 0.8, 0.8),
+                    face: ColourSpec::Rgba {
+                        colour: Colour::rgb(0.8, 0.8, 0.8),
                     },
-                    edge: ColorSpec::None,
+                    edge: ColourSpec::None,
                     ..Surface::default()
                 }),
                 Artist::Series(Series {
@@ -560,7 +560,7 @@ fn crossing_planes_figure() -> Figure {
             ],
             ..Axes::default()
         }],
-        color_scales: vec![continuous_scale(20)],
+        colour_scales: vec![continuous_scale(20)],
         ..Figure::new()
     }
 }
@@ -580,7 +580,7 @@ fn a_height_field_under_the_default_policy_stays_vector_and_matches_its_depth_te
         Projection::ThreeD {
             view3d: View3d::default(),
         },
-        ColorSpec::default(),
+        ColourSpec::default(),
         |x, y| 0.5 + 0.3 * (std::f64::consts::TAU * x).sin() * (std::f64::consts::TAU * y).cos(),
     );
     let dpi = 300.0;
@@ -719,7 +719,7 @@ fn crossing_surfaces_under_the_default_policy_are_embedded_and_reported() {
 // say nothing from the exporter, or every program checking the report would have to filter it.
 #[test]
 fn a_two_dimensional_figure_reports_nothing_from_the_exporter() {
-    let figure = surface_figure(4, Projection::TwoD, ColorSpec::default());
+    let figure = surface_figure(4, Projection::TwoD, ColourSpec::default());
     let exported = ironlab_canvas::export_pdf(&figure, &TEXT, &PdfOptions::default())
         .expect("a two-dimensional figure exports without a renderer");
     assert!(
@@ -743,7 +743,7 @@ fn a_dense_surface_in_an_axes_drawn_as_vectors_is_rasterised_for_its_size_with_b
         Projection::ThreeD {
             view3d: View3d::default(),
         },
-        ColorSpec::None,
+        ColourSpec::None,
     );
     let Some(exported) = exported_or_skip(ironlab_canvas::export_pdf(
         &figure,
@@ -834,8 +834,8 @@ fn verified_and_embedded_figure() -> Figure {
             grid: Grid::Rectilinear { x, y },
             z,
             face,
-            edge: ColorSpec::None,
-            color_scale: Some(NodeId(scale)),
+            edge: ColourSpec::None,
+            colour_scale: Some(NodeId(scale)),
             ..Surface::default()
         })
     };
@@ -863,20 +863,20 @@ fn verified_and_embedded_figure() -> Figure {
             axes(
                 2,
                 0,
-                vec![surface(3, sx, sy, z_smooth, ColorSpec::default(), 20)],
+                vec![surface(3, sx, sy, z_smooth, ColourSpec::default(), 20)],
             ),
             axes(
                 4,
                 1,
                 vec![
-                    surface(5, px, py, z_rising, ColorSpec::default(), 21),
+                    surface(5, px, py, z_rising, ColourSpec::default(), 21),
                     surface(
                         6,
                         px,
                         py,
                         z_falling,
-                        ColorSpec::Rgba {
-                            color: Color::rgb(0.8, 0.8, 0.8),
+                        ColourSpec::Rgba {
+                            colour: Colour::rgb(0.8, 0.8, 0.8),
                         },
                         21,
                     ),
@@ -890,7 +890,7 @@ fn verified_and_embedded_figure() -> Figure {
                 ],
             ),
         ],
-        color_scales: vec![continuous_scale(20), continuous_scale(21)],
+        colour_scales: vec![continuous_scale(20), continuous_scale(21)],
         ..Figure::new()
     }
 }

@@ -32,26 +32,26 @@ proto_file! {
         /// How a fixed aspect is kept.
         enum AspectAdjust aspect_adjust = 15;
         /// The colourbar drawn inside the plot area; absent when the axes shows none.
-        message InsideColorbar colorbar = 16;
-        /// The numbers and names of the colormap and colour limits of the axes, which
+        message InsideColourbar colourbar = 16;
+        /// The numbers and names of the colourmap and colour limits of the axes, which
         /// colour scales replaced.
-        reserved 9, 10, colormap, clim;
+        reserved 9, 10, colourmap, clim;
     }
 
     /// A colourbar drawn inside the plot area of an axes, along one of its edges.
-    message InsideColorbar {
+    message InsideColourbar {
         /// The node identifier of the colour scale that the bar shows; it must be present.
         optional uint64 scale = 1;
         /// The edge of the plot area along which the bar lies.
-        enum InsideColorbarSide side = 2;
+        enum InsideColourbarSide side = 2;
         /// The length of the bar and its keys as a fraction of the edge; absent means 0.8.
         optional double length = 3;
         /// Where the title of the scale is drawn beside the bar.
-        enum ColorbarTitlePlacement title_placement = 4;
+        enum ColourbarTitlePlacement title_placement = 4;
     }
 
     /// The edge of the plot area along which an inside colourbar lies.
-    enum InsideColorbarSide {
+    enum InsideColourbarSide {
         /// Along the bottom edge, horizontal.
         South = 1;
         /// Along the top edge, horizontal.
@@ -63,7 +63,7 @@ proto_file! {
     }
 
     /// Where the title of a colour scale is drawn beside a colourbar of the scale.
-    enum ColorbarTitlePlacement {
+    enum ColourbarTitlePlacement {
         /// Beyond the tick labels, centred on the bar, reading from bottom to top beside a
         /// vertical bar.
         Along = 1;
@@ -75,7 +75,7 @@ proto_file! {
     /// content of a panel.
     enum TitleAlign {
         /// The title is centred over what it heads.
-        Center = 1;
+        Centre = 1;
         /// The left edge of the title is on the left edge of what it heads.
         Left = 2;
         /// The right edge of the title is on the right edge of what it heads.
@@ -372,22 +372,22 @@ proto_file! {
         optional double max = 2;
     }
 
-    /// The name of a colormap.
-    enum ColormapName {
-        /// The perceptually uniform blue–green–yellow colormap.
+    /// The name of a colourmap.
+    enum ColourmapName {
+        /// The perceptually uniform blue–green–yellow colourmap.
         Viridis = 1;
-        /// The perceptually uniform blue–yellow colormap designed for colour-vision
+        /// The perceptually uniform blue–yellow colourmap designed for colour-vision
         /// deficiency.
         Cividis = 2;
-        /// The perceptually uniform black–purple–cream colormap.
+        /// The perceptually uniform black–purple–cream colourmap.
         Magma = 3;
-        /// The perceptually uniform black–red–yellow colormap.
+        /// The perceptually uniform black–red–yellow colourmap.
         Inferno = 4;
-        /// The perceptually uniform blue–purple–yellow colormap.
+        /// The perceptually uniform blue–purple–yellow colourmap.
         Plasma = 5;
-        /// The diverging blue–white–red colormap.
+        /// The diverging blue–white–red colourmap.
         Coolwarm = 6;
-        /// The linear black–white colormap.
-        Gray = 7;
+        /// The linear black–white colourmap.
+        Grey = 7;
     }
 }

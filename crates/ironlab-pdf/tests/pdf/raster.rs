@@ -711,7 +711,7 @@ fn path_with_both_fill_and_stroke_draws_the_stroke_over_the_fill() {
     list.items.push(item(ItemKind::Path(PathItem {
         segments: rect_segments(Rect::new(20.0, 20.0, 60.0, 60.0)),
         fill: Some(ironlab_scene::display::Fill {
-            color: RED,
+            colour: RED,
             rule: FillRule::NonZero,
         }),
         stroke: Some(solid_stroke(BLUE, 10.0)),

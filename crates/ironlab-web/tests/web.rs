@@ -858,23 +858,23 @@ async fn a_figure_opened_on_a_canvas_renders_and_a_pan_is_undoable() {
 /// limits [0, 10], which no artist uses.
 fn figure_with_colourbar() -> Figure {
     use ironlab_ir::{
-        Cell, ColorScale, ColorScaleKind, ColorbarOrientation, ContinuousColorScale, Panel,
-        PanelColorbar, PanelContent, PanelLocation, TileLayout, TrackSize,
+        Cell, ColourScale, ColourScaleKind, ColourbarOrientation, ContinuousColourScale, Panel,
+        PanelColourbar, PanelContent, PanelLocation, TileLayout, TrackSize,
     };
     let mut layout = TileLayout::new(1, 2);
     layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     Figure {
         layout,
-        color_scales: vec![ColorScale {
+        colour_scales: vec![ColourScale {
             id: NodeId(10),
-            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+            kind: ColourScaleKind::Continuous(ContinuousColourScale {
                 limits: Limits::Manual {
                     min: 0.0,
                     max: 10.0,
                 },
-                ..ContinuousColorScale::default()
+                ..ContinuousColourScale::default()
             }),
-            ..ColorScale::default()
+            ..ColourScale::default()
         }],
         panels: vec![Panel {
             id: NodeId(20),
@@ -882,13 +882,13 @@ fn figure_with_colourbar() -> Figure {
                 col: 1,
                 ..Cell::default()
             },
-            align: PanelLocation::Center,
+            align: PanelLocation::Centre,
             title: None,
             title_align: ironlab_ir::TitleAlign::Left,
-            content: PanelContent::Colorbar(PanelColorbar {
+            content: PanelContent::Colourbar(PanelColourbar {
                 scale: NodeId(10),
-                orientation: ColorbarOrientation::Vertical,
-                ..PanelColorbar::default()
+                orientation: ColourbarOrientation::Vertical,
+                ..PanelColourbar::default()
             }),
         }],
         ..titled_figure("Bar")
@@ -913,7 +913,7 @@ fn on_colourbar(figure: &Figure, f: f64) -> emath::Pos2 {
     let bar = canvas
         .scene(&text)
         .hit_map
-        .colorbars
+        .colourbars
         .first()
         .expect("the figure draws a colourbar")
         .bar;
@@ -952,7 +952,7 @@ fn a_bar_is_read_and_zoomed_on_a_headless_handle() {
     );
     assert!(zoomed.can_undo, "in one step of the history");
     let saved = decode(Format::Fig, &handle.save());
-    match saved.color_scales[0].kind.limits() {
+    match saved.colour_scales[0].kind.limits() {
         Some(Limits::Manual { min, max }) => assert!(
             min > 0.0 && max < 10.0,
             "the zoom is about a value inside the bar: [{min}, {max}]"

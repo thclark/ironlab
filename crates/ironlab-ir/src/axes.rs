@@ -7,7 +7,7 @@ use crate::artist::Artist;
 use crate::ids::NodeId;
 use crate::layout::Cell;
 use crate::legend::Legend;
-use crate::panel::ColorbarTitlePlacement;
+use crate::panel::ColourbarTitlePlacement;
 use crate::text::Text;
 
 /// A plotting region placed in one or more cells of the figure's tile layout.
@@ -41,7 +41,7 @@ pub struct Axes {
     /// The colourbar drawn inside the plot area along one of its edges, or `null` when the
     /// axes shows none.
     #[schemars(default)]
-    pub colorbar: Option<InsideColorbar>,
+    pub colourbar: Option<InsideColourbar>,
     /// Whether the full outline of the plot box is drawn, rather than only the
     /// edges that carry tick labels: all twelve edges of a three-dimensional box,
     /// rather than the three that carry its ticks, and the top and wall of a
@@ -62,13 +62,13 @@ impl Default for Axes {
             cell: Cell::default(),
             projection: Projection::TwoD,
             title: None,
-            title_align: TitleAlign::Center,
+            title_align: TitleAlign::Centre,
             x: Axis::default(),
             y: Axis::default(),
             z: Axis::default(),
             aspect: Aspect::Auto,
             aspect_adjust: AspectAdjust::Box,
-            colorbar: None,
+            colourbar: None,
             box_: true,
             legend: None,
             artists: Vec::new(),
@@ -80,27 +80,27 @@ impl Default for Axes {
 /// artists. It takes no margin: the plot area keeps its size whether or not the bar is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct InsideColorbar {
+pub struct InsideColourbar {
     /// The colour scale that the bar shows.
     pub scale: NodeId,
     /// The edge of the plot area along which the bar lies, which also sets its orientation:
     /// horizontal along the south and north edges, vertical along the east and west edges.
-    pub side: InsideColorbarSide,
+    pub side: InsideColourbarSide,
     /// The length of the bar, together with any keys it shows, as a fraction of the edge it
     /// lies along, centred on it: a finite number greater than 0 and at most 1.
     pub length: f64,
     /// Where the title of the scale is drawn beside the bar, within the box behind it.
-    pub title_placement: ColorbarTitlePlacement,
+    pub title_placement: ColourbarTitlePlacement,
 }
 
-impl Default for InsideColorbar {
+impl Default for InsideColourbar {
     /// A bar along the south edge, four fifths of its length, naming the identifier 0.
     fn default() -> Self {
         Self {
             scale: NodeId::default(),
-            side: InsideColorbarSide::South,
+            side: InsideColourbarSide::South,
             length: 0.8,
-            title_placement: ColorbarTitlePlacement::Along,
+            title_placement: ColourbarTitlePlacement::Along,
         }
     }
 }
@@ -109,7 +109,7 @@ impl Default for InsideColorbar {
 /// interior of the plot area.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum InsideColorbarSide {
+pub enum InsideColourbarSide {
     /// Along the bottom edge, horizontal.
     #[default]
     South,
@@ -190,7 +190,7 @@ pub enum AspectAdjust {
 pub enum TitleAlign {
     /// The title is centred over the plot area or the content.
     #[default]
-    Center,
+    Centre,
     /// The left edge of the title is on the left edge of the plot area or the content.
     Left,
     /// The right edge of the title is on the right edge of the plot area or the content.
@@ -605,24 +605,24 @@ pub enum Limits {
     },
 }
 
-/// The name of a bundled colormap, which a [`Colormap`](crate::Colormap) names.
+/// The name of a bundled colourmap, which a [`Colourmap`](crate::Colourmap) names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ColormapName {
-    /// The perceptually uniform blue–green–yellow colormap.
+pub enum ColourmapName {
+    /// The perceptually uniform blue–green–yellow colourmap.
     #[default]
     Viridis,
-    /// The perceptually uniform blue–yellow colormap designed for colour-vision
+    /// The perceptually uniform blue–yellow colourmap designed for colour-vision
     /// deficiency.
     Cividis,
-    /// The perceptually uniform black–purple–cream colormap.
+    /// The perceptually uniform black–purple–cream colourmap.
     Magma,
-    /// The perceptually uniform black–red–yellow colormap.
+    /// The perceptually uniform black–red–yellow colourmap.
     Inferno,
-    /// The perceptually uniform blue–purple–yellow colormap.
+    /// The perceptually uniform blue–purple–yellow colourmap.
     Plasma,
-    /// The diverging blue–white–red colormap.
+    /// The diverging blue–white–red colourmap.
     Coolwarm,
-    /// The linear black–white colormap.
-    Gray,
+    /// The linear black–white colourmap.
+    Grey,
 }

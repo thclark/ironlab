@@ -40,15 +40,15 @@ pub fn figure() -> Figure {
         .title("Forward-looking sonar")
         .tag("polar")
         .tag("image")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .parameter("dimensionality", "2D")
         .parameter("artists", 1)
         .parameter("data_points", 6000)
         .parameter("has_legend", false);
     let strength = fig
-        .color_scale()
-        .colormap(Colormap::Inferno)
+        .colour_scale()
+        .colourmap(Colourmap::Inferno)
         .limits(-45.0, 0.0)
         .title("Echo (dB)")
         .id();
@@ -56,13 +56,13 @@ pub fn figure() -> Figure {
     ax.scalar_image(&echo)
         .pixel_columns(bearing(0), bearing(BEAMS - 1))
         .pixel_rows(range(0), range(BINS - 1))
-        .color_scale(strength);
+        .colour_scale(strength);
     ax.theta_zero(ThetaZero::North)
         .clockwise(true)
         .thetalim(-60.0, 60.0)
         .rlim(0.0, 100.0)
         .xtick_step(30.0)
         .ylabel("Range (m)");
-    fig.panel(0, 1).colorbar(strength);
+    fig.panel(0, 1).colourbar(strength);
     fig
 }

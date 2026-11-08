@@ -19,7 +19,7 @@ proto_file! {
         /// The base font size in points; titles and tick labels are scaled from it.
         optional double font_size_pt = 6;
         /// The colour of the figure background.
-        message Color background = 7;
+        message Colour background = 7;
         /// The grid of cells in which axes and panels are placed.
         message TileLayout layout = 8;
         /// The data arrays of the figure, which artists refer to by node identifier.
@@ -43,7 +43,7 @@ proto_file! {
         repeated message Panel panels = 15;
         /// The colour scales of the figure, which colour-mapped artists refer to by node
         /// identifier.
-        repeated message ColorScale color_scales = 16;
+        repeated message ColourScale colour_scales = 16;
         /// How much heavier than designed the figure is drawn; unspecified means regular.
         enum Embolden embolden = 17;
     }

@@ -73,12 +73,12 @@ pub fn figure() -> Figure {
         .title("A baseball struck at 40 m/s, coloured by its speed")
         .tag("line")
         .tag("legend")
-        .tag("color-scale")
+        .tag("colour-scale")
         .tag("dashes")
         .tag("comparison")
         .tag("aspect")
         .tag("physics")
-        .tag("colorbar")
+        .tag("colourbar")
         .parameter("dimensionality", "2D")
         .parameter("artists", 2)
         .parameter("data_points", 1317)
@@ -86,18 +86,18 @@ pub fn figure() -> Figure {
     let mut ax = fig.axes(0, 0);
     let (x, y, speed) = flight(0.0);
     ax.plot(&x, &y)
-        .color_data(&speed)
+        .colour_data(&speed)
         .line_width(2.0)
         .dash(Dash::Dashed)
         .label("In a vacuum");
     let (x, y, speed) = flight(DRAG);
     ax.plot(&x, &y)
-        .color_data(&speed)
+        .colour_data(&speed)
         .line_width(2.0)
         .label("Through air");
     let speed = ax
-        .color_scale()
-        .colormap(Colormap::Plasma)
+        .colour_scale()
+        .colourmap(Colourmap::Plasma)
         .title("Speed $|v|$ (m/s)")
         .id();
     ax.xlabel("Distance $x$ (m)")
@@ -108,7 +108,7 @@ pub fn figure() -> Figure {
         .grid(true)
         .legend(LegendLocation::NorthEast);
     fig.panel(1, 0)
-        .colorbar(speed)
-        .orientation(ColorbarOrientation::Horizontal);
+        .colourbar(speed)
+        .orientation(ColourbarOrientation::Horizontal);
     fig
 }

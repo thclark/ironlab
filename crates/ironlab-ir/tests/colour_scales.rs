@@ -5,30 +5,30 @@
 //! The IR these tests assume is the approved sketch of the colourbar epic plan, with these
 //! details, which the sketch leaves open:
 //!
-//! - `ColorScale` is a figure node in `Figure.color_scales`, declared in `figure_nodes!` as
-//!   `ColorScale in color_scales, found by color_scale and color_scale_mut as "colour
-//!   scale", encoded as color_scale`, so `NodeKind::ColorScale`, `Node::ColorScale`,
-//!   `Figure::color_scale` and `Figure::color_scale_mut` exist.
-//! - `ColorScale`, `ContinuousColorScale`, `DiscreteColorScale`, `IndexedColorScale`,
-//!   `CategoricalColorScale`, `ColorScaleKind`, `ColorScaleLevels`, `Colormap` and
-//!   `ColorScaleNorm` implement `Default`, with the defaults that the plan states.
-//!   `ColorScaleOutOfRange` has no meaningful single default, because its policy defaults
+//! - `ColourScale` is a figure node in `Figure.colour_scales`, declared in `figure_nodes!` as
+//!   `ColourScale in colour_scales, found by colour_scale and colour_scale_mut as "colour
+//!   scale", encoded as colour_scale`, so `NodeKind::ColourScale`, `Node::ColourScale`,
+//!   `Figure::colour_scale` and `Figure::colour_scale_mut` exist.
+//! - `ColourScale`, `ContinuousColourScale`, `DiscreteColourScale`, `IndexedColourScale`,
+//!   `CategoricalColourScale`, `ColourScaleKind`, `ColourScaleLevels`, `Colourmap` and
+//!   `ColourScaleNorm` implement `Default`, with the defaults that the plan states.
+//!   `ColourScaleOutOfRange` has no meaningful single default, because its policy defaults
 //!   differ by category, so the tests build it as a struct literal.
 //! - `ScalarImage` is the artist `Artist::ScalarImage` with `NodeKind::ScalarImage`, and
-//!   `Contour`, `Surface`, `ScalarImage` and `Series` each have `color_scale:
+//!   `Contour`, `Surface`, `ScalarImage` and `Series` each have `colour_scale:
 //!   Option<NodeId>`, `None` by default. A series with colour data names a scale as the
 //!   other colour-mapped artists do (stage 3 replaced the scatter of stage 2 with it).
 //! - `Contour.levels` is `Option<Levels>`, `None` by default.
-//! - Validation adds `IssueKind::MissingColorScale`, reported against the artist;
+//! - Validation adds `IssueKind::MissingColourScale`, reported against the artist;
 //!   `IssueKind::ValueOutOfRange`, which replaces `PixelOutOfRange` and is reported against
-//!   the artist whose value falls in a strict category; and `IssueKind::InvalidColormap`,
-//!   reported against the scale whose listed colormap has fewer than 2 or more than 1024
+//!   the artist whose value falls in a strict category; and `IssueKind::InvalidColourmap`,
+//!   reported against the scale whose listed colourmap has fewer than 2 or more than 1024
 //!   colours. Invalid band edges are `InvalidLevels` and invalid limits `InvalidLimits`,
 //!   both reported against the scale, as they are for an axis and a contour.
-//! - A scale reference that names no node is `IssueKind::UnknownColorScale`, reported
+//! - A scale reference that names no node is `IssueKind::UnknownColourScale`, reported
 //!   against the artist, as the sibling of `UnknownData` for a data reference that names
 //!   no node. An indexed or categorical scale with no entries is
-//!   `IssueKind::InvalidColorScale`, reported against the scale.
+//!   `IssueKind::InvalidColourScale`, reported against the scale.
 //! - Validation of an index-mapped scale checks the data values themselves (the nodes of a
 //!   field, the pixels of an image, the colour data of a series), never values derived
 //!   from them: the mean of a surface face's corners and the automatic levels of a contour
@@ -36,10 +36,10 @@
 //!   automatic levels between entries (see the scene tests).
 //! - Under a logarithmic norm, automatic limits range over the positive finite values only,
 //!   so a value that is not positive lies below the range and follows `below`.
-//! - A quiver whose colour is `Colormapped` has no values to map and no scale reference.
+//! - A quiver whose colour is `Colourmapped` has no values to map and no scale reference.
 //!   It keeps today's drawing, the middle colour of viridis, so it needs no scale and raises
-//!   no `MissingColorScale`. The same holds for a series without colour data whose line or
-//!   marker colour is `Colormapped`.
+//!   no `MissingColourScale`. The same holds for a series without colour data whose line or
+//!   marker colour is `Colourmapped`.
 //! - The properties of a scale are reached through the flattened variant of its kind, as a
 //!   panel's legend is reached through `content.legend`: `kind.continuous.limits`,
 //!   `kind.discrete.levels`, `kind.indexed.outside.policy`, and so on.
@@ -48,15 +48,15 @@ mod common;
 
 use common::edits::{applied, path, set, tx};
 use common::{
-    FigureBuilder, categorical, color_scale_variants_figure, continuous, discrete, indexed, named,
+    FigureBuilder, categorical, colour_scale_variants_figure, continuous, discrete, indexed, named,
     out_of_range,
 };
 use ironlab_ir::*;
 use serde_json::{Value as JsonValue, json};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 /// Returns the kinds of the issues of a list, in the order reported.
 fn kinds(issues: &[ValidationIssue]) -> Vec<IssueKind> {
@@ -72,20 +72,20 @@ fn has(issues: &[ValidationIssue], kind: IssueKind, node: NodeId) -> bool {
 
 /// A figure of one 2D axes holding a 1 × n scalar image of the given float values, mapped
 /// through one scale of the given kind. Returns the figure, the image and the scale.
-fn image_through(kind: ColorScaleKind, values: &[f64]) -> (Figure, NodeId, NodeId) {
+fn image_through(kind: ColourScaleKind, values: &[f64]) -> (Figure, NodeId, NodeId) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
-    let scale = b.color_scale(kind);
+    let scale = b.colour_scale(kind);
     let data = b.matrix(1, values.len(), |_, i| values[i]);
     let image = b.scalar_image(axes, data, Some(scale));
     (b.build(), image, scale)
 }
 
 /// As [`image_through`], for 8-bit values.
-fn byte_image_through(kind: ColorScaleKind, values: &[u8]) -> (Figure, NodeId, NodeId) {
+fn byte_image_through(kind: ColourScaleKind, values: &[u8]) -> (Figure, NodeId, NodeId) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
-    let scale = b.color_scale(kind);
+    let scale = b.colour_scale(kind);
     let data = b.bytes(vec![1, values.len()], values.to_vec());
     let image = b.scalar_image(axes, data, Some(scale));
     (b.build(), image, scale)
@@ -93,16 +93,16 @@ fn byte_image_through(kind: ColorScaleKind, values: &[u8]) -> (Figure, NodeId, N
 
 /// Returns the scale of a figure with the given identifier, found without the API under
 /// test.
-fn scale_of(fig: &Figure, id: NodeId) -> &ColorScale {
-    fig.color_scales
+fn scale_of(fig: &Figure, id: NodeId) -> &ColourScale {
+    fig.colour_scales
         .iter()
         .find(|s| s.id == id)
         .expect("the fixture scale exists")
 }
 
 /// Returns the scale of a figure with the given identifier for modification.
-fn scale_mut(fig: &mut Figure, id: NodeId) -> &mut ColorScale {
-    fig.color_scales
+fn scale_mut(fig: &mut Figure, id: NodeId) -> &mut ColourScale {
+    fig.colour_scales
         .iter_mut()
         .find(|s| s.id == id)
         .expect("the fixture scale exists")
@@ -115,18 +115,18 @@ fn scale_mut(fig: &mut Figure, id: NodeId) -> &mut ColorScale {
 // Why: a figure with scales of every kind and variant must reload exactly from both formats, or a saved colourbar would change.
 #[test]
 fn every_kind_and_variant_of_colour_scale_round_trips_through_json_and_protobuf() {
-    let fig = color_scale_variants_figure();
+    let fig = colour_scale_variants_figure();
     assert_eq!(fig.validate().errors, vec![], "the fixture is valid");
-    assert_eq!(fig.color_scales.len(), 8);
+    assert_eq!(fig.colour_scales.len(), 8);
     let json = Figure::from_json(&fig.to_json()).expect("the JSON form reloads");
     assert_eq!(json, fig, "JSON round trip");
     let binary = Figure::from_protobuf(&fig.to_protobuf()).expect("the binary form reloads");
     assert_eq!(binary, fig, "protobuf round trip");
 
     // Each kind alone, so that a fault in one kind is not masked by the others.
-    for scale in &fig.color_scales {
+    for scale in &fig.colour_scales {
         let mut alone = Figure::new();
-        alone.color_scales.push(scale.clone());
+        alone.colour_scales.push(scale.clone());
         assert_eq!(
             Figure::from_json(&alone.to_json()).unwrap(),
             alone,
@@ -144,10 +144,10 @@ fn every_kind_and_variant_of_colour_scale_round_trips_through_json_and_protobuf(
 
 // Why: clients in other languages write scales as JSON, so the tagged forms the plan documents must be the forms written.
 #[test]
-fn the_json_form_of_a_colour_scale_tags_its_kind_colormap_levels_and_norm() {
-    let fig = color_scale_variants_figure();
+fn the_json_form_of_a_colour_scale_tags_its_kind_colourmap_levels_and_norm() {
+    let fig = colour_scale_variants_figure();
     let value: JsonValue = serde_json::from_str(&fig.to_json()).unwrap();
-    let scales = value["color_scales"]
+    let scales = value["colour_scales"]
         .as_array()
         .expect("the colour scales are a list");
     let kinds: Vec<&JsonValue> = scales.iter().map(|s| &s["kind"]["type"]).collect();
@@ -165,15 +165,15 @@ fn the_json_form_of_a_colour_scale_tags_its_kind_colormap_levels_and_norm() {
         ]
     );
     let magma = &scales[0]["kind"]["value"];
-    assert_eq!(magma["colormap"]["type"], json!("named"));
-    assert_eq!(magma["colormap"]["name"], json!("magma"));
-    assert_eq!(magma["colormap"]["reverse"], json!(true));
+    assert_eq!(magma["colourmap"]["type"], json!("named"));
+    assert_eq!(magma["colourmap"]["name"], json!("magma"));
+    assert_eq!(magma["colourmap"]["reverse"], json!(true));
     assert_eq!(magma["norm"], json!("linear"));
     assert_eq!(magma["below"]["show_key"], json!(true));
     let listed = &scales[1]["kind"]["value"];
-    assert_eq!(listed["colormap"]["type"], json!("listed"));
+    assert_eq!(listed["colourmap"]["type"], json!("listed"));
     assert_eq!(
-        listed["colormap"]["colors"].as_array().map(Vec::len),
+        listed["colourmap"]["colours"].as_array().map(Vec::len),
         Some(3)
     );
     assert_eq!(listed["norm"], json!("log"));
@@ -189,13 +189,13 @@ fn the_json_form_of_a_colour_scale_tags_its_kind_colormap_levels_and_norm() {
 #[test]
 fn a_category_without_a_label_cannot_be_read() {
     let mut fig = Figure::new();
-    fig.color_scales.push(ColorScale {
+    fig.colour_scales.push(ColourScale {
         id: NodeId(7),
         kind: categorical(vec![RED, GREEN], OutOfRange::Strict),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     let mut value: JsonValue = serde_json::from_str(&fig.to_json()).unwrap();
-    let categories = &mut value["color_scales"][0]["kind"]["value"]["categories"];
+    let categories = &mut value["colour_scales"][0]["kind"]["value"]["categories"];
     categories[1]
         .as_object_mut()
         .expect("a category is an object")
@@ -207,47 +207,47 @@ fn a_category_without_a_label_cannot_be_read() {
 // Why: a scale built with defaults must behave as the plan promises: viridis and automatic linear limits, clamped ends, NaN drawn as nothing, and strict indices.
 #[test]
 fn each_kind_has_the_defaults_the_model_promises() {
-    let scale = ColorScale::default();
+    let scale = ColourScale::default();
     assert_eq!(scale.title, None);
     assert_eq!(scale.non_finite.policy, OutOfRange::Transparent);
     assert!(!scale.non_finite.show_key);
     assert_eq!(scale.non_finite.label, None);
     assert_eq!(
         scale.kind,
-        ColorScaleKind::Continuous(ContinuousColorScale::default())
+        ColourScaleKind::Continuous(ContinuousColourScale::default())
     );
 
-    let c = ContinuousColorScale::default();
-    assert_eq!(c.colormap, named(ColormapName::Viridis));
-    assert_eq!(c.colormap, Colormap::default());
+    let c = ContinuousColourScale::default();
+    assert_eq!(c.colourmap, named(ColourmapName::Viridis));
+    assert_eq!(c.colourmap, Colourmap::default());
     assert_eq!(c.limits, Limits::Auto);
-    assert_eq!(c.norm, ColorScaleNorm::Linear);
+    assert_eq!(c.norm, ColourScaleNorm::Linear);
     assert_eq!(c.below.policy, OutOfRange::Clamp);
     assert_eq!(c.above.policy, OutOfRange::Clamp);
     assert!(!c.below.show_key && !c.above.show_key);
     assert_eq!(c.ticks, Ticks::Auto);
     assert_eq!(c.tick_labels, TickLabels::Auto);
 
-    let d = DiscreteColorScale::default();
-    assert_eq!(d.colormap, named(ColormapName::Viridis));
+    let d = DiscreteColourScale::default();
+    assert_eq!(d.colourmap, named(ColourmapName::Viridis));
     assert_eq!(
         d.levels,
-        ColorScaleLevels::Auto {
+        ColourScaleLevels::Auto {
             count: 10,
             limits: Limits::Auto
         }
     );
-    assert_eq!(d.levels, ColorScaleLevels::default());
-    assert_eq!(d.norm, ColorScaleNorm::Linear);
+    assert_eq!(d.levels, ColourScaleLevels::default());
+    assert_eq!(d.norm, ColourScaleNorm::Linear);
     assert_eq!(d.below.policy, OutOfRange::Clamp);
     assert_eq!(d.above.policy, OutOfRange::Clamp);
 
-    let i = IndexedColorScale::default();
+    let i = IndexedColourScale::default();
     assert_eq!(i.outside.policy, OutOfRange::Strict);
     assert!(!i.outside.show_key);
     assert_eq!(i.ticks, Ticks::Auto);
 
-    let k = CategoricalColorScale::default();
+    let k = CategoricalColourScale::default();
     assert_eq!(k.outside.policy, OutOfRange::Strict);
     assert!(k.categories.is_empty());
 }
@@ -255,14 +255,14 @@ fn each_kind_has_the_defaults_the_model_promises() {
 // Why: an artist built with defaults names no scale and a contour has no levels of its own, so that it follows its scale's band edges.
 #[test]
 fn colour_mapped_artists_name_no_scale_and_contours_no_levels_by_default() {
-    assert_eq!(ScalarImage::default().color_scale, None);
+    assert_eq!(ScalarImage::default().colour_scale, None);
     assert_eq!(ScalarImage::default().alpha, None);
     assert_eq!(ScalarImage::default().opacity, 1.0);
     assert!(ScalarImage::default().visible);
-    assert_eq!(Contour::default().color_scale, None);
+    assert_eq!(Contour::default().colour_scale, None);
     assert_eq!(Contour::default().levels, None);
-    assert_eq!(Surface::default().color_scale, None);
-    assert_eq!(Series::default().color_scale, None);
+    assert_eq!(Surface::default().colour_scale, None);
+    assert_eq!(Series::default().colour_scale, None);
 }
 
 // ---------------------------------------------------------------------------------
@@ -272,24 +272,24 @@ fn colour_mapped_artists_name_no_scale_and_contours_no_levels_by_default() {
 // Why: clients ask what a node is before they show or edit it, so a scale must be known and found by identifier like any node.
 #[test]
 fn a_colour_scale_is_a_node_known_and_found_by_its_identifier() {
-    let fig = color_scale_variants_figure();
-    for scale in &fig.color_scales {
-        assert_eq!(fig.node_kind(scale.id), Some(NodeKind::ColorScale));
-        assert_eq!(fig.color_scale(scale.id), Some(scale));
+    let fig = colour_scale_variants_figure();
+    for scale in &fig.colour_scales {
+        assert_eq!(fig.node_kind(scale.id), Some(NodeKind::ColourScale));
+        assert_eq!(fig.colour_scale(scale.id), Some(scale));
     }
     let image = fig.axes[0].artists[0].id();
     assert_eq!(fig.node_kind(image), Some(NodeKind::ScalarImage));
-    assert_eq!(fig.color_scale(image), None, "an artist is not a scale");
-    assert!(NodeKind::ALL.contains(&NodeKind::ColorScale));
+    assert_eq!(fig.colour_scale(image), None, "an artist is not a scale");
+    assert!(NodeKind::ALL.contains(&NodeKind::ColourScale));
     assert!(NodeKind::ALL.contains(&NodeKind::ScalarImage));
 }
 
 // Why: a reference names a node by identifier alone, so a scale sharing an identifier with another node makes the reference ambiguous.
 #[test]
 fn a_colour_scale_sharing_an_identifier_with_another_node_is_a_duplicate_node_id() {
-    let mut fig = color_scale_variants_figure();
+    let mut fig = colour_scale_variants_figure();
     let axes = fig.axes[0].id;
-    let first = fig.color_scales[0].id;
+    let first = fig.colour_scales[0].id;
     scale_mut(&mut fig, first).id = axes;
     assert!(
         kinds(&fig.validate().errors).contains(&IssueKind::DuplicateNodeId),
@@ -302,9 +302,9 @@ fn a_colour_scale_sharing_an_identifier_with_another_node_is_a_duplicate_node_id
 #[test]
 fn allocation_lies_above_the_identifier_of_every_colour_scale() {
     let mut fig = Figure::new();
-    fig.color_scales.push(ColorScale {
+    fig.colour_scales.push(ColourScale {
         id: NodeId(900),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     assert!(fig.alloc_node_id().0 > 900);
 }
@@ -325,10 +325,10 @@ fn a_scale_and_an_artist_that_names_it_are_inserted_in_one_transaction() {
         Edit::Insert {
             parent: fig.id,
             index: None,
-            node: Node::ColorScale(ColorScale {
+            node: Node::ColourScale(ColourScale {
                 id: scale,
-                kind: continuous(named(ColormapName::Plasma), Limits::Auto),
-                ..ColorScale::default()
+                kind: continuous(named(ColourmapName::Plasma), Limits::Auto),
+                ..ColourScale::default()
             }),
         },
         Edit::Insert {
@@ -337,14 +337,14 @@ fn a_scale_and_an_artist_that_names_it_are_inserted_in_one_transaction() {
             node: Node::Artist(Artist::ScalarImage(ScalarImage {
                 id: image,
                 values,
-                color_scale: Some(scale),
+                colour_scale: Some(scale),
                 ..ScalarImage::default()
             })),
         },
     ]);
     let (edited, inverse) = applied(&fig, &insert).unwrap();
     assert_eq!(edited.validate().errors, vec![]);
-    assert_eq!(edited.node_kind(scale), Some(NodeKind::ColorScale));
+    assert_eq!(edited.node_kind(scale), Some(NodeKind::ColourScale));
     assert_eq!(applied(&edited, &inverse).unwrap().0, fig);
 }
 
@@ -352,7 +352,7 @@ fn a_scale_and_an_artist_that_names_it_are_inserted_in_one_transaction() {
 #[test]
 fn removing_a_scale_that_an_artist_names_is_refused_unless_the_artist_goes_too() {
     let (fig, image, scale) = image_through(
-        continuous(named(ColormapName::Viridis), Limits::Auto),
+        continuous(named(ColourmapName::Viridis), Limits::Auto),
         &[0.0, 1.0],
     );
     let mut edited = fig.clone();
@@ -366,7 +366,7 @@ fn removing_a_scale_that_an_artist_names_is_refused_unless_the_artist_goes_too()
 
     let both = tx([Edit::Remove { node: image }, Edit::Remove { node: scale }]);
     let (removed, inverse) = applied(&fig, &both).unwrap();
-    assert!(removed.color_scales.is_empty());
+    assert!(removed.colour_scales.is_empty());
     assert_eq!(applied(&removed, &inverse).unwrap().0, fig);
 }
 
@@ -374,10 +374,10 @@ fn removing_a_scale_that_an_artist_names_is_refused_unless_the_artist_goes_too()
 #[test]
 fn a_scale_that_no_artist_uses_is_valid_without_a_warning() {
     let mut fig = Figure::new();
-    fig.color_scales.push(ColorScale {
+    fig.colour_scales.push(ColourScale {
         id: NodeId(2),
         kind: indexed(vec![RED, GREEN], OutOfRange::Strict),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     let report = fig.validate();
     assert_eq!(report.errors, vec![]);
@@ -396,16 +396,16 @@ fn a_scale_that_no_artist_uses_is_valid_without_a_warning() {
 /// the figure and the identifiers of the scalar image, the contour, the surface and the
 /// series of markers coloured by data, in that order.
 fn every_mapped_artist(
-    color_scale: Option<NodeId>,
+    colour_scale: Option<NodeId>,
     with_scale: bool,
     edit: impl Fn(&mut Artist),
 ) -> (Figure, [NodeId; 4]) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
     if with_scale {
-        b.fig.color_scales.push(ColorScale {
+        b.fig.colour_scales.push(ColourScale {
             id: NodeId(400),
-            ..ColorScale::default()
+            ..ColourScale::default()
         });
     }
     let gx = b.vector(&[0.0, 1.0, 2.0]);
@@ -417,25 +417,25 @@ fn every_mapped_artist(
         Artist::ScalarImage(ScalarImage {
             id: ids[0],
             values: field,
-            color_scale,
+            colour_scale,
             ..ScalarImage::default()
         }),
         Artist::Contour(Contour {
             id: ids[1],
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
-            color_scale,
+            colour_scale,
             ..Contour::default()
         }),
         Artist::Surface(Surface {
             id: ids[2],
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
-            face: ColorSpec::Colormapped,
-            edge: ColorSpec::Rgba {
-                color: Color::BLACK,
+            face: ColourSpec::Colourmapped,
+            edge: ColourSpec::Rgba {
+                colour: Colour::BLACK,
             },
-            color_scale,
+            colour_scale,
             ..Surface::default()
         }),
         Artist::Series(Series {
@@ -443,7 +443,7 @@ fn every_mapped_artist(
             x: points,
             y: points,
             line: LineStyle {
-                color: ColorSpec::Colormapped,
+                colour: ColourSpec::Colourmapped,
                 dash: DashStyle::None,
                 ..LineStyle::default()
             },
@@ -451,8 +451,8 @@ fn every_mapped_artist(
                 shape: MarkerShape::Circle,
                 ..MarkerStyle::default()
             },
-            color_data: Some(points),
-            color_scale,
+            colour_data: Some(points),
+            colour_scale,
             ..Series::default()
         }),
     ];
@@ -463,9 +463,9 @@ fn every_mapped_artist(
     (b.build(), ids)
 }
 
-// Why: there is no axes colormap to fall back on, so an artist that maps values to colours without naming a scale cannot be drawn and must be reported.
+// Why: there is no axes colourmap to fall back on, so an artist that maps values to colours without naming a scale cannot be drawn and must be reported.
 #[test]
-fn a_colour_mapped_artist_that_names_no_scale_is_missing_color_scale() {
+fn a_colour_mapped_artist_that_names_no_scale_is_missing_colour_scale() {
     let (fig, ids) = every_mapped_artist(None, false, |_| {});
     let report = fig.validate();
     for (name, id) in ["scalar image", "contour", "surface", "series"]
@@ -473,7 +473,7 @@ fn a_colour_mapped_artist_that_names_no_scale_is_missing_color_scale() {
         .zip(ids)
     {
         assert!(
-            has(&report.errors, IssueKind::MissingColorScale, id),
+            has(&report.errors, IssueKind::MissingColourScale, id),
             "{name}: {report:?}"
         );
     }
@@ -482,46 +482,46 @@ fn a_colour_mapped_artist_that_names_no_scale_is_missing_color_scale() {
     let (fig, ids) = every_mapped_artist(None, false, |artist| {
         if let Artist::Contour(c) = artist {
             c.fill = true;
-            c.line.color = ColorSpec::Rgba {
-                color: Color::BLACK,
+            c.line.colour = ColourSpec::Rgba {
+                colour: Colour::BLACK,
             };
         }
     });
     assert!(has(
         &fig.validate().errors,
-        IssueKind::MissingColorScale,
+        IssueKind::MissingColourScale,
         ids[1]
     ));
 
     // Colour-mapped edges on a surface with fixed faces still need a scale.
     let (fig, ids) = every_mapped_artist(None, false, |artist| {
         if let Artist::Surface(s) = artist {
-            s.face = ColorSpec::Rgba {
-                color: Color::WHITE,
+            s.face = ColourSpec::Rgba {
+                colour: Colour::WHITE,
             };
-            s.edge = ColorSpec::Colormapped;
+            s.edge = ColourSpec::Colourmapped;
         }
     });
     assert!(has(
         &fig.validate().errors,
-        IssueKind::MissingColorScale,
+        IssueKind::MissingColourScale,
         ids[2]
     ));
 }
 
-// Why: a contour's isolines and a surface's faces and edges have no colour of their own, so the scene draws an automatic colour there through the scale exactly as a colormapped one; the IR must agree, or such an artist would be drawn without a scale to draw it through and would take no part in its scale's automatic limits.
+// Why: a contour's isolines and a surface's faces and edges have no colour of their own, so the scene draws an automatic colour there through the scale exactly as a colourmapped one; the IR must agree, or such an artist would be drawn without a scale to draw it through and would take no part in its scale's automatic limits.
 #[test]
 fn an_automatic_isoline_face_or_edge_colour_is_colour_mapped() {
-    let fixed = ColorSpec::Rgba {
-        color: Color::BLACK,
+    let fixed = ColourSpec::Rgba {
+        colour: Colour::BLACK,
     };
     let (fig, ids) = every_mapped_artist(None, false, |artist| match artist {
         Artist::Contour(c) => {
             c.fill = false;
-            c.line.color = ColorSpec::Auto;
+            c.line.colour = ColourSpec::Auto;
         }
         Artist::Surface(s) => {
-            s.face = ColorSpec::Auto;
+            s.face = ColourSpec::Auto;
             s.edge = fixed;
         }
         _ => {}
@@ -529,7 +529,7 @@ fn an_automatic_isoline_face_or_edge_colour_is_colour_mapped() {
     let report = fig.validate();
     for (name, id) in [("contour", ids[1]), ("surface", ids[2])] {
         assert!(
-            has(&report.errors, IssueKind::MissingColorScale, id),
+            has(&report.errors, IssueKind::MissingColourScale, id),
             "{name}: {report:?}"
         );
     }
@@ -538,27 +538,27 @@ fn an_automatic_isoline_face_or_edge_colour_is_colour_mapped() {
     let (fig, ids) = every_mapped_artist(None, false, |artist| {
         if let Artist::Surface(s) = artist {
             s.face = fixed;
-            s.edge = ColorSpec::Auto;
+            s.edge = ColourSpec::Auto;
         }
     });
     assert!(has(
         &fig.validate().errors,
-        IssueKind::MissingColorScale,
+        IssueKind::MissingColourScale,
         ids[2]
     ));
 
     // With a scale named, an automatic contour's field reaches the scale's automatic
-    // limits, as a colormapped contour's does.
+    // limits, as a colourmapped contour's does.
     let (fig, ids) = every_mapped_artist(Some(NodeId(400)), true, |artist| {
         if let Artist::Contour(c) = artist {
-            c.line.color = ColorSpec::Auto;
+            c.line.colour = ColourSpec::Auto;
         }
     });
     let Some((_, Artist::Contour(contour))) = fig.artist(ids[1]) else {
         panic!("the contour exists");
     };
     assert!(
-        fig.color_scale_values(NodeId(400)).contains(&contour.z),
+        fig.colour_scale_values(NodeId(400)).contains(&contour.z),
         "the automatic contour maps its field through the scale"
     );
 }
@@ -566,13 +566,13 @@ fn an_automatic_isoline_face_or_edge_colour_is_colour_mapped() {
 // Why: an artist drawn in fixed colours maps nothing, so it must not be made to name a scale it would never use.
 #[test]
 fn an_artist_drawn_in_fixed_colours_needs_no_scale() {
-    let fixed = ColorSpec::Rgba {
-        color: Color::BLACK,
+    let fixed = ColourSpec::Rgba {
+        colour: Colour::BLACK,
     };
     let (fig, ids) = every_mapped_artist(None, false, |artist| match artist {
         Artist::Contour(c) => {
             c.fill = false;
-            c.line.color = fixed;
+            c.line.colour = fixed;
         }
         Artist::Surface(s) => {
             s.face = fixed;
@@ -580,27 +580,27 @@ fn an_artist_drawn_in_fixed_colours_needs_no_scale() {
         }
         // A series drawn in fixed colours has no colour data.
         Artist::Series(s) => {
-            s.color_data = None;
-            s.line.color = fixed;
+            s.colour_data = None;
+            s.line.colour = fixed;
         }
         _ => {}
     });
     let report = fig.validate();
     for id in &ids[1..] {
         assert!(
-            !has(&report.errors, IssueKind::MissingColorScale, *id),
+            !has(&report.errors, IssueKind::MissingColourScale, *id),
             "{report:?}"
         );
     }
     // A scalar image always maps its values, so it alone still needs a scale.
-    assert!(has(&report.errors, IssueKind::MissingColorScale, ids[0]));
+    assert!(has(&report.errors, IssueKind::MissingColourScale, ids[0]));
 }
 
 // Why: every artist that takes a scale accepts any kind of scale, and naming one makes a colour-mapped artist valid.
 #[test]
 fn naming_a_scale_of_any_kind_makes_every_colour_mapped_artist_valid() {
     let kinds = [
-        continuous(named(ColormapName::Viridis), Limits::Auto),
+        continuous(named(ColourmapName::Viridis), Limits::Auto),
         discrete(&[0.0, 2.0, 5.0]),
         indexed(vec![RED, GREEN, BLUE, RED, GREEN, BLUE], OutOfRange::Strict),
         categorical(vec![RED, GREEN, BLUE, RED, GREEN, BLUE], OutOfRange::Strict),
@@ -635,10 +635,10 @@ fn a_scale_reference_naming_a_node_of_another_kind_is_wrong_node_kind() {
         for (k, id) in ids.into_iter().enumerate() {
             let mut wrong = fig.clone();
             match wrong.artist_mut(id).unwrap() {
-                Artist::ScalarImage(a) => a.color_scale = Some(target),
-                Artist::Contour(a) => a.color_scale = Some(target),
-                Artist::Surface(a) => a.color_scale = Some(target),
-                Artist::Series(a) => a.color_scale = Some(target),
+                Artist::ScalarImage(a) => a.colour_scale = Some(target),
+                Artist::Contour(a) => a.colour_scale = Some(target),
+                Artist::Surface(a) => a.colour_scale = Some(target),
+                Artist::Series(a) => a.colour_scale = Some(target),
                 other => panic!("unexpected artist {other:?}"),
             }
             let report = wrong.validate();
@@ -647,7 +647,7 @@ fn a_scale_reference_naming_a_node_of_another_kind_is_wrong_node_kind() {
                 "artist {k} naming {name}: {report:?}"
             );
             assert!(
-                !kinds(&report.errors).contains(&IssueKind::MissingColorScale),
+                !kinds(&report.errors).contains(&IssueKind::MissingColourScale),
                 "artist {k} naming {name} names something: {report:?}"
             );
         }
@@ -672,30 +672,30 @@ fn a_data_reference_naming_a_scale_is_wrong_node_kind() {
 
 // Why: a scale reference that names no node cannot be drawn; the error must point at the artist that holds it and say that the scale is unknown, not that the artist names none.
 #[test]
-fn a_scale_reference_naming_no_node_is_unknown_color_scale_against_the_artist() {
+fn a_scale_reference_naming_no_node_is_unknown_colour_scale_against_the_artist() {
     let (fig, ids) = every_mapped_artist(Some(NodeId(999)), false, |_| {});
     let report = fig.validate();
     for id in ids {
         assert!(
-            has(&report.errors, IssueKind::UnknownColorScale, id),
+            has(&report.errors, IssueKind::UnknownColourScale, id),
             "{id}: {report:?}"
         );
     }
     assert!(
-        !kinds(&report.errors).contains(&IssueKind::MissingColorScale),
+        !kinds(&report.errors).contains(&IssueKind::MissingColourScale),
         "every artist names a scale, though not one that exists: {report:?}"
     );
 }
 
-// Why: a quiver, and a series without colour data, have no values to map, so a colormapped colour keeps today's drawing (the middle of viridis) and must not make the figure invalid for want of a scale it cannot use.
+// Why: a quiver, and a series without colour data, have no values to map, so a colourmapped colour keeps today's drawing (the middle of viridis) and must not make the figure invalid for want of a scale it cannot use.
 #[test]
-fn a_colormapped_quiver_or_series_without_colour_data_needs_no_scale() {
+fn a_colourmapped_quiver_or_series_without_colour_data_needs_no_scale() {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
     let points = b.vector(&[0.0, 1.0]);
     let (line, quiver, markers) = (b.node(), b.node(), b.node());
     let style = LineStyle {
-        color: ColorSpec::Colormapped,
+        colour: ColourSpec::Colourmapped,
         ..LineStyle::default()
     };
     b.push(
@@ -732,8 +732,8 @@ fn a_colormapped_quiver_or_series_without_colour_data_needs_no_scale() {
             },
             marker: MarkerStyle {
                 shape: MarkerShape::Circle,
-                face: ColorSpec::Colormapped,
-                edge: ColorSpec::Colormapped,
+                face: ColourSpec::Colourmapped,
+                edge: ColourSpec::Colourmapped,
                 ..MarkerStyle::default()
             },
             ..Series::default()
@@ -747,12 +747,12 @@ fn a_colormapped_quiver_or_series_without_colour_data_needs_no_scale() {
 #[test]
 fn an_edit_pointing_a_scale_reference_at_an_axes_is_refused() {
     let (fig, image, _) = image_through(
-        continuous(named(ColormapName::Viridis), Limits::Auto),
+        continuous(named(ColourmapName::Viridis), Limits::Auto),
         &[0.0, 1.0],
     );
     let axes = fig.axes[0].id;
     let mut edited = fig.clone();
-    let result = edited.apply(&tx([set(image, "color_scale", Value::NodeId(axes))]));
+    let result = edited.apply(&tx([set(image, "colour_scale", Value::NodeId(axes))]));
     assert!(
         matches!(&result, Err(EditError::Invalid(issues))
             if has(issues, IssueKind::WrongNodeKind, image)),
@@ -768,12 +768,12 @@ fn an_edit_pointing_a_scale_reference_at_an_axes_is_refused() {
 // Why: a strict index-mapped scale is the author's statement that every value names an entry, so 2.7 or 3 of three entries is refused, never silently drawn as another entry.
 #[test]
 fn a_fractional_or_out_of_range_index_is_value_out_of_range_under_strict() {
-    let colors = vec![RED, GREEN, BLUE];
+    let colours = vec![RED, GREEN, BLUE];
     for (name, kind) in [
-        ("indexed", indexed(colors.clone(), OutOfRange::Strict)),
+        ("indexed", indexed(colours.clone(), OutOfRange::Strict)),
         (
             "categorical",
-            categorical(colors.clone(), OutOfRange::Strict),
+            categorical(colours.clone(), OutOfRange::Strict),
         ),
     ] {
         for (what, values) in [
@@ -807,17 +807,17 @@ fn a_fractional_or_out_of_range_index_is_value_out_of_range_under_strict() {
 // Why: an author who chooses a lenient policy outside the entries has said what to draw there, so no value is refused.
 #[test]
 fn a_lenient_outside_policy_accepts_any_finite_index() {
-    let colors = vec![RED, GREEN, BLUE];
+    let colours = vec![RED, GREEN, BLUE];
     for policy in [
         OutOfRange::Transparent,
         OutOfRange::Clamp,
         OutOfRange::Rgba {
-            color: Color::BLACK,
+            colour: Colour::BLACK,
         },
     ] {
         for kind in [
-            indexed(colors.clone(), policy),
-            categorical(colors.clone(), policy),
+            indexed(colours.clone(), policy),
+            categorical(colours.clone(), policy),
         ] {
             let (fig, _, _) = image_through(kind.clone(), &[-4.0, 0.5, 2.9, 3.0, 1e9]);
             assert_eq!(fig.validate().errors, vec![], "{kind:?}");
@@ -838,7 +838,7 @@ fn a_series_coloured_by_a_fractional_class_through_a_strict_indexed_scale_is_val
         array: NdArray::vector(vec![0.0, 0.5, 2.0]),
     });
     match fig.artist_mut(ids[3]).unwrap() {
-        Artist::Series(s) => s.color_data = Some(colours),
+        Artist::Series(s) => s.colour_data = Some(colours),
         other => panic!("unexpected artist {other:?}"),
     }
     let report = fig.validate();
@@ -852,15 +852,15 @@ fn a_series_coloured_by_a_fractional_class_through_a_strict_indexed_scale_is_val
 #[test]
 fn strict_below_above_and_non_finite_categories_refuse_their_values() {
     let strict = out_of_range(OutOfRange::Strict);
-    let limited = |below: ColorScaleOutOfRange, above: ColorScaleOutOfRange| {
-        ColorScaleKind::Continuous(ContinuousColorScale {
+    let limited = |below: ColourScaleOutOfRange, above: ColourScaleOutOfRange| {
+        ColourScaleKind::Continuous(ContinuousColourScale {
             limits: Limits::Manual {
                 min: 0.0,
                 max: 10.0,
             },
             below,
             above,
-            ..ContinuousColorScale::default()
+            ..ContinuousColourScale::default()
         })
     };
     let clamp = out_of_range(OutOfRange::Clamp);
@@ -877,12 +877,12 @@ fn strict_below_above_and_non_finite_categories_refuse_their_values() {
         ),
         (
             "below a discrete scale",
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Explicit {
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Explicit {
                     values: vec![0.0, 5.0, 10.0],
                 },
                 below: strict.clone(),
-                ..DiscreteColorScale::default()
+                ..DiscreteColourScale::default()
             }),
             vec![-1.0, 5.0],
         ),
@@ -898,32 +898,32 @@ fn strict_below_above_and_non_finite_categories_refuse_their_values() {
     // range, so a strict category does not refuse it.
     let (fig, _, _) = image_through(limited(strict.clone(), strict.clone()), &[0.0, 10.0]);
     assert_eq!(fig.validate().errors, vec![], "values at the limits");
-    let edges = ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Explicit {
+    let edges = ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Explicit {
             values: vec![0.0, 5.0, 10.0],
         },
         below: strict.clone(),
         above: strict.clone(),
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     });
     let (fig, _, _) = image_through(edges, &[0.0, 5.0, 10.0]);
     assert_eq!(fig.validate().errors, vec![], "values at the band edges");
 
     // Automatic limits are the range of the data, so nothing lies outside them.
-    let auto = ColorScaleKind::Continuous(ContinuousColorScale {
+    let auto = ColourScaleKind::Continuous(ContinuousColourScale {
         below: strict.clone(),
         above: strict.clone(),
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     });
     let (fig, _, _) = image_through(auto, &[-100.0, 5.0, 100.0]);
     assert_eq!(fig.validate().errors, vec![]);
 
     // Under a logarithmic norm, automatic limits range over the positive values only, so
     // zero and a negative value lie below them and a strict `below` refuses them.
-    let log_auto = ColorScaleKind::Continuous(ContinuousColorScale {
-        norm: ColorScaleNorm::Log,
+    let log_auto = ColourScaleKind::Continuous(ContinuousColourScale {
+        norm: ColourScaleNorm::Log,
         below: strict.clone(),
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     });
     let (fig, _, _) = image_through(log_auto.clone(), &[1.0, 10.0, 100.0]);
     assert_eq!(fig.validate().errors, vec![], "positive values under log");
@@ -937,7 +937,7 @@ fn strict_below_above_and_non_finite_categories_refuse_their_values() {
 
     // A strict non-finite category refuses NaN on every kind.
     for kind in [
-        continuous(named(ColormapName::Viridis), Limits::Auto),
+        continuous(named(ColourmapName::Viridis), Limits::Auto),
         discrete(&[0.0, 1.0, 2.0]),
         indexed(vec![RED, GREEN], OutOfRange::Strict),
         categorical(vec![RED, GREEN], OutOfRange::Strict),
@@ -955,12 +955,12 @@ fn strict_below_above_and_non_finite_categories_refuse_their_values() {
 // Validation of the scale itself
 // ---------------------------------------------------------------------------------
 
-// Why: a listed colormap interpolates between its colours, which needs at least two, and #40 lifts the limit of 256 to 1024 entries, no further.
+// Why: a listed colourmap interpolates between its colours, which needs at least two, and #40 lifts the limit of 256 to 1024 entries, no further.
 #[test]
-fn a_listed_colormap_holds_from_two_to_1024_colours() {
-    let colors = |n: usize| -> Vec<Color> {
+fn a_listed_colourmap_holds_from_two_to_1024_colours() {
+    let colours = |n: usize| -> Vec<Colour> {
         (0..n)
-            .map(|k| Color::rgb((k % 256) as f32 / 255.0, 0.0, 0.0))
+            .map(|k| Colour::rgb((k % 256) as f32 / 255.0, 0.0, 0.0))
             .collect()
     };
     for (n, valid) in [
@@ -970,18 +970,20 @@ fn a_listed_colormap_holds_from_two_to_1024_colours() {
         (1024, true),
         (1025, false),
     ] {
-        let listed = Colormap::Listed { colors: colors(n) };
+        let listed = Colourmap::Listed {
+            colours: colours(n),
+        };
         for kind in [
             continuous(listed.clone(), Limits::Auto),
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                colormap: listed.clone(),
-                ..DiscreteColorScale::default()
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                colourmap: listed.clone(),
+                ..DiscreteColourScale::default()
             }),
         ] {
             let (fig, _, scale) = image_through(kind, &[0.0, 1.0]);
             let report = fig.validate();
             assert_eq!(
-                !has(&report.errors, IssueKind::InvalidColormap, scale),
+                !has(&report.errors, IssueKind::InvalidColourmap, scale),
                 valid,
                 "{n} colours: {report:?}"
             );
@@ -1006,7 +1008,7 @@ fn an_indexed_or_categorical_scale_needs_at_least_one_entry() {
     ] {
         let (fig, _, scale) = image_through(empty, &[0.0]);
         assert!(
-            has(&fig.validate().errors, IssueKind::InvalidColorScale, scale),
+            has(&fig.validate().errors, IssueKind::InvalidColourScale, scale),
             "{name} with no entries: {:?}",
             fig.validate()
         );
@@ -1015,14 +1017,14 @@ fn an_indexed_or_categorical_scale_needs_at_least_one_entry() {
     }
     // A scale that no artist uses is checked too, because a colourbar may show it.
     let mut fig = Figure::new();
-    fig.color_scales.push(ColorScale {
+    fig.colour_scales.push(ColourScale {
         id: NodeId(3),
         kind: indexed(vec![], OutOfRange::Strict),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     assert!(has(
         &fig.validate().errors,
-        IssueKind::InvalidColorScale,
+        IssueKind::InvalidColourScale,
         NodeId(3)
     ));
 }
@@ -1058,7 +1060,7 @@ fn index_mapped_validation_checks_the_data_values_not_derived_ones() {
             array: NdArray::vector(vec![0.0, 1.0, 1.0]),
         });
         match fig.artist_mut(ids[3]).unwrap() {
-            Artist::Series(s) => s.color_data = Some(classes),
+            Artist::Series(s) => s.colour_data = Some(classes),
             other => panic!("unexpected artist {other:?}"),
         }
         assert_eq!(fig.validate().errors, vec![], "{kind:?}");
@@ -1079,10 +1081,10 @@ fn index_mapped_validation_checks_the_data_values_not_derived_ones() {
 // Why: a 1024-entry indexed scale is the point of #40, so every index up to 1023 must be accepted and 1024 refused.
 #[test]
 fn an_indexed_scale_of_1024_entries_accepts_every_index_up_to_1023() {
-    let colors: Vec<Color> = (0..1024)
-        .map(|k| Color::rgb((k % 256) as f32 / 255.0, (k / 256) as f32 / 3.0, 0.5))
+    let colours: Vec<Colour> = (0..1024)
+        .map(|k| Colour::rgb((k % 256) as f32 / 255.0, (k / 256) as f32 / 3.0, 0.5))
         .collect();
-    let kind = indexed(colors, OutOfRange::Strict);
+    let kind = indexed(colours, OutOfRange::Strict);
     let (fig, _, _) = image_through(kind.clone(), &[0.0, 255.0, 256.0, 1023.0]);
     assert_eq!(fig.validate().errors, vec![]);
     let (fig, image, _) = image_through(kind, &[1024.0]);
@@ -1113,12 +1115,12 @@ fn explicit_band_edges_must_be_at_least_two_finite_and_strictly_increasing() {
             "{edges:?}: {report:?}"
         );
     }
-    let zero = ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Auto {
+    let zero = ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Auto {
             count: 0,
             limits: Limits::Auto,
         },
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     });
     let (fig, _, scale) = image_through(zero, &[0.5]);
     assert!(has(&fig.validate().errors, IssueKind::InvalidLevels, scale));
@@ -1127,22 +1129,22 @@ fn explicit_band_edges_must_be_at_least_two_finite_and_strictly_increasing() {
 // Why: manual limits that are not finite and increasing, or not positive under a logarithmic norm, place no value, so they are refused against the scale.
 #[test]
 fn manual_limits_must_be_finite_increasing_and_positive_under_a_log_norm() {
-    let with = |limits: Limits, norm: ColorScaleNorm| {
-        ColorScaleKind::Continuous(ContinuousColorScale {
+    let with = |limits: Limits, norm: ColourScaleNorm| {
+        ColourScaleKind::Continuous(ContinuousColourScale {
             limits,
             norm,
-            ..ContinuousColorScale::default()
+            ..ContinuousColourScale::default()
         })
     };
     let manual = |min: f64, max: f64| Limits::Manual { min, max };
     for (limits, norm, valid) in [
-        (manual(0.0, 1.0), ColorScaleNorm::Linear, true),
-        (manual(1.0, 1.0), ColorScaleNorm::Linear, false),
-        (manual(2.0, 1.0), ColorScaleNorm::Linear, false),
-        (manual(0.0, f64::INFINITY), ColorScaleNorm::Linear, false),
-        (manual(1.0, 1000.0), ColorScaleNorm::Log, true),
-        (manual(0.0, 1000.0), ColorScaleNorm::Log, false),
-        (manual(-10.0, 1000.0), ColorScaleNorm::Log, false),
+        (manual(0.0, 1.0), ColourScaleNorm::Linear, true),
+        (manual(1.0, 1.0), ColourScaleNorm::Linear, false),
+        (manual(2.0, 1.0), ColourScaleNorm::Linear, false),
+        (manual(0.0, f64::INFINITY), ColourScaleNorm::Linear, false),
+        (manual(1.0, 1000.0), ColourScaleNorm::Log, true),
+        (manual(0.0, 1000.0), ColourScaleNorm::Log, false),
+        (manual(-10.0, 1000.0), ColourScaleNorm::Log, false),
     ] {
         let (fig, _, scale) = image_through(with(limits, norm), &[1.0, 10.0]);
         let report = fig.validate();
@@ -1154,13 +1156,13 @@ fn manual_limits_must_be_finite_increasing_and_positive_under_a_log_norm() {
     }
 
     // The limits of automatic band edges are checked in the same way.
-    let log_bands = ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Auto {
+    let log_bands = ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Auto {
             count: 5,
             limits: manual(0.0, 100.0),
         },
-        norm: ColorScaleNorm::Log,
-        ..DiscreteColorScale::default()
+        norm: ColourScaleNorm::Log,
+        ..DiscreteColourScale::default()
     });
     let (fig, _, scale) = image_through(log_bands, &[1.0, 10.0]);
     assert!(has(&fig.validate().errors, IssueKind::InvalidLimits, scale));
@@ -1181,7 +1183,7 @@ fn registry_paths(kind: NodeKind) -> Vec<String> {
 // Why: the property editor edits a scale through the registry, so the title, the kind, every out-of-range category and the limits must be listed.
 #[test]
 fn the_registry_lists_the_properties_of_a_colour_scale() {
-    let listed = registry_paths(NodeKind::ColorScale);
+    let listed = registry_paths(NodeKind::ColourScale);
     for expected in [
         "title",
         "kind",
@@ -1189,7 +1191,7 @@ fn the_registry_lists_the_properties_of_a_colour_scale() {
         "non_finite.policy",
         "non_finite.show_key",
         "non_finite.label",
-        "kind.continuous.colormap",
+        "kind.continuous.colourmap",
         "kind.continuous.limits",
         "kind.continuous.limits.min",
         "kind.continuous.limits.max",
@@ -1198,7 +1200,7 @@ fn the_registry_lists_the_properties_of_a_colour_scale() {
         "kind.continuous.above.show_key",
         "kind.continuous.ticks",
         "kind.continuous.tick_labels",
-        "kind.discrete.colormap",
+        "kind.discrete.colourmap",
         "kind.discrete.levels",
         "kind.discrete.norm",
         "kind.discrete.below.policy",
@@ -1218,9 +1220,9 @@ fn the_registry_lists_the_properties_of_a_colour_scale() {
     );
 }
 
-// Why: each colour-mapped artist (bars, which colour by data as a series does, among them) names its scale as an optional reference, and the policies and colormap that moved to the scale must no longer be listed where they were.
+// Why: each colour-mapped artist (bars, which colour by data as a series does, among them) names its scale as an optional reference, and the policies and colourmap that moved to the scale must no longer be listed where they were.
 #[test]
-fn artists_list_their_scale_reference_and_the_axes_no_colormap_or_limits() {
+fn artists_list_their_scale_reference_and_the_axes_no_colourmap_or_limits() {
     for kind in [
         NodeKind::ScalarImage,
         NodeKind::Contour,
@@ -1231,7 +1233,7 @@ fn artists_list_their_scale_reference_and_the_axes_no_colormap_or_limits() {
     ] {
         let property = properties(kind)
             .into_iter()
-            .find(|p| p.path.to_string() == "color_scale")
+            .find(|p| p.path.to_string() == "colour_scale")
             .unwrap_or_else(|| panic!("{kind:?} lists no colour scale"));
         assert_eq!(property.value_type, ValueType::NodeId, "{kind:?}");
         assert!(property.optional, "{kind:?}");
@@ -1255,7 +1257,7 @@ fn artists_list_their_scale_reference_and_the_axes_no_colormap_or_limits() {
     }
     let axes = registry_paths(NodeKind::Axes);
     assert!(
-        !axes.contains(&"colormap".to_owned()) && !axes.contains(&"clim".to_owned()),
+        !axes.contains(&"colourmap".to_owned()) && !axes.contains(&"clim".to_owned()),
         "{axes:?}"
     );
     let contour = properties(NodeKind::Contour)
@@ -1272,7 +1274,7 @@ fn one_set_of_a_scale_limits_is_accepted_and_undone() {
     b.fig.layout = TileLayout::new(1, 2);
     let left = b.axes2d(0, 0);
     let right = b.axes2d(0, 1);
-    let scale = b.color_scale(continuous(named(ColormapName::Viridis), Limits::Auto));
+    let scale = b.colour_scale(continuous(named(ColourmapName::Viridis), Limits::Auto));
     let values = b.matrix(1, 2, |_, i| i as f64);
     let images = [
         b.scalar_image(left, values, Some(scale)),
@@ -1297,7 +1299,7 @@ fn one_set_of_a_scale_limits_is_accepted_and_undone() {
     );
     for image in images {
         assert_eq!(
-            edited.get(image, &path("color_scale")).unwrap(),
+            edited.get(image, &path("colour_scale")).unwrap(),
             Value::NodeId(scale),
             "the artists still name the one scale"
         );
@@ -1338,7 +1340,7 @@ fn the_policies_of_a_scale_are_set_by_path_and_undone() {
             set(
                 scale,
                 "non_finite.policy",
-                Value::OutOfRange(OutOfRange::Rgba { color: RED }),
+                Value::OutOfRange(OutOfRange::Rgba { colour: RED }),
             ),
             set(
                 scale,
@@ -1349,14 +1351,14 @@ fn the_policies_of_a_scale_are_set_by_path_and_undone() {
     )
     .unwrap();
     let edited_scale = scale_of(&edited, scale);
-    let ColorScaleKind::Indexed(kind) = &edited_scale.kind else {
+    let ColourScaleKind::Indexed(kind) = &edited_scale.kind else {
         panic!("the scale stayed indexed: {:?}", edited_scale.kind);
     };
     assert_eq!(kind.outside.policy, OutOfRange::Clamp);
     assert!(kind.outside.show_key);
     assert_eq!(
         edited_scale.non_finite.policy,
-        OutOfRange::Rgba { color: RED }
+        OutOfRange::Rgba { colour: RED }
     );
     assert_eq!(
         edited_scale.non_finite.label,
@@ -1369,35 +1371,35 @@ fn the_policies_of_a_scale_are_set_by_path_and_undone() {
 // Choices offered by the property editor
 // ---------------------------------------------------------------------------------
 
-/// Returns whether the colormapped choice at a path of a node is offered as available.
-fn colormapped_available(fig: &Figure, node: NodeId, at: &str) -> bool {
+/// Returns whether the colourmapped choice at a path of a node is offered as available.
+fn colourmapped_available(fig: &Figure, node: NodeId, at: &str) -> bool {
     property_choices(fig, node, &path(at))
         .into_iter()
-        .find(|choice| choice.label == "Colormapped")
-        .unwrap_or_else(|| panic!("no colormapped choice at {at}"))
+        .find(|choice| choice.label == "Colourmapped")
+        .unwrap_or_else(|| panic!("no colourmapped choice at {at}"))
         .available()
 }
 
-// Why: a colormapped colour is honoured only when the artist names a scale and has values to map, so the editor must offer it exactly then.
+// Why: a colourmapped colour is honoured only when the artist names a scale and has values to map, so the editor must offer it exactly then.
 #[test]
-fn colormapped_is_available_exactly_when_the_artist_names_a_scale_and_has_values_to_map() {
+fn colourmapped_is_available_exactly_when_the_artist_names_a_scale_and_has_values_to_map() {
     for (with_scale, reference) in [(true, Some(NodeId(400))), (false, None)] {
         let (fig, ids) = every_mapped_artist(reference, with_scale, |_| {});
         assert_eq!(
-            colormapped_available(&fig, ids[1], "line.color"),
+            colourmapped_available(&fig, ids[1], "line.colour"),
             with_scale,
             "contour isolines with a scale: {with_scale}"
         );
         for at in ["face", "edge"] {
             assert_eq!(
-                colormapped_available(&fig, ids[2], at),
+                colourmapped_available(&fig, ids[2], at),
                 with_scale,
                 "surface {at} with a scale: {with_scale}"
             );
         }
         // A series with colour data colours its markers through its scale (#19).
         assert_eq!(
-            colormapped_available(&fig, ids[3], "marker.face"),
+            colourmapped_available(&fig, ids[3], "marker.face"),
             with_scale,
             "series marker face with a scale: {with_scale}"
         );
@@ -1406,10 +1408,10 @@ fn colormapped_is_available_exactly_when_the_artist_names_a_scale_and_has_values
     // A series without colour data has no values to map, even when it names a scale.
     let (fig, ids) = every_mapped_artist(Some(NodeId(400)), true, |artist| {
         if let Artist::Series(s) = artist {
-            s.color_data = None;
+            s.colour_data = None;
         }
     });
-    assert!(!colormapped_available(&fig, ids[3], "line.color"));
+    assert!(!colourmapped_available(&fig, ids[3], "line.colour"));
 }
 
 // Why: a non-finite value has no nearest end to be clamped to, so clamping is offered disabled at a scale's non-finite category and enabled at the others.
@@ -1423,7 +1425,7 @@ fn clamping_is_unavailable_at_the_non_finite_category_of_a_scale() {
             .available()
     };
     let (fig, _, scale) = image_through(
-        continuous(named(ColormapName::Viridis), Limits::Auto),
+        continuous(named(ColourmapName::Viridis), Limits::Auto),
         &[0.0, 1.0],
     );
     assert!(!clamp_available(&fig, scale, "non_finite.policy"));

@@ -1,7 +1,7 @@
 //! Series (#19, #44): the one artist for points, drawn as a line, as markers, or as both, and coloured by data along
 //! its line as well as at its markers.
 //!
-//! Expected colours are worked out here from a listed colormap of two or three colours between manual limits of 0 and
+//! Expected colours are worked out here from a listed colourmap of two or three colours between manual limits of 0 and
 //! 1, which the scale interpolates linearly in sRGB, so that the colour of a value `v` through red–blue is
 //! `(1 − v, 0, v)` without reference to the compiler's own mapping. These tests pin the following rules, which the
 //! plan leaves to the implementation:
@@ -24,7 +24,7 @@
 //!   colours. An `Auto` marker face or edge resolves as it would on a series without colour data: to the series' own
 //!   colour from the axes colour order, the colour its line would have had were it not colour-mapped. Such a series
 //!   uses up that colour of the order, so the next automatic series does not share it.
-//! - **Markers.** A marker face or edge that is `Colormapped` takes the colour of its point's value. One that is
+//! - **Markers.** A marker face or edge that is `Colourmapped` takes the colour of its point's value. One that is
 //!   `Auto` follows the colour of the series, its line colour, so with a colour-mapped line and one value per point it
 //!   takes its point's colour too. A fixed colour stays fixed.
 //! - **Marker edge width.** Unchanged from the line and scatter that a series replaces: a series that draws a line
@@ -45,7 +45,7 @@
 //!   which are drawn in the colour it takes.
 
 use ironlab_ir::{
-    Color, ColorScaleKind, ColorSpec, Colormap, ContinuousColorScale, DashStyle, Figure,
+    Colour, ColourScaleKind, ColourSpec, Colourmap, ContinuousColourScale, DashStyle, Figure,
     FigureSize, Legend, Limits, MarkerShape, NodeId, View3d,
 };
 use ironlab_scene::Scene;
@@ -64,24 +64,24 @@ use crate::probe::{
 const MAX_PIECE_PT: f64 = 1.0;
 /// The shortest a gradient piece may be, in points, unless its segment is one piece.
 const MIN_PIECE_PT: f64 = 0.25;
-/// The most pieces one segment is cut into: no colormap holds more distinguishable colours than this along one
+/// The most pieces one segment is cut into: no colourmap holds more distinguishable colours than this along one
 /// segment, and the bound keeps a very long segment from costing thousands of paths.
 const MAX_PIECES: usize = 256;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
-const GREY: Color = Color::rgb(0.5, 0.5, 0.5);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
+const GREY: Colour = Colour::rgb(0.5, 0.5, 0.5);
 
-/// The slack allowed in one channel of a colour: two levels of 255, for the rounding of a colormap to a table.
+/// The slack allowed in one channel of a colour: two levels of 255, for the rounding of a colourmap to a table.
 const TOL: f32 = 2.0 / 255.0;
 
-/// Adds a continuous scale whose listed colormap runs linearly through `colors` between manual limits of 0 and 1.
-fn listed(fx: &mut Fx, colors: Vec<Color>) -> NodeId {
-    fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Listed { colors },
+/// Adds a continuous scale whose listed colourmap runs linearly through `colours` between manual limits of 0 and 1.
+fn listed(fx: &mut Fx, colours: Vec<Colour>) -> NodeId {
+    fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Listed { colours },
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     }))
 }
 
@@ -147,7 +147,7 @@ fn pieces(leaves: &[Leaf], id: NodeId) -> Vec<Piece> {
             out.push(Piece {
                 from,
                 to,
-                colour: stroke.color,
+                colour: stroke.colour,
             });
         }
     }
@@ -238,9 +238,9 @@ fn gradient_figure(
     limits(&mut fx, ax, (0.0, 12.0), (0.0, 1.0));
     let scale = listed(&mut fx, vec![RED, BLUE]);
     let id = fx.series(ax, &GRADIENT_X, &[0.5; 3], None, |s, fx| {
-        s.color_data = Some(fx.vector(&GRADIENT_C));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&GRADIENT_C));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
         edit(s);
     });
     (fx.build(), ax, id)
@@ -287,9 +287,9 @@ fn a_gradient_interpolates_between_the_two_colours_rather_than_through_the_value
     limits(&mut fx, ax, (0.0, 1.0), (0.0, 1.0));
     let scale = listed(&mut fx, vec![RED, GREEN, BLUE]);
     let id = fx.series(ax, &[0.0, 1.0], &[0.5, 0.5], None, |s, fx| {
-        s.color_data = Some(fx.vector(&[0.0, 1.0]));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&[0.0, 1.0]));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
     });
     let scene = compile_figure(&fx.build());
     let page = on_page(&scene, ax);
@@ -382,9 +382,9 @@ fn the_pieces_of_a_segment_are_bounded_in_length_and_in_number() {
     limits(&mut fx, ax, (0.0, 1.0), (0.0, 1.0));
     let scale = listed(&mut fx, vec![RED, BLUE]);
     let short = fx.series(ax, &[0.5, 0.5 + 1e-4], &[0.5, 0.5], None, |s, fx| {
-        s.color_data = Some(fx.vector(&[0.0, 1.0]));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&[0.0, 1.0]));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
     });
     let scene = compile_figure(&fx.build());
     let page = on_page(&scene, ax);
@@ -405,9 +405,9 @@ fn the_pieces_of_a_segment_are_bounded_in_length_and_in_number() {
         limits(&mut fx, ax, (0.0, 1.0), (0.0, 1.0));
         let scale = listed(&mut fx, vec![RED, BLUE]);
         let id = fx.series(ax, &[0.0, 1.0], &[0.5, 0.5], None, |s, fx| {
-            s.color_data = Some(fx.vector(&[0.0, 1.0]));
-            s.color_scale = Some(scale);
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(fx.vector(&[0.0, 1.0]));
+            s.colour_scale = Some(scale);
+            s.line.colour = ColourSpec::Colourmapped;
         });
         (fx.build(), ax, id)
     };
@@ -430,7 +430,7 @@ fn a_dashed_gradient_continues_its_dash_pattern_across_pieces() {
     let (fig, ax, id) = gradient_figure(160.0, |s| s.line.dash = DashStyle::Dashed);
     let (plain, _, plain_id) = gradient_figure(160.0, |s| {
         s.line.dash = DashStyle::Dashed;
-        s.line.color = ColorSpec::Rgba { color: GREY };
+        s.line.colour = ColourSpec::Rgba { colour: GREY };
     });
     let plain_scene = compile_figure(&plain);
     let plain_leaves = leaves(&plain_scene);
@@ -496,12 +496,12 @@ fn one_value_per_segment_colours_each_segment_in_one_colour_and_leaves_the_marke
     limits(&mut fx, ax, (0.0, 3.0), (0.0, 1.0));
     let scale = listed(&mut fx, vec![RED, BLUE]);
     let id = fx.series(ax, &x, &y, None, |s, fx| {
-        s.color_data = Some(fx.vector(&c));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&c));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
         s.marker.shape = MarkerShape::Circle;
-        s.marker.edge = ColorSpec::Rgba {
-            color: Color::BLACK,
+        s.marker.edge = ColourSpec::Rgba {
+            colour: Colour::BLACK,
         };
     });
     let scene = compile_figure(&fx.build());
@@ -524,7 +524,7 @@ fn one_value_per_segment_colours_each_segment_in_one_colour_and_leaves_the_marke
     for m in &markers {
         assert_eq!(
             m.edge,
-            Some(rgba(Color::BLACK)),
+            Some(rgba(Colour::BLACK)),
             "marker {}",
             m.source_index
         );
@@ -532,45 +532,51 @@ fn one_value_per_segment_colours_each_segment_in_one_colour_and_leaves_the_marke
     }
 }
 
-// Why: a colour applies wherever the style asks for it (#44): a colormapped marker part takes its point's colour, an automatic one follows the colour-mapped line to its point's colour, and a fixed one stays fixed, so a series can have a coloured line with black markers or the reverse.
+// Why: a colour applies wherever the style asks for it (#44): a colourmapped marker part takes its point's colour, an automatic one follows the colour-mapped line to its point's colour, and a fixed one stays fixed, so a series can have a coloured line with black markers or the reverse.
 #[test]
-fn each_marker_part_takes_its_points_colour_where_it_is_colormapped_or_follows_a_colormapped_line()
-{
+fn each_marker_part_takes_its_points_colour_where_it_is_colourmapped_or_follows_a_colourmapped_line()
+ {
     let x = [0.0, 1.0, 2.0];
     let c = [0.0, 0.5, 1.0];
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     limits(&mut fx, ax, (0.0, 2.0), (0.0, 3.0));
     let scale = listed(&mut fx, vec![RED, BLUE]);
-    let add = |fx: &mut Fx, y: f64, line: ColorSpec, face: ColorSpec, edge: ColorSpec| {
+    let add = |fx: &mut Fx, y: f64, line: ColourSpec, face: ColourSpec, edge: ColourSpec| {
         fx.series(ax, &x, &[y; 3], None, |s, fx| {
-            s.color_data = Some(fx.vector(&c));
-            s.color_scale = Some(scale);
-            s.line.color = line;
+            s.colour_data = Some(fx.vector(&c));
+            s.colour_scale = Some(scale);
+            s.line.colour = line;
             s.marker.shape = MarkerShape::Circle;
             s.marker.face = face;
             s.marker.edge = edge;
         })
     };
-    let black = ColorSpec::Rgba {
-        color: Color::BLACK,
+    let black = ColourSpec::Rgba {
+        colour: Colour::BLACK,
     };
-    let grey = ColorSpec::Rgba { color: GREY };
+    let grey = ColourSpec::Rgba { colour: GREY };
     let following = add(
         &mut fx,
         0.5,
-        ColorSpec::Colormapped,
-        ColorSpec::Colormapped,
-        ColorSpec::Auto,
+        ColourSpec::Colourmapped,
+        ColourSpec::Colourmapped,
+        ColourSpec::Auto,
     );
     let black_edged = add(
         &mut fx,
         1.5,
-        ColorSpec::Colormapped,
-        ColorSpec::Colormapped,
+        ColourSpec::Colourmapped,
+        ColourSpec::Colourmapped,
         black,
     );
-    let grey_line = add(&mut fx, 2.5, grey, ColorSpec::Colormapped, ColorSpec::Auto);
+    let grey_line = add(
+        &mut fx,
+        2.5,
+        grey,
+        ColourSpec::Colourmapped,
+        ColourSpec::Auto,
+    );
     let scene = compile_figure(&fx.build());
     let all = leaves(&scene);
 
@@ -601,7 +607,7 @@ fn each_marker_part_takes_its_points_colour_where_it_is_colormapped_or_follows_a
     check(
         black_edged,
         &mapped,
-        &|_| rgba(Color::BLACK),
+        &|_| rgba(Colour::BLACK),
         "a fixed black edge",
     );
     check(
@@ -623,7 +629,7 @@ fn each_marker_part_takes_its_points_colour_where_it_is_colormapped_or_follows_a
     assert!(
         mapped_strokes
             .iter()
-            .any(|p| !same_colour(p.colour, rgba(Color::BLACK))),
+            .any(|p| !same_colour(p.colour, rgba(Colour::BLACK))),
         "black markers leave the colour-mapped line coloured"
     );
 }
@@ -638,9 +644,9 @@ fn a_non_finite_colour_value_drops_its_marker_and_the_segments_that_meet_it() {
     limits(&mut fx, ax, (0.0, 4.0), (0.0, 1.0));
     let scale = listed(&mut fx, vec![RED, BLUE]);
     let id = fx.series(ax, &x, &[0.5; 5], None, |s, fx| {
-        s.color_data = Some(fx.vector(&c));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&c));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
         s.marker.shape = MarkerShape::Circle;
     });
     let scene = compile_figure(&fx.build());
@@ -712,12 +718,12 @@ fn automatic_markers_of_a_series_coloured_per_segment_take_its_colour_from_the_c
     let x = [0.0, 1.0, 2.0];
     let c = [0.0, 1.0];
     let segmented = fx.series(ax, &x, &[1.5; 3], None, |s, fx| {
-        s.color_data = Some(fx.vector(&c));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&c));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
         s.marker.shape = MarkerShape::Circle;
-        s.marker.face = ColorSpec::Auto;
-        s.marker.edge = ColorSpec::Auto;
+        s.marker.face = ColourSpec::Auto;
+        s.marker.edge = ColourSpec::Auto;
     });
     let after = fx.series(ax, &[0.0, 2.0], &[2.5, 2.5], None, |_, _| {});
     let scene = compile_figure(&fx.build());
@@ -766,14 +772,14 @@ fn automatic_markers_of_a_series_coloured_per_segment_take_its_colour_from_the_c
 // Why: the series must stroke marker edges exactly as the line and the scatter it replaces did, so that existing figures draw as before: following the width of a line it draws, between half a point and one and a half, and half a point when it draws no line, whatever width its unused line style holds.
 #[test]
 fn marker_edges_follow_the_line_width_only_when_the_series_draws_a_line() {
-    let cases: [(&str, DashStyle, Option<ColorSpec>, f64, f64); 6] = [
+    let cases: [(&str, DashStyle, Option<ColourSpec>, f64, f64); 6] = [
         ("a hairline", DashStyle::Solid, None, 0.2, 0.5),
         ("a line within the bounds", DashStyle::Solid, None, 1.0, 1.0),
         ("a thick line", DashStyle::Solid, None, 3.0, 1.5),
         (
             "a thick colour-mapped line",
             DashStyle::Solid,
-            Some(ColorSpec::Colormapped),
+            Some(ColourSpec::Colourmapped),
             3.0,
             1.5,
         ),
@@ -781,7 +787,7 @@ fn marker_edges_follow_the_line_width_only_when_the_series_draws_a_line() {
         (
             "a line colour of none",
             DashStyle::Solid,
-            Some(ColorSpec::None),
+            Some(ColourSpec::None),
             3.0,
             0.5,
         ),
@@ -794,11 +800,11 @@ fn marker_edges_follow_the_line_width_only_when_the_series_draws_a_line() {
             s.line.dash = dash;
             s.line.width_pt = width_pt;
             s.marker.shape = MarkerShape::Circle;
-            s.marker.edge = ColorSpec::Rgba { color: GREY };
+            s.marker.edge = ColourSpec::Rgba { colour: GREY };
             if let Some(colour) = line_colour {
-                s.line.color = colour;
-                s.color_data = Some(fx.vector(&[0.0, 1.0]));
-                s.color_scale = Some(scale);
+                s.line.colour = colour;
+                s.colour_data = Some(fx.vector(&[0.0, 1.0]));
+                s.colour_scale = Some(scale);
             }
         });
         let scene = compile_figure(&fx.build());
@@ -845,11 +851,11 @@ fn an_empty_or_single_point_series_coloured_by_data_draws_no_line_and_at_most_it
         limits(&mut fx, ax, (0.0, 1.0), (0.0, 1.0));
         let scale = listed(&mut fx, vec![RED, BLUE]);
         let id = fx.series(ax, &x, &x, None, |s, fx| {
-            s.color_data = Some(fx.vector(&c));
-            s.color_scale = Some(scale);
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(fx.vector(&c));
+            s.colour_scale = Some(scale);
+            s.line.colour = ColourSpec::Colourmapped;
             s.marker.shape = MarkerShape::Circle;
-            s.marker.face = ColorSpec::Colormapped;
+            s.marker.face = ColourSpec::Colourmapped;
         });
         let scene = compile_figure(&fx.build());
         let all = leaves(&scene);
@@ -924,7 +930,7 @@ fn a_line_through_a_surface_is_painted_behind_and_in_front_of_it_segment_by_segm
     let ax = fx.axes3d(0, 0, View3d::default());
     let heights = [-1.0, -0.5, 0.5, 1.0];
     let line = fx.series(ax, &[0.5; 4], &[0.5; 4], Some(&heights), |_, _| {});
-    let surf = fx.surface(ax, &grid, &grid, |_, _| 0.0, |s| s.edge = ColorSpec::None);
+    let surf = fx.surface(ax, &grid, &grid, |_, _| 0.0, |s| s.edge = ColourSpec::None);
     manual_unit_limits(&mut fx, ax);
     let scene = compile_figure(&fx.build());
     let all = leaves(&scene);
@@ -1011,9 +1017,9 @@ fn the_pieces_of_a_three_dimensional_gradient_carry_depths_interpolated_along_th
         &[a[1], b[1]],
         Some(&[a[2], b[2]]),
         |s, fx| {
-            s.color_data = Some(fx.vector(&[0.0, 1.0]));
-            s.color_scale = Some(scale);
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(fx.vector(&[0.0, 1.0]));
+            s.colour_scale = Some(scale);
+            s.line.colour = ColourSpec::Colourmapped;
         },
     );
     manual_unit_limits(&mut fx, ax);
@@ -1087,9 +1093,9 @@ fn a_decimated_gradient_joins_the_kept_points_in_the_colours_of_their_own_indice
     let ax = fx.axes2d(0, 0);
     let scale = listed(&mut fx, vec![RED, BLUE]);
     let id = fx.series(ax, &x, &y, None, |s, fx| {
-        s.color_data = Some(fx.vector(&c));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&c));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
     });
     let scene = compile_figure(&fx.build());
     let samples = samples_of(&scene, id).to_vec();
@@ -1132,9 +1138,9 @@ fn a_decimated_line_coloured_per_segment_takes_the_colour_of_the_first_segment_i
     let ax = fx.axes2d(0, 0);
     let scale = listed(&mut fx, vec![RED, BLUE]);
     let id = fx.series(ax, &x, &y, None, |s, fx| {
-        s.color_data = Some(fx.vector(&c));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&c));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
     });
     let scene = compile_figure(&fx.build());
     let samples = samples_of(&scene, id).to_vec();
@@ -1180,12 +1186,12 @@ fn decimated_markers_keep_the_colours_of_their_own_indices_with_or_without_a_lin
         let ax = fx.axes2d(0, 0);
         let scale = listed(&mut fx, vec![RED, BLUE]);
         let id = fx.series(ax, &x, &y, None, |s, fx| {
-            s.color_data = Some(fx.vector(&c));
-            s.color_scale = Some(scale);
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(fx.vector(&c));
+            s.colour_scale = Some(scale);
+            s.line.colour = ColourSpec::Colourmapped;
             s.line.dash = dash;
             s.marker.shape = MarkerShape::Circle;
-            s.marker.face = ColorSpec::Colormapped;
+            s.marker.face = ColourSpec::Colourmapped;
         });
         let scene = compile_figure(&fx.build());
         let markers = marker_instances(&leaves(&scene), id);
@@ -1265,7 +1271,7 @@ fn the_legend_sample_of_a_series_draws_its_line_its_marker_or_both() {
     }
 }
 
-// The sample of a series coloured by data is a sweep of its scale, which `legend_color_keys.rs` pins: the line drawn
+// The sample of a series coloured by data is a sweep of its scale, which `legend_colour_keys.rs` pins: the line drawn
 // as a sweep, a marker that follows the colour data at the centre in the sweep's colour there, and a row of markers
 // for a series that draws only markers.
 
@@ -1281,9 +1287,9 @@ fn automatic_series_take_the_colour_order_and_a_series_coloured_by_data_takes_no
         s.marker.shape = MarkerShape::Circle;
     });
     fx.series(ax, &[0.0, 1.0], &[0.6, 0.8], None, |s, fx| {
-        s.color_data = Some(fx.vector(&[0.0, 1.0]));
-        s.color_scale = Some(scale);
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&[0.0, 1.0]));
+        s.colour_scale = Some(scale);
+        s.line.colour = ColourSpec::Colourmapped;
     });
     let fourth = fx.series(ax, &[0.0, 1.0], &[0.9, 1.0], None, |_, _| {});
     let scene = compile_figure(&fx.build());

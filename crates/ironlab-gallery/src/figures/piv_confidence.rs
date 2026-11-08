@@ -89,10 +89,10 @@ pub fn figure() -> Figure {
         circle.iter().map(|t| t.cos()).collect::<Vec<_>>(),
         circle.iter().map(|t| t.sin()).collect::<Vec<_>>(),
     )
-    .color(Color::BLACK)
+    .colour(Colour::BLACK)
     .line_width(0.75);
     // A speed beyond the limits of the scale is left undrawn rather than clamped to an end colour.
-    ax.color_scale()
+    ax.colour_scale()
         .limits(0.0, 2.0)
         .below(OutOfRange::Transparent)
         .above(OutOfRange::Transparent);
@@ -113,7 +113,7 @@ pub fn figure() -> Figure {
         .face_opacity(0.8)
         .edge_opacity(0.25)
         .edge_width(0.25);
-    ax.color_scale().limits(0.0, 2.0);
+    ax.colour_scale().limits(0.0, 2.0);
     ax.zlim(0.0, 2.0)
         .xlabel("$x / a$")
         .ylabel("$y / a$")

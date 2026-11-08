@@ -72,7 +72,7 @@ pub fn julia_iterate(x: f64, y: f64) -> (f64, f64) {
 /// Returns `ln(1 + |z₃|)`, the field of the magnitude of the iterate returned by [`julia_iterate`].
 ///
 /// The logarithm compresses the rapid growth of the iterates away from the origin, so that the field stays within
-/// a range that a colormap can show.
+/// a range that a colourmap can show.
 #[must_use]
 pub fn julia_field(x: f64, y: f64) -> f64 {
     let (re, im) = julia_iterate(x, y);
@@ -338,7 +338,7 @@ pub fn sunflower(n: usize, radius: f64) -> (Vec<f64>, Vec<f64>) {
 /// onto the colour wheel, as the argument of a complex number divided by 2π needs. The saturation and the lightness
 /// run from 0 to 1: a lightness of 0 is black, ½ is the pure hue at full saturation and 1 is white.
 #[must_use]
-pub fn hsl_to_rgb(hue_turns: f64, saturation: f64, lightness: f64) -> Color {
+pub fn hsl_to_rgb(hue_turns: f64, saturation: f64, lightness: f64) -> Colour {
     // The chroma is the spread between the largest and smallest components; the hue picks which sextant of the
     // wheel supplies the middle component, and the offset lifts every component to the requested lightness.
     let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
@@ -353,7 +353,7 @@ pub fn hsl_to_rgb(hue_turns: f64, saturation: f64, lightness: f64) -> Color {
         _ => (chroma, 0.0, middle),
     };
     let offset = lightness - chroma / 2.0;
-    Color::rgb(
+    Colour::rgb(
         (r + offset) as f32,
         (g + offset) as f32,
         (b + offset) as f32,

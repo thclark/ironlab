@@ -48,8 +48,8 @@ pub fn figure() -> Figure {
         .fit_col(1)
         .title("Gain of a two-by-four patch array")
         .tag("surface")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .tag("polar")
         .tag("spherical")
         .tag("antenna")
@@ -58,21 +58,21 @@ pub fn figure() -> Figure {
         .parameter("data_points", 5512)
         .parameter("has_legend", false);
     let scale = fig
-        .color_scale()
-        .colormap(Colormap::Viridis)
+        .colour_scale()
+        .colourmap(Colourmap::Viridis)
         .limits(FLOOR_DB, 0.0)
         .title("Gain (dB)")
         .id();
     let mut ax = fig.spherical_axes(0, 0);
     ax.surf(&azimuth, &elevation, &radius)
-        .color_data(&gain)
-        .color_scale(scale)
+        .colour_data(&gain)
+        .colour_scale(scale)
         .edge_width(0.2);
     ax.zlim(0.0, 30.0)
         .ztick_step(10.0)
         .xlabel("Azimuth")
         .ylabel("Elevation")
         .view(-50.0, 25.0);
-    fig.panel(0, 1).colorbar(scale);
+    fig.panel(0, 1).colourbar(scale);
     fig
 }

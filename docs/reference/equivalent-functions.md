@@ -14,9 +14,9 @@ Every IronLAB function in the plot tables is a method of `AxesMut` and is descri
 | Markers in two dimensions | `scatter` | `scatter` | `Scatter` with `mode="markers"` | `scatter` |
 | Markers in three dimensions | `scatter3` | `Axes3D.scatter` | `Scatter3d` with `mode="markers"` | `scatter3` |
 | Line with markers | `plot` with a marker in the line specification | `plot` with `marker=` | `Scatter` with `mode="lines+markers"` | `plot` with `marker`, or `scatter` with `dash` |
-| Markers sized and coloured by data | `scatter(x, y, sz, c)` | `scatter` with `s=` and `c=` | `Scatter` with `marker.size` and `marker.color` set to arrays | `scatter` with `size_data` and `color_data` |
-| Line coloured along its length by values at its points | `patch` or `surface` with `EdgeColor` set to `interp` | no direct equivalent; a `LineCollection` colours each segment in one colour | no equivalent for a line | `plot` with `color_data`, one value per point |
-| Line coloured segment by segment | `patch` with `EdgeColor` set to `flat` | `LineCollection` with `set_array` | no equivalent for a line | `plot` with `color_data`, one value per segment |
+| Markers sized and coloured by data | `scatter(x, y, sz, c)` | `scatter` with `s=` and `c=` | `Scatter` with `marker.size` and `marker.color` set to arrays | `scatter` with `size_data` and `colour_data` |
+| Line coloured along its length by values at its points | `patch` or `surface` with `EdgeColor` set to `interp` | no direct equivalent; a `LineCollection` colours each segment in one colour | no equivalent for a line | `plot` with `colour_data`, one value per point |
+| Line coloured segment by segment | `patch` with `EdgeColor` set to `flat` | `LineCollection` with `set_array` | no equivalent for a line | `plot` with `colour_data`, one value per segment |
 | Markers along named rows (a categorical strip chart) | `scatter` with `yticks` and `yticklabels`, or `swarmchart` | `scatter` with `set_yticks` and `set_yticklabels` | `px.strip` | `scatter` with `yticks`, `ytick_labels` and `yreverse` on the axes |
 | Horizontal reference line across the axes | `yline` | `axhline` | `add_hline` | `hline` |
 | Vertical reference line across the axes | `xline` | `axvline` | `add_vline` | `vline` |
@@ -49,9 +49,9 @@ A value that belongs to a cell between edges, rather than to a vertex of a grid,
 
 | Plot | MATLAB | matplotlib | Plotly | IronLAB |
 | --- | --- | --- | --- | --- |
-| Colour-mapped image: data values scaled through the colour limits into the colormap | `imagesc`, or `imshow` with a display range | `imshow` or `matshow` with a two-dimensional array | `Heatmap`, or `px.imshow` with a two-dimensional array | `scalar_image`, through a continuous colour scale (the default) |
+| Colour-mapped image: data values scaled through the colour limits into the colourmap | `imagesc`, or `imshow` with a display range | `imshow` or `matshow` with a two-dimensional array | `Heatmap`, or `px.imshow` with a two-dimensional array | `scalar_image`, through a continuous colour scale (the default) |
 | True-colour image | `image` or `imshow` with an m × n × 3 array | `imshow` with an m × n × 3 or m × n × 4 array | `Image`, or `px.imshow` with an m × n × 3 or m × n × 4 array | `image` |
-| Colour-indexed image: values that name colormap entries directly | `image` with an indexed array, or `imshow(X, map)` | `imshow` with `norm=NoNorm()` | no equivalent trace | `scalar_image`, through an indexed colour scale made by `fig.indexed_scale(..)` |
+| Colour-indexed image: values that name colourmap entries directly | `image` with an indexed array, or `imshow(X, map)` | `imshow` with `norm=NoNorm()` | no equivalent trace | `scalar_image`, through an indexed colour scale made by `fig.indexed_scale(..)` |
 
 [Images](../guides/getting-started.md#images) describes the two image artists and how each is placed, and the [colour guide](../guides/colour.md#indexed-and-categorical-scales) describes the indexed scale.
 
@@ -67,18 +67,18 @@ IronLAB has no axis-direction or image-origin property, for the reason given in 
 
 ## Colour
 
-MATLAB and matplotlib set the colormap and the colour limits of an axes, or of one plot, while IronLAB sets them on a [colour scale](../guides/colour.md), which every colour-mapped plot names. The colour-mapped plots of an axes share its default scale, which `ax.color_scale()` returns, so the MATLAB functions that act on the current axes act on that scale in IronLAB.
+MATLAB and matplotlib set the colourmap and the colour limits of an axes, or of one plot, while IronLAB sets them on a [colour scale](../guides/colour.md), which every colour-mapped plot names. The colour-mapped plots of an axes share its default scale, which `ax.colour_scale()` returns, so the MATLAB functions that act on the current axes act on that scale in IronLAB.
 
 | Purpose | MATLAB | matplotlib | Plotly | IronLAB |
 | --- | --- | --- | --- | --- |
-| Choose the colormap | `colormap(ax, name)` | `cmap=` on the plot, or `set_cmap` | `colorscale=` on the trace | `ax.color_scale().colormap(Colormap::Magma)`, or `.colormap(..)` on a scale made by `fig.color_scale()` |
-| Use a colormap of one's own | `colormap(ax, m)` with an m × 3 array | `ListedColormap` or `LinearSegmentedColormap` | a list of colours as `colorscale` | `.colormap(ir::Colormap::Listed { colors })` |
-| Reverse a colormap | `colormap(flipud(m))` | a name ending in `_r`, or `cmap.reversed()` | `reversescale=True` | `.colormap(ir::Colormap::Named { name, reverse: true })` |
+| Choose the colourmap | `colormap(ax, name)` | `cmap=` on the plot, or `set_cmap` | `colorscale=` on the trace | `ax.colour_scale().colourmap(Colourmap::Magma)`, or `.colourmap(..)` on a scale made by `fig.colour_scale()` |
+| Use a colourmap of one's own | `colormap(ax, m)` with an m × 3 array | `ListedColormap` or `LinearSegmentedColormap` | a list of colours as `colorscale` | `.colourmap(ir::Colourmap::Listed { colours })` |
+| Reverse a colourmap | `colormap(flipud(m))` | a name ending in `_r`, or `cmap.reversed()` | `reversescale=True` | `.colourmap(ir::Colourmap::Named { name, reverse: true })` |
 | Fix the colour limits | `clim` (`caxis` before R2022a) | `vmin=` and `vmax=`, or `set_clim` | `zmin=` and `zmax=`, or `cmin=` and `cmax=` | `.limits(min, max)` on the scale |
-| Map values logarithmically | `set(gca, 'ColorScale', 'log')` | `norm=LogNorm()` | no option; the values are transformed first | `.norm(ColorScaleNorm::Log)` on the scale |
-| Share colours across several plots | the same `clim` set on each axes | the same `norm` passed to each plot | `coloraxis` shared by the traces | one scale given to each plot with `.color_scale(id)` |
+| Map values logarithmically | `set(gca, 'ColorScale', 'log')` | `norm=LogNorm()` | no option; the values are transformed first | `.norm(ColourScaleNorm::Log)` on the scale |
+| Share colours across several plots | the same `clim` set on each axes | the same `norm` passed to each plot | `coloraxis` shared by the traces | one scale given to each plot with `.colour_scale(id)` |
 | Colour out-of-range values | no option for values beyond the limits | `cmap.set_under`, `set_over` and `set_bad` | no option | `.below(..)`, `.above(..)`, `.outside(..)` and `.non_finite(..)` on the scale |
-| Sample a colormap into a palette | `parula(256)`, or any colormap function with a count | `cmap(np.linspace(0, 1, n))` | `px.colors.sample_colorscale` | `Colormap::Viridis.sample(256)` |
+| Sample a colourmap into a palette | `parula(256)`, or any colourmap function with a count | `cmap(np.linspace(0, 1, n))` | `px.colors.sample_colorscale` | `Colourmap::Viridis.sample(256)` |
 
 ### Colourbars
 
@@ -86,15 +86,15 @@ A colourbar in IronLAB shows a scale rather than a plot, and everything it draws
 
 | Purpose | MATLAB | matplotlib | Plotly | IronLAB |
 | --- | --- | --- | --- | --- |
-| Show a colourbar beside an axes | `colorbar` | `fig.colorbar(mappable, ax=ax)` | `showscale=True` on the trace | `fig.panel(row, col).colorbar(scale)` in a fitted column |
-| Lay the bar flat beneath the plots | `colorbar('southoutside')` | `orientation="horizontal"` | `colorbar=dict(orientation="h")` | `.orientation(ColorbarOrientation::Horizontal)` on the panel's colourbar, in a fitted row |
-| Share one bar across several axes | `colorbar` on a tiled layout with `Layout.Tile = 'east'` | `fig.colorbar(mappable, ax=[ax1, ax2, ax3])` | `coloraxis` shared by the traces | `fig.panel_span(..).colorbar(scale)` spanning their rows or columns |
-| Draw the bar inside the plot area | `colorbar('east')` and the other inside locations | `cax=ax.inset_axes(..)` | `colorbar=dict(x=, y=, len=)` | `ax.colorbar(scale, InsideColorbarSide::East)`, with `.length(fraction)` |
+| Show a colourbar beside an axes | `colorbar` | `fig.colorbar(mappable, ax=ax)` | `showscale=True` on the trace | `fig.panel(row, col).colourbar(scale)` in a fitted column |
+| Lay the bar flat beneath the plots | `colorbar('southoutside')` | `orientation="horizontal"` | `colorbar=dict(orientation="h")` | `.orientation(ColourbarOrientation::Horizontal)` on the panel's colourbar, in a fitted row |
+| Share one bar across several axes | `colorbar` on a tiled layout with `Layout.Tile = 'east'` | `fig.colorbar(mappable, ax=[ax1, ax2, ax3])` | `coloraxis` shared by the traces | `fig.panel_span(..).colourbar(scale)` spanning their rows or columns |
+| Draw the bar inside the plot area | `colorbar('east')` and the other inside locations | `cax=ax.inset_axes(..)` | `colorbar=dict(x=, y=, len=)` | `ax.colourbar(scale, InsideColourbarSide::East)`, with `.length(fraction)` |
 | Shorten the bar | `c.Position` | `fig.colorbar(.., shrink=0.5)` | `colorbar=dict(len=0.5)` | `.length(0.5)` on the panel's colourbar, placed along the plots by the panel's `align` |
-| Title the bar | `title(c, text)` or `c.Label.String` | `cbar.set_label(text)` | `colorbar=dict(title=text)` | `.title(text)` on the scale, drawn along the bar unless the bar's `.title_placement(ColorbarTitlePlacement::Above)` makes it a heading |
+| Title the bar | `title(c, text)` or `c.Label.String` | `cbar.set_label(text)` | `colorbar=dict(title=text)` | `.title(text)` on the scale, drawn along the bar unless the bar's `.title_placement(ColourbarTitlePlacement::Above)` makes it a heading |
 | Place the ticks | `c.Ticks = v` | `cbar.set_ticks(v)` | `colorbar=dict(tickvals=v)` | `.ticks(v)` or `.tick_step(step)` on the scale |
 | Label the ticks | `c.TickLabels = labels` | `cbar.set_ticks(v, labels=labels)` | `colorbar=dict(tickvals=v, ticktext=labels)` | `.tick_labels([(value, label), ..])` on the scale |
-| Show the colour of values beyond the limits | no option | `extend="min"`, `"max"` or `"both"`, drawn as pointed ends | no option | `.show_key(ColorScaleKey::Above)` and the other keys on the scale, drawn as separate squares |
+| Show the colour of values beyond the limits | no option | `extend="min"`, `"max"` or `"both"`, drawn as pointed ends | no option | `.show_key(ColourScaleKey::Above)` and the other keys on the scale, drawn as separate squares |
 | List the categories of a classification in a legend | dummy patches, one per class, passed to `legend` | `legend(handles=[Patch(color=c, label=l), ..])` | one dummy trace per class | `.item(scale)` on a legend with the identifier of a categorical scale |
 | Put a colour bar among legend entries | no option | no option | no option | `.item(scale)` on a legend with the identifier of a continuous, discrete or indexed scale, [drawn as a bar](../guides/colour.md#bars-are-items) |
 | Title a legend or a colourbar beside the plots | `title(lgd, text)` | `ax.legend(title=text)` | `legend=dict(title=dict(text=text))` | `.title(text)` on the [panel](../guides/legends.md#titling-a-panel) that holds the legend or the bar |
@@ -105,7 +105,7 @@ A colourbar in IronLAB shows a scale rather than a plot, and everything it draws
 | --- | --- | --- | --- | --- |
 | Choose about n levels | `contourf(x, y, z, n)` | `contourf(x, y, z, n)` | `ncontours=n` | `.levels(n)` on the contour |
 | Give the levels explicitly | `contourf(x, y, z, v)` with a vector `v` | `contourf(x, y, z, levels=v)` | `contours=dict(start=, end=, size=)`, evenly spaced only | `.level_values(v)` on the contour |
-| Fill bands that match a stepped colour bar | `contourf` with a vector of levels and a colormap of one colour per band | `contourf` with `levels=v` and a `BoundaryNorm` of the same boundaries | no equivalent | a discrete scale, `fig.color_scale().discrete(v)`, named by a `contourf` with no levels of its own |
+| Fill bands that match a stepped colour bar | `contourf` with a vector of levels and a colourmap of one colour per band | `contourf` with `levels=v` and a `BoundaryNorm` of the same boundaries | no equivalent | a discrete scale, `fig.colour_scale().discrete(v)`, named by a `contourf` with no levels of its own |
 
 A filled contour with no levels of its own takes the band edges of a discrete scale, so the bands of the contour and the bands of the scale cannot disagree; the [colour guide](../guides/colour.md#discrete-scales-and-filled-contours) shows this.
 
@@ -125,7 +125,7 @@ A filled contour with no levels of its own takes the band edges of a discrete sc
 | Several series side by side at each position | `bar` with a matrix of values, `'grouped'` | one `bar` per series, each offset by hand | `Bar` traces with `barmode="group"` | `bars` with one `series` per series |
 | Several series stacked at each position | `bar` with a matrix of values and `'stacked'` | one `bar` per series, each with `bottom=` the sum of those below | `Bar` traces with `barmode="relative"` | `bars` with one `stacked` per series, each naming the same column |
 | Floating bars | `bar` with `BaseValue`, one base for all bars | `bar` with `bottom=` an array | `Bar` with `base=` an array | `bar` with `base_data` |
-| One colour per bar | `bar` with `FaceColor` set to `flat` and `CData` | `bar` with `color=` a list | `Bar` with `marker.color` set to a list | `bar` with `colors` |
+| One colour per bar | `bar` with `FaceColor` set to `flat` and `CData` | `bar` with `color=` a list | `Bar` with `marker.color` set to a list | `bar` with `colours` |
 | Stepped outline between edges | `histogram` with `DisplayStyle` set to `stairs` | `stairs` | `Scatter` with `line_shape="hv"` through the edges | `stairs` |
 | Stepped line through samples | `stairs` | `step`, or `plot` with `drawstyle="steps-post"` | `Scatter` with `line_shape="hv"`, `"vh"` or `"hvh"` | `stairs_at` with `StepAt::Post`, `StepAt::Pre` or `StepAt::Mid` |
 
@@ -137,12 +137,12 @@ Bars that compare series side by side or stack them are separate series placed b
 | --- | --- | --- | --- | --- |
 | Histogram of a sample | `histogram` | `hist` | `Histogram` | `hist` |
 | Histogram with a chosen number of bins, bin width, bin edges or rule | `histogram(x, nbins)`, `'BinWidth'`, `histogram(x, edges)`, `'BinMethod'` | `hist(x, bins=n)`, `bins=edges`, `bins="auto"` | `Histogram` with `nbinsx` or `xbins` | `hist` with `bins(Bins::Count(n))`, `Bins::Width(w)`, `Bins::Edges(edges)` or `Bins::Rule(rule)` |
-| Normalised histogram | `histogram` with `'Normalization'` | `hist` with `density=True`, `weights=`, `cumulative=True` | `Histogram` with `histnorm` and `cumulative_enabled` | `hist` with `normalize(HistNorm::…)` |
+| Normalised histogram | `histogram` with `'Normalization'` | `hist` with `density=True`, `weights=`, `cumulative=True` | `Histogram` with `histnorm` and `cumulative_enabled` | `hist` with `normalise(HistNorm::…)` |
 | Outline of a histogram | `histogram` with `DisplayStyle` set to `stairs` | `hist` with `histtype="step"` or `"stepfilled"` | no equivalent trace | `hist` with `style(HistStyle::Step)` or `style(HistStyle::FilledStep)` |
 | Histogram lying flat | `histogram` with `'Orientation'` set to `horizontal` | `hist` with `orientation="horizontal"` | `Histogram` with `y=` the sample | `hist` with `orientation(Orientation::Horizontal)` |
 | Counts binned beforehand drawn as a histogram | `histogram('BinEdges', edges, 'BinCounts', counts)` | `stairs(counts, edges, fill=True)`, or `bar` of the bin centres | `Bar` of the bin centres with `width=` the bin widths | `hist_counts(edges, counts)` |
 | Several histograms stacked or side by side on shared bins | no equivalent; one `histogram` per sample on the same `BinEdges` | `hist` with a list of samples, and `stacked=True` to stack them | `Histogram` traces with `barmode="stack"` or `"group"` | `hists` with one `stacked` or `series` per sample |
-| Stacked histograms whose stack is normalised as a whole | no equivalent | `hist` with a list of samples, `stacked=True` and `density=True`; in seaborn, `histplot` with `multiple="stack"` and `stat="density"` | no equivalent; `histnorm` normalises each trace by its own total | `hists(bins).stacked(…).normalize(HistNorm::Density)` |
+| Stacked histograms whose stack is normalised as a whole | no equivalent | `hist` with a list of samples, `stacked=True` and `density=True`; in seaborn, `histplot` with `multiple="stack"` and `stat="density"` | no equivalent; `histnorm` normalises each trace by its own total | `hists(bins).stacked(…).normalise(HistNorm::Density)` |
 | Several histograms normalised by the total of all their samples, or each by its own | no equivalent | in seaborn, `histplot` with `common_norm=True` or `common_norm=False` | `histnorm` on each trace, which normalises it by its own total | `hists` with `common_norm(true)` or `common_norm(false)` |
 | Two-dimensional histogram drawn as tiles | `histogram2` with `DisplayStyle` set to `tile` | `hist2d` | `Histogram2d` | `hist2d` |
 | Two-dimensional histogram without its sparse bins | no equivalent | `hist2d` with `cmin=` | no equivalent | `hist2d` with `min_count` |

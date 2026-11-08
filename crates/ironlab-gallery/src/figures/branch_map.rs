@@ -103,7 +103,7 @@ pub fn figure() -> Figure {
         .tag("image")
         .tag("line")
         .tag("scatter")
-        .tag("color-scale")
+        .tag("colour-scale")
         .tag("categorical")
         .tag("legend")
         .tag("simulations")
@@ -114,24 +114,24 @@ pub fn figure() -> Figure {
     let cases = fig.data("branch", cases).id();
     let status = fig
         .categorical_scale([
-            (Color::rgb(0.00, 0.45, 0.70), "stable, $x > 0$"),
-            (Color::rgb(0.90, 0.60, 0.00), "stable, $x < 0$"),
-            (Color::rgb(0.80, 0.40, 0.70), "unstable"),
-            (Color::rgb(0.35, 0.35, 0.35), "not converged"),
+            (Colour::rgb(0.00, 0.45, 0.70), "stable, $x > 0$"),
+            (Colour::rgb(0.90, 0.60, 0.00), "stable, $x < 0$"),
+            (Colour::rgb(0.80, 0.40, 0.70), "unstable"),
+            (Colour::rgb(0.35, 0.35, 0.35), "not converged"),
         ])
-        .key_label(ColorScaleKey::NonFinite, "not run")
+        .key_label(ColourScaleKey::NonFinite, "not run")
         .id();
 
     let mut ax = fig.axes(0, 0);
     ax.scalar_image(cases)
         .pixel_columns(lambda[0], lambda[LOADS - 1])
         .pixel_rows(epsilon[0], epsilon[IMPERFECTIONS - 1])
-        .color_scale(status);
-    let ink = Color::BLACK;
+        .colour_scale(status);
+    let ink = Colour::BLACK;
     let fold = ax
         .plot(&fold_lambda, &fold_epsilon)
         .label("fold")
-        .color(ink)
+        .colour(ink)
         .line_width(1.5)
         .id();
     let cusp = ax
@@ -139,13 +139,13 @@ pub fn figure() -> Figure {
         .label("cusp")
         .marker(Marker::Square)
         .marker_size(7.0)
-        .marker_face(Color::WHITE)
+        .marker_face(Colour::WHITE)
         .marker_edge(ink)
         .id();
     let start = ax
         .plot(start_lambda, start_epsilon)
         .label("$x_0 = 0.3$ is a root")
-        .color(ink)
+        .colour(ink)
         .dash(Dash::Dashed)
         .id();
     let stops = ax
@@ -153,7 +153,7 @@ pub fn figure() -> Figure {
         .label("batch stopped")
         .marker(Marker::TriangleDown)
         .marker_size(7.0)
-        .marker_face(Color::WHITE)
+        .marker_face(Colour::WHITE)
         .marker_edge(ink)
         .id();
     ax.xlabel(r"Load $\lambda$").ylabel(r"Imperfection $\varepsilon$");

@@ -9,8 +9,8 @@
 //! definition of a logarithmic axis.
 
 use ironlab_ir::{
-    Color, ColorScaleKind, ColorSpec, ColormapName, Dimension, ImagePlane, InsideLegend, Legend,
-    LegendLocation, Limits, NodeId, OutOfRange, Scale, View3d,
+    Colour, ColourScaleKind, ColourSpec, ColourmapName, Dimension, ImagePlane, InsideLegend,
+    Legend, LegendLocation, Limits, NodeId, OutOfRange, Scale, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{
@@ -20,10 +20,10 @@ use ironlab_scene::hit::{ImageHit, LegendOwner, PixelMap};
 use ironlab_scene::maths::camera::{
     Camera, FACE_DEPTH_BIAS, Plane, back_planes, fit_to_rect, normalise_box,
 };
-use ironlab_scene::maths::colormap::{Lut, MAGMA, VIRIDIS, normalise, sample};
+use ironlab_scene::maths::colourmap::{Lut, MAGMA, VIRIDIS, normalise, sample};
 
 use crate::common::{
-    Fx, compile_figure, linspace, out_of_range, palette_colors, placement, range, rgb8, text, xy,
+    Fx, compile_figure, linspace, out_of_range, palette_colours, placement, range, rgb8, text, xy,
 };
 use crate::probe::{
     Leaf, assert_close, axes_hit, axis_maps, disjoint, entry_artist, from_source, inside, leaves,
@@ -73,7 +73,7 @@ fn set_policies(
     let id = fx.axes_scale(ax);
     let scale = fx.scale_mut(id);
     scale.non_finite = out_of_range(non_finite);
-    let ColorScaleKind::Continuous(continuous) = &mut scale.kind else {
+    let ColourScaleKind::Continuous(continuous) = &mut scale.kind else {
         panic!("the axes scale is continuous");
     };
     continuous.limits = Limits::Manual {
@@ -450,7 +450,7 @@ fn patches_in(leaves: &[Leaf], ax: NodeId, rect: Rect) -> Vec<([u8; 3], f32)> {
         .iter()
         .filter(|l| l.source == Some(ax) && l.bbox().is_some_and(|b| inside(b, rect, 0.5)))
         .filter_map(|l| l.path().and_then(|p| p.fill))
-        .map(|f| (rgb8(f.color), f.color.a))
+        .map(|f| (rgb8(f.colour), f.colour.a))
         .collect()
 }
 
@@ -1415,8 +1415,8 @@ fn an_explicit_plane_offset_extends_the_limits_of_the_third_axis() {
 // ---------------------------------------------------------------------------------------------------------------
 
 // WHY: `imagesc` scales every value through the limits of its continuous colour scale: a value at the lower limit
-// takes the first colormap entry and one at the upper limit the last, exactly as `colormap::sample` of
-// `colormap::normalise` gives, so that an image agrees with a surface or scatter coloured beside it; under transparent
+// takes the first colourmap entry and one at the upper limit the last, exactly as `colourmap::sample` of
+// `colourmap::normalise` gives, so that an image agrees with a surface or scatter coloured beside it; under transparent
 // `below` and `above` policies values outside the limits are transparent, and non-finite values are transparent by
 // default, so a raster with gaps or outliers still reaches the page without colours invented for them.
 #[test]
@@ -1494,8 +1494,8 @@ fn automatic_colour_limits_of_a_mapped_image_are_the_union_with_the_other_colour
         let image = fx.imagesc(ax, vec![1, 3], vec![0.0, 0.5, 1.0], xy(None, None), |_| {});
         if with_scatter {
             fx.scatter(ax, &[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0], None, |s, fx| {
-                s.color_data = Some(fx.vector(&[0.0, 1.5, 3.0]));
-                s.line.color = ColorSpec::Colormapped;
+                s.colour_data = Some(fx.vector(&[0.0, 1.5, 3.0]));
+                s.line.colour = ColourSpec::Colourmapped;
             });
         }
         let scene = compile_figure(&fx.build());
@@ -1515,7 +1515,7 @@ fn automatic_colour_limits_of_a_mapped_image_are_the_union_with_the_other_colour
     assert_ne!(pixel(&shared, 0, 2), opaque(VIRIDIS[255]));
 }
 
-// WHY: `clamp` paints an out-of-range pixel in the nearest end colour of the colormap, which is what `imagesc`
+// WHY: `clamp` paints an out-of-range pixel in the nearest end colour of the colourmap, which is what `imagesc`
 // does, while a non-finite value has no nearest end and stays transparent; a fixed colour paints the pixel exactly
 // in that colour, alpha included, so that missing data can be shown in a colour of the user's choosing.
 #[test]
@@ -1538,13 +1538,13 @@ fn clamp_and_fixed_colour_policies_paint_the_out_of_range_pixels_of_a_mapped_ima
         &mut fx,
         right,
         OutOfRange::Rgba {
-            color: Color::rgba(1.0, 0.2, 0.6, 0.4),
+            colour: Colour::rgba(1.0, 0.2, 0.6, 0.4),
         },
         OutOfRange::Rgba {
-            color: Color::rgb(0.0, 0.0, 1.0),
+            colour: Colour::rgb(0.0, 0.0, 1.0),
         },
         OutOfRange::Rgba {
-            color: Color::rgba(0.0, 1.0, 0.0, 0.8),
+            colour: Colour::rgba(0.0, 1.0, 0.0, 0.8),
         },
     );
     let scene = compile_figure(&fx.build());
@@ -1589,10 +1589,10 @@ fn clamp_and_fixed_colour_policies_paint_the_out_of_range_pixels_of_a_mapped_ima
 #[test]
 fn sample_channels_follow_the_opacity_of_the_pixels() {
     let translucent_red = OutOfRange::Rgba {
-        color: Color::rgba(1.0, 0.0, 0.0, 0.5),
+        colour: Colour::rgba(1.0, 0.0, 0.0, 0.5),
     };
     let opaque_red = OutOfRange::Rgba {
-        color: Color::rgb(1.0, 0.0, 0.0),
+        colour: Colour::rgb(1.0, 0.0, 0.0),
     };
     let cases = [
         (
@@ -1799,7 +1799,7 @@ fn eight_bit_values_of_a_mapped_image_are_mapped_as_the_numbers_they_denote() {
 // Colour of an indexed image
 // ---------------------------------------------------------------------------------------------------------------
 
-// WHY: an indexed image is MATLAB's `image` with an indexed array: each index names an entry of the axes colormap
+// WHY: an indexed image is MATLAB's `image` with an indexed array: each index names an entry of the axes colourmap
 // directly, so a byte i is drawn as entry i exactly, whatever the colour limits are, because a lookup that went
 // through the limits would recolour a segmentation map whenever a surface was added beside it.
 #[test]
@@ -1807,7 +1807,7 @@ fn an_indexed_image_takes_its_entries_directly_whatever_the_colour_limits() {
     let build = |clim: Limits| {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        fx.palette_mut(ax).colors = palette_colors(&MAGMA);
+        fx.palette_mut(ax).colours = palette_colours(&MAGMA);
         fx.axes_scale_mut(ax).limits = clim;
         let image = fx.indexed_image(
             ax,
@@ -1826,7 +1826,7 @@ fn an_indexed_image_takes_its_entries_directly_whatever_the_colour_limits() {
         assert_eq!(
             pixel(&automatic, k / 2, k % 2),
             opaque(MAGMA[index]),
-            "index {index} takes entry {index} of the axes colormap"
+            "index {index} takes entry {index} of the axes colourmap"
         );
     }
     let manual = build(Limits::Manual {
@@ -1842,7 +1842,7 @@ fn an_indexed_image_takes_its_entries_directly_whatever_the_colour_limits() {
 // WHY: the indices of an indexed image and the components of a true-colour image are not colour data, so they must
 // not stretch the automatic colour limits of the axes: a mapped image of values 0 to 1 beside an indexed image of
 // indices 0 to 255 and a true-colour image of bytes 0 to 255 still maps its 0 to the first entry and its 1 to the
-// last, rather than being squeezed into the bottom of the colormap.
+// last, rather than being squeezed into the bottom of the colourmap.
 #[test]
 fn indexed_and_true_colour_images_contribute_nothing_to_automatic_colour_limits() {
     let mut fx = Fx::new();
@@ -1871,7 +1871,7 @@ fn indexed_and_true_colour_images_contribute_nothing_to_automatic_colour_limits(
 
 // WHY: a floating-point index names an entry only when it is a whole number, so 2 is entry 2, while a fractional
 // index (2.9, −0.5, 255.9), an index below 0 or above 255 and a non-finite index cannot be placed and follow the
-// policies of the indexed scale: transparent; a clamp, which truncates toward zero and then clamps to the ends, as
+// policies of the indexed scale: transparent; a clamp, which truncates towards zero and then clamps to the ends, as
 // MATLAB rounds indexed arrays down, and draws nothing for a non-finite index; or a fixed colour.
 #[test]
 fn floating_point_indices_name_entries_when_whole_and_take_their_policy_otherwise() {
@@ -1906,10 +1906,10 @@ fn floating_point_indices_name_entries_when_whole_and_take_their_policy_otherwis
         &mut fx,
         fixed,
         OutOfRange::Rgba {
-            color: Color::rgb(1.0, 0.0, 0.0),
+            colour: Colour::rgb(1.0, 0.0, 0.0),
         },
         OutOfRange::Rgba {
-            color: Color::rgba(0.0, 0.0, 1.0, 0.4),
+            colour: Colour::rgba(0.0, 0.0, 1.0, 0.4),
         },
     );
     let scene = compile_figure(&fx.build());
@@ -3072,14 +3072,14 @@ fn hidden_three_dimensional_and_undrawn_images_have_no_hit_entry() {
 
 // WHY: a legend entry must look like the artist it names, and a true-colour image has no line, marker or scale, so its
 // sample is a filled patch of the mean colour of its finite pixels, which resembles the raster. The sample of a
-// colour-mapped image is a sweep of its scale, which `legend_color_keys.rs` pins; here it is enough that every named
+// colour-mapped image is a sweep of its scale, which `legend_colour_keys.rs` pins; here it is enough that every named
 // image has an entry, in artist order, whose label is drawn by the axes like every other part of the legend.
 #[test]
 fn a_named_image_has_a_legend_entry_and_a_true_colour_image_is_keyed_by_its_mean_colour() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    fx.axes_scale_mut(ax).colormap = ColormapName::Magma.into();
-    fx.palette_mut(ax).colors = palette_colors(&MAGMA);
+    fx.axes_scale_mut(ax).colourmap = ColourmapName::Magma.into();
+    fx.palette_mut(ax).colours = palette_colours(&MAGMA);
     let mapped_image = fx.imagesc(ax, vec![2, 2], ramp(4), xy(None, None), |m| {
         m.label = text("Mapped")
     });

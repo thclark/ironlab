@@ -6,8 +6,8 @@
 //! actually built.
 
 use ironlab::ir::{
-    AngleUnits, Artist, Axes, AxisSide, Bar, BarOffset, ColorScale, ColorScaleKind,
-    ColorScaleLevels, ColorScaleNorm, ColorSpec, ContourPlacement, Dimension, Figure, Grid,
+    AngleUnits, Artist, Axes, AxisSide, Bar, BarOffset, ColourScale, ColourScaleKind,
+    ColourScaleLevels, ColourScaleNorm, ColourSpec, ContourPlacement, Dimension, Figure, Grid,
     ImagePlacement, ImagePlane, Interpreter, Limits, MarkerShape, NodeId, Orientation, OutOfRange,
     PerBar, PolarView, Projection, Scale, TickLabels,
 };
@@ -33,25 +33,25 @@ fn image_placement(artist: &Artist) -> Option<ImagePlacement> {
 }
 
 /// Returns the colour scale that a scalar image names, when it names one of the figure.
-fn image_scale<'f>(figure: &'f Figure, artist: &Artist) -> Option<&'f ColorScale> {
+fn image_scale<'f>(figure: &'f Figure, artist: &Artist) -> Option<&'f ColourScale> {
     match artist {
-        Artist::ScalarImage(image) => figure.color_scale(image.color_scale?),
+        Artist::ScalarImage(image) => figure.colour_scale(image.colour_scale?),
         _ => None,
     }
 }
 
 /// Returns whether any out-of-range category of a scale has a policy other than the default of its category.
-fn has_a_non_default_policy(scale: &ColorScale) -> bool {
+fn has_a_non_default_policy(scale: &ColourScale) -> bool {
     let differs = |policy: OutOfRange, default: OutOfRange| policy != default;
     let ranged = match &scale.kind {
-        ColorScaleKind::Continuous(k) => {
+        ColourScaleKind::Continuous(k) => {
             differs(k.below.policy, OutOfRange::Clamp) || differs(k.above.policy, OutOfRange::Clamp)
         }
-        ColorScaleKind::Discrete(k) => {
+        ColourScaleKind::Discrete(k) => {
             differs(k.below.policy, OutOfRange::Clamp) || differs(k.above.policy, OutOfRange::Clamp)
         }
-        ColorScaleKind::Indexed(k) => differs(k.outside.policy, OutOfRange::Strict),
-        ColorScaleKind::Categorical(k) => differs(k.outside.policy, OutOfRange::Strict),
+        ColourScaleKind::Indexed(k) => differs(k.outside.policy, OutOfRange::Strict),
+        ColourScaleKind::Categorical(k) => differs(k.outside.policy, OutOfRange::Strict),
     };
     ranged || differs(scale.non_finite.policy, OutOfRange::Transparent)
 }
@@ -127,13 +127,13 @@ fn every_required_chart_type_is_present() {
         ("quiver3", |_, axes, artist| {
             is_3d(axes) && matches!(artist, Artist::Quiver(q) if q.z.is_some() && q.w.is_some())
         }),
-        ("surf (colormapped faces)", |_, axes, artist| {
+        ("surf (colourmapped faces)", |_, axes, artist| {
             is_3d(axes)
-                && matches!(artist, Artist::Surface(s) if s.face == ColorSpec::Colormapped && s.edge != ColorSpec::Colormapped)
+                && matches!(artist, Artist::Surface(s) if s.face == ColourSpec::Colourmapped && s.edge != ColourSpec::Colourmapped)
         }),
-        ("mesh (colormapped edges)", |_, axes, artist| {
+        ("mesh (colourmapped edges)", |_, axes, artist| {
             is_3d(axes)
-                && matches!(artist, Artist::Surface(s) if s.edge == ColorSpec::Colormapped && s.face != ColorSpec::Colormapped)
+                && matches!(artist, Artist::Surface(s) if s.edge == ColourSpec::Colourmapped && s.face != ColourSpec::Colourmapped)
         }),
         // WHY: the painter's algorithm cannot draw two surfaces that cut through each other, and a gallery that
         // showed only single height fields would hide the case the depth buffer exists for; an axes must hold two
@@ -162,7 +162,7 @@ fn every_required_chart_type_is_present() {
             "surface in a two-dimensional axes on a curvilinear grid",
             |_, axes, artist| {
                 is_2d(axes)
-                    && matches!(artist, Artist::Surface(s) if s.face == ColorSpec::Colormapped && matches!(s.grid, Grid::Curvilinear { .. }))
+                    && matches!(artist, Artist::Surface(s) if s.face == ColourSpec::Colourmapped && matches!(s.grid, Grid::Curvilinear { .. }))
             },
         ),
         ("legend with a named series", |_, axes, artist| {
@@ -177,7 +177,7 @@ fn every_required_chart_type_is_present() {
         }),
         // WHY: the image entries are the fixtures of the raster paths of the exporter (an image XObject with a soft
         // mask) and of the viewer (textured quads). A true-colour image carries its colours, and a scalar image maps
-        // its numbers through a scale, where a palette of entries and an interpolated colormap are different rules,
+        // its numbers through a scale, where a palette of entries and an interpolated colourmap are different rules,
         // so each must be present. Explicit and mirrored pixel ranges, a wall plane and a policy other than the
         // default are the placement and colouring branches that the defaults never reach, so each needs an entry
         // that uses it.
@@ -188,14 +188,14 @@ fn every_required_chart_type_is_present() {
             "scalar image through an indexed scale",
             |figure, _, artist| {
                 image_scale(figure, artist)
-                    .is_some_and(|scale| matches!(scale.kind, ColorScaleKind::Indexed(_)))
+                    .is_some_and(|scale| matches!(scale.kind, ColourScaleKind::Indexed(_)))
             },
         ),
         (
             "scalar image through a continuous scale",
             |figure, _, artist| {
                 image_scale(figure, artist)
-                    .is_some_and(|scale| matches!(scale.kind, ColorScaleKind::Continuous(_)))
+                    .is_some_and(|scale| matches!(scale.kind, ColourScaleKind::Continuous(_)))
             },
         ),
         // WHY: a discrete scale bands every value, and a filled contour without levels of its own takes the scale's
@@ -205,9 +205,9 @@ fn every_required_chart_type_is_present() {
             "filled contour taking its levels from a discrete scale",
             |figure, _, artist| {
                 matches!(artist, Artist::Contour(c) if c.fill && c.levels.is_none()
-                && c.color_scale.and_then(|id| figure.color_scale(id)).is_some_and(|scale| matches!(
+                && c.colour_scale.and_then(|id| figure.colour_scale(id)).is_some_and(|scale| matches!(
                     &scale.kind,
-                    ColorScaleKind::Discrete(d) if matches!(d.levels, ColorScaleLevels::Explicit { .. })
+                    ColourScaleKind::Discrete(d) if matches!(d.levels, ColourScaleLevels::Explicit { .. })
                 )))
             },
         ),
@@ -215,9 +215,9 @@ fn every_required_chart_type_is_present() {
             "artist through a logarithmic colour scale",
             |figure, _, artist| {
                 artist
-                    .color_mapping()
-                    .and_then(|mapping| figure.color_scale(mapping.color_scale?))
-                    .is_some_and(|scale| scale.kind.norm() == ColorScaleNorm::Log)
+                    .colour_mapping()
+                    .and_then(|mapping| figure.colour_scale(mapping.colour_scale?))
+                    .is_some_and(|scale| scale.kind.norm() == ColourScaleNorm::Log)
             },
         ),
         ("image with explicit pixel ranges", |_, _, artist| {
@@ -373,7 +373,7 @@ fn polar_axes_are_covered() {
         }),
         ("polar scatter coloured by data", |_, axes, artist| {
             polar_view(axes).is_some()
-                && matches!(artist, Artist::Series(s) if !s.draws_line() && s.draws_markers() && s.color_data.is_some())
+                && matches!(artist, Artist::Series(s) if !s.draws_line() && s.draws_markers() && s.colour_data.is_some())
         }),
         ("bars in polar axes", |_, axes, artist| {
             polar_view(axes).is_some() && matches!(artist, Artist::Bar(_))
@@ -438,7 +438,7 @@ fn radar_charts_polar_histograms_and_wind_roses_are_covered() {
             polar_view(axes).is_some_and(|view| matches!(view.angle_units, AngleUnits::PerTurn(_)))
                 && matches!(axes.x.tick_labels, TickLabels::Text(_))
                 && matches!(artist, Artist::Series(s)
-                    if s.base.is_some() && s.fill != ColorSpec::None && s.draws_markers())
+                    if s.base.is_some() && s.fill != ColourSpec::None && s.draws_markers())
         }),
         ("polar histogram drawn as bars", |_, axes, artist| {
             polar_view(axes).is_some() && matches!(artist, Artist::Bar(b) if b.binning.is_some())
@@ -505,11 +505,11 @@ fn cylindrical_and_spherical_axes_are_covered() {
             "surface in spherical axes with a colourbar",
             |figure, axes, artist| {
                 is_spherical(axes)
-                    && (axes.colorbar.is_some()
+                    && (axes.colourbar.is_some()
                         || figure
                             .panels
                             .iter()
-                            .any(|p| matches!(p.content, ironlab::ir::PanelContent::Colorbar(_))))
+                            .any(|p| matches!(p.content, ironlab::ir::PanelContent::Colourbar(_))))
                     && matches!(artist, Artist::Surface(_))
             },
         ),

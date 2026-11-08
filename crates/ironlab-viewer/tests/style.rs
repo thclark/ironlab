@@ -39,7 +39,7 @@ fn draws(
 const SECONDARY: f64 = 3.0;
 
 /// The WCAG 2.1 relative luminance of an opaque sRGB colour.
-fn relative_luminance(color: Color32) -> f64 {
+fn relative_luminance(colour: Color32) -> f64 {
     let channel = |value: u8| {
         let value = f64::from(value) / 255.0;
         if value <= 0.04045 {
@@ -48,7 +48,7 @@ fn relative_luminance(color: Color32) -> f64 {
             ((value + 0.055) / 1.055).powf(2.4)
         }
     };
-    0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
+    0.2126 * channel(colour.r()) + 0.7152 * channel(colour.g()) + 0.0722 * channel(colour.b())
 }
 
 /// The WCAG 2.1 contrast ratio between two opaque colours, which runs from 1 (the same colour) to 21 (black on
@@ -58,18 +58,18 @@ fn contrast_ratio(first: Color32, second: Color32) -> f64 {
     (first.max(second) + 0.05) / (first.min(second) + 0.05)
 }
 
-/// The colour that reaches the screen when egui paints `color` at `opacity` over `background`.
+/// The colour that reaches the screen when egui paints `colour` at `opacity` over `background`.
 ///
 /// `egui::Ui::disable` multiplies the opacity of everything a disabled widget paints, and egui composites its
 /// premultiplied colours in gamma space, so the result is the straight weighted mean of the two byte values.
-fn painted_at(color: Color32, opacity: f32, background: Color32) -> Color32 {
+fn painted_at(colour: Color32, opacity: f32, background: Color32) -> Color32 {
     let blend = |fore: u8, back: u8| {
         (opacity * f32::from(fore) + (1.0 - opacity) * f32::from(back)).round() as u8
     };
     Color32::from_rgb(
-        blend(color.r(), background.r()),
-        blend(color.g(), background.g()),
-        blend(color.b(), background.b()),
+        blend(colour.r(), background.r()),
+        blend(colour.g(), background.g()),
+        blend(colour.b(), background.b()),
     )
 }
 
@@ -166,8 +166,8 @@ fn weak_text_is_quieter_than_ordinary_text_yet_still_legible() {
 // that reaches the screen is dimmer than the colour configured, and it is the painted colour that has to be legible.
 #[test]
 fn disabled_text_stays_legible_once_egui_has_dimmed_it() {
-    for (name, color) in [("ordinary", style::TEXT), ("weak", style::WEAK_TEXT)] {
-        let painted = painted_at(color, style::DISABLED_ALPHA, style::BACKGROUND);
+    for (name, colour) in [("ordinary", style::TEXT), ("weak", style::WEAK_TEXT)] {
+        let painted = painted_at(colour, style::DISABLED_ALPHA, style::BACKGROUND);
         let ratio = contrast_ratio(painted, style::BACKGROUND);
         assert!(
             ratio >= SECONDARY,

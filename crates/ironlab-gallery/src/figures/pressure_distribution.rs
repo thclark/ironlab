@@ -104,7 +104,7 @@ pub fn figure() -> Figure {
     for (name, points, dash) in surfaces {
         cp.plot(column(points, |p| p.x), column(points, |p| p.cp))
             .label(name)
-            .color(Color::BLACK)
+            .colour(Colour::BLACK)
             .dash(dash);
     }
     cp.ylabel("$C_p$")
@@ -123,7 +123,7 @@ pub fn figure() -> Figure {
         speed
             .plot(column(points, |p| p.x), column(points, |p| p.speed))
             .label(name)
-            .color(Color::BLACK)
+            .colour(Colour::BLACK)
             .dash(dash);
     }
     speed

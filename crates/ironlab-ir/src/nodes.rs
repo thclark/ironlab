@@ -39,7 +39,7 @@ use crate::artist::{
     Artist, Bar, Cells, Contour, Image, Quiver, ScalarImage, Series, Stairs, Surface,
 };
 use crate::axes::Axes;
-use crate::color_scale::ColorScale;
+use crate::colour_scale::ColourScale;
 use crate::data::DataArray;
 use crate::edit::walk::{Step, WalkNode};
 use crate::edit::{Edit, Property, Value};
@@ -570,8 +570,8 @@ figure_nodes! {
         DataArray in data, found by data_array and data_array_mut as "data array",
             encoded as data_array;
         /// A colour scale, which colour-mapped artists refer to by its identifier.
-        ColorScale in color_scales, found by color_scale and color_scale_mut
-            as "colour scale", encoded as color_scale;
+        ColourScale in colour_scales, found by colour_scale and colour_scale_mut
+            as "colour scale", encoded as colour_scale;
         /// An axes with its artists, boxed in a [`Node`] because an axes is much larger
         /// than any other node.
         Axes(boxed) in axes, found by axes and axes_mut as "axes",

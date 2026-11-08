@@ -78,8 +78,8 @@ pub fn figure() -> Figure {
     ax.scalar_image(power)
         .pixel_columns(0.5 * frame_s, DURATION_S - 0.5 * frame_s)
         .pixel_rows(bin_hz, bins as f64 * bin_hz);
-    ax.color_scale()
-        .colormap(Colormap::Magma)
+    ax.colour_scale()
+        .colourmap(Colourmap::Magma)
         .limits(NOISE_FLOOR_DB, 0.0);
     ax.yscale(Scale::Log)
         .xlabel("Time $t$ (s)")

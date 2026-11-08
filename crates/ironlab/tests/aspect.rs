@@ -44,7 +44,7 @@ fn a_new_axes_has_an_automatic_aspect_and_a_centred_title() {
     let a = axes(&fig, id);
     assert_eq!(a.aspect, Aspect::Auto);
     assert_eq!(a.aspect_adjust, AspectAdjust::Box);
-    assert_eq!(a.title_align, TitleAlign::Center);
+    assert_eq!(a.title_align, TitleAlign::Centre);
 }
 
 // WHY: a ratio that is not a finite positive number cannot be drawn, and the builder must not panic on it; the user

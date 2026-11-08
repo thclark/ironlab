@@ -2,7 +2,7 @@
 //! picking one from a list.
 //!
 //! A property whose type is a tagged value (limits, a colour specification, a
-//! projection and the rest) or a plain enumeration (a scale, a colormap name, a marker
+//! projection and the rest) or a plain enumeration (a scale, a colourmap name, a marker
 //! shape and the rest) is changed by choosing one of a fixed set of alternatives rather
 //! than by typing a number. [`choices`] returns that set, each alternative labelled for
 //! a combo box and carrying a value that the property can be set to at once.
@@ -14,7 +14,7 @@
 //! [`choices`] answers what a *type* can hold, which is all a caller with no figure can
 //! ask. [`property_choices`] answers the same question for a *property of a node*, and
 //! marks each choice with whether the IR would act on it there: a colour that the
-//! colormap indexes means nothing where the IR has no value to index it by. Such a
+//! colourmap indexes means nothing where the IR has no value to index it by. Such a
 //! choice is still returned, carrying the sentence that says why it is unavailable and
 //! where it is available, so that a combo box can show it disabled rather than hide it
 //! and leave the user to guess that the value exists. Which choices the IR acts on is a
@@ -27,12 +27,12 @@ use crate::artist::{
     ImagePlane, Levels, Orientation, PerBar, QuiverScale, Series, StairsData, StepAt,
 };
 use crate::axes::{
-    AngleUnits, Aspect, AspectAdjust, Axes, AxisSide, ColormapName, InsideColorbarSide, Limits,
+    AngleUnits, Aspect, AspectAdjust, Axes, AxisSide, ColourmapName, InsideColourbarSide, Limits,
     PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign, View3d,
 };
-use crate::color_scale::{
-    CategoricalColorScale, ColorCategory, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale, OutOfRange,
+use crate::colour_scale::{
+    CategoricalColourScale, ColourCategory, ColourScaleKind, ColourScaleLevels, ColourScaleNorm,
+    Colourmap, ContinuousColourScale, DiscreteColourScale, IndexedColourScale, OutOfRange,
 };
 use crate::edit::path::PropertyPath;
 use crate::edit::registry::properties;
@@ -44,9 +44,9 @@ use crate::legend::{
 };
 use crate::nodes::NodeKind;
 use crate::panel::{
-    ColorbarOrientation, ColorbarTitlePlacement, PanelColorbar, PanelContent, PanelLocation,
+    ColourbarOrientation, ColourbarTitlePlacement, PanelColourbar, PanelContent, PanelLocation,
 };
-use crate::style::{Color, ColorSpec, DashStyle, MarkerShape};
+use crate::style::{Colour, ColourSpec, DashStyle, MarkerShape};
 use crate::text::{Interpreter, Text};
 
 /// One of the values that a property of a given type can be given, as offered by
@@ -133,9 +133,9 @@ const FALLBACK_BIN_COUNT: u32 = 10;
 /// number of columns of an inside legend by default.
 const FALLBACK_LEGEND_COLUMNS: u32 = 1;
 
-/// The colours that a listed colormap starts from when the value it replaces holds none:
-/// black to white, the fewest colours a listed colormap may hold.
-const FALLBACK_LISTED_COLORS: [Color; 2] = [Color::BLACK, Color::WHITE];
+/// The colours that a listed colourmap starts from when the value it replaces holds none:
+/// black to white, the fewest colours a listed colourmap may hold.
+const FALLBACK_LISTED_COLOURS: [Colour; 2] = [Colour::BLACK, Colour::WHITE];
 
 /// The panel that a legend listing its entries in a panel refers to when the value it
 /// replaces names none. The figure need not have it, in which case the choice is
@@ -185,27 +185,27 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Aspect => aspect_choices(replacing),
         ValueType::AspectAdjust => aspect_adjust_choices(),
         ValueType::TitleAlign => title_align_choices(),
-        ValueType::ColorSpec => color_spec_choices(replacing),
+        ValueType::ColourSpec => colour_spec_choices(replacing),
         ValueType::Grid => grid_choices(replacing),
         ValueType::Levels => levels_choices(replacing),
         ValueType::ContourPlacement => contour_placement_choices(replacing),
         ValueType::QuiverScale => quiver_scale_choices(replacing),
         ValueType::ImagePlane => image_plane_choices(replacing),
         ValueType::OutOfRange => out_of_range_choices(replacing),
-        ValueType::ColorScaleKind => color_scale_kind_choices(replacing),
-        ValueType::Colormap => colormap_choices(replacing),
-        ValueType::ColorScaleLevels => color_scale_levels_choices(replacing),
-        ValueType::ColorScaleNorm => color_scale_norm_choices(),
+        ValueType::ColourScaleKind => colour_scale_kind_choices(replacing),
+        ValueType::Colourmap => colourmap_choices(replacing),
+        ValueType::ColourScaleLevels => colour_scale_levels_choices(replacing),
+        ValueType::ColourScaleNorm => colour_scale_norm_choices(),
         ValueType::Legend => legend_choices(replacing),
         ValueType::PanelContent => panel_content_choices(replacing),
         ValueType::LegendEntryColumns => legend_entry_columns_choices(replacing),
         ValueType::Scale => scale_choices(),
-        ValueType::ColormapName => colormap_name_choices(),
+        ValueType::ColourmapName => colourmap_name_choices(),
         ValueType::LegendLocation => legend_location_choices(),
         ValueType::PanelLocation => panel_location_choices(),
-        ValueType::ColorbarOrientation => colorbar_orientation_choices(),
-        ValueType::InsideColorbarSide => inside_colorbar_side_choices(),
-        ValueType::ColorbarTitlePlacement => colorbar_title_placement_choices(),
+        ValueType::ColourbarOrientation => colourbar_orientation_choices(),
+        ValueType::InsideColourbarSide => inside_colourbar_side_choices(),
+        ValueType::ColourbarTitlePlacement => colourbar_title_placement_choices(),
         ValueType::LegendEntryOrder => legend_entry_order_choices(),
         ValueType::MarkerShape => marker_shape_choices(),
         ValueType::DashStyle => dash_style_choices(),
@@ -235,7 +235,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::Texts
         | ValueType::Text
         | ValueType::FigureSize
-        | ValueType::Color
+        | ValueType::Colour
         | ValueType::TileLayout
         | ValueType::Links
         | ValueType::Parameters
@@ -247,17 +247,17 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
         | ValueType::PanelLegend
-        | ValueType::PanelColorbar
-        | ValueType::InsideColorbar
+        | ValueType::PanelColourbar
+        | ValueType::InsideColourbar
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
         | ValueType::PixelRange
-        | ValueType::ColorScaleOutOfRange
-        | ValueType::ContinuousColorScale
-        | ValueType::DiscreteColorScale
-        | ValueType::IndexedColorScale
-        | ValueType::CategoricalColorScale
+        | ValueType::ColourScaleOutOfRange
+        | ValueType::ContinuousColourScale
+        | ValueType::DiscreteColourScale
+        | ValueType::IndexedColourScale
+        | ValueType::CategoricalColourScale
         | ValueType::Binning
         | ValueType::Binning2d
         | ValueType::UInt64
@@ -273,16 +273,16 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
 /// A user who can see a value they cannot pick, and read what would make it available,
 /// learns what the figure can do; a value removed from the list teaches nothing.
 ///
-/// Three choices are unavailable somewhere. A colormapped colour is looked up through a
+/// Three choices are unavailable somewhere. A colourmapped colour is looked up through a
 /// colour scale only where the artist names a colour scale of the figure and the IR gives
 /// the colour a value to be looked up by: the level of each isoline of a contour
-/// (`line.color`), the height or colour data of each face of a surface (`face` and
-/// `edge`), and the colour data of a series (`line.color`, `marker.face` and
+/// (`line.colour`), the height or colour data of each face of a surface (`face` and
+/// `edge`), and the colour data of a series (`line.colour`, `marker.face` and
 /// `marker.edge`). An artist that names no scale has nothing to look the colour up in, a
 /// series without colour data has no value to look up, and neither has the colour of a
 /// quiver, so the scene compiler paints such a colour in the middle colour of viridis
 /// instead, or, on a marker, in the colour of its series. A marker face or edge of a
-/// series coloured per segment has no value at its point, so a colormapped marker colour
+/// series coloured per segment has no value at its point, so a colourmapped marker colour
 /// is unavailable there too. A clamp, which paints a value in the nearest end colour of
 /// its scale, is unavailable at the `non_finite` category of a colour scale, because a
 /// non-finite value has no nearest end; it stays available at the other categories. A
@@ -330,17 +330,17 @@ type Rule = fn(&Figure, NodeKind, NodeId, &PropertyPath, &Value) -> Option<&'sta
 /// A new rule is a function of the type above added to this list, so marking a choice
 /// unavailable never needs the property editor, or this module's callers, to change.
 const RULES: [Rule; 5] = [
-    colormapped_without_a_value_to_index_by,
-    clamp_without_a_nearest_end_of_the_colormap,
+    colourmapped_without_a_value_to_index_by,
+    clamp_without_a_nearest_end_of_the_colourmap,
     legend_panel_that_the_figure_lacks,
-    colorbar_scale_that_the_figure_lacks,
+    colourbar_scale_that_the_figure_lacks,
     tick_text_without_matching_values,
 ];
 
-/// Completes the reason a colormapped colour is unavailable at a property, which is why
+/// Completes the reason a colourmapped colour is unavailable at a property, which is why
 /// the property cannot look a colour up followed by where a colour scale can be used
 /// instead.
-macro_rules! colormapped_unavailable {
+macro_rules! colourmapped_unavailable {
     ($why:literal) => {
         concat!(
             $why,
@@ -353,86 +353,86 @@ macro_rules! colormapped_unavailable {
     };
 }
 
-/// Why a colormapped colour is unavailable on an artist that names no colour scale.
-const COLORMAPPED_WITHOUT_A_SCALE: &str = colormapped_unavailable!(
+/// Why a colourmapped colour is unavailable on an artist that names no colour scale.
+const COLOURMAPPED_WITHOUT_A_SCALE: &str = colourmapped_unavailable!(
     "This artist names no colour scale of the figure, so it has nothing to look the colour \
      up in. A colour scale is created and named by the program that builds the figure."
 );
 
-/// Why a colormapped colour is unavailable on a series without colour data.
-const COLORMAPPED_WITHOUT_COLOUR_DATA: &str = colormapped_unavailable!(
+/// Why a colourmapped colour is unavailable on a series without colour data.
+const COLOURMAPPED_WITHOUT_COLOUR_DATA: &str = colourmapped_unavailable!(
     "This series has no colour data, so it provides no value to look the colour up by: a \
-     colormapped line is drawn in the middle colour of viridis, and a colormapped marker in \
+     colourmapped line is drawn in the middle colour of viridis, and a colourmapped marker in \
      the colour of the series, as an automatic one. Colour data is given to a series by the \
      program that builds the figure."
 );
 
-/// Why a colormapped colour is unavailable on the markers of a series coloured per
+/// Why a colourmapped colour is unavailable on the markers of a series coloured per
 /// segment.
-const COLORMAPPED_MARKER_PER_SEGMENT: &str = colormapped_unavailable!(
+const COLOURMAPPED_MARKER_PER_SEGMENT: &str = colourmapped_unavailable!(
     "The colour data of this series holds one value per segment of its line, so no value \
      belongs to a point and a marker has none to look its colour up by. A series whose \
      colour data holds one value per point can colour its markers."
 );
 
-/// Why a colormapped colour is unavailable on a quiver.
-const COLORMAPPED_ON_A_QUIVER: &str = colormapped_unavailable!(
+/// Why a colourmapped colour is unavailable on a quiver.
+const COLOURMAPPED_ON_A_QUIVER: &str = colourmapped_unavailable!(
     "A quiver is drawn in one colour and provides no value to look that colour up by, so \
-     colormapped arrows are drawn in the middle colour of viridis."
+     colourmapped arrows are drawn in the middle colour of viridis."
 );
 
-/// Why a colormapped colour is unavailable on bars without colour data.
-const COLORMAPPED_BARS_WITHOUT_COLOUR_DATA: &str = colormapped_unavailable!(
+/// Why a colourmapped colour is unavailable on bars without colour data.
+const COLOURMAPPED_BARS_WITHOUT_COLOUR_DATA: &str = colourmapped_unavailable!(
     "These bars have no colour data, so they provide no value to look the colour up by: a \
-     colormapped face or outline is drawn in the colour of the series, as an automatic one. \
+     colourmapped face or outline is drawn in the colour of the series, as an automatic one. \
      Colour data is given to bars by the program that builds the figure."
 );
 
-/// Why a colormapped colour is unavailable on stairs.
-const COLORMAPPED_ON_STAIRS: &str = colormapped_unavailable!(
+/// Why a colourmapped colour is unavailable on stairs.
+const COLOURMAPPED_ON_STAIRS: &str = colourmapped_unavailable!(
     "Stairs take solid colours only and have neither colour data nor a colour scale, so a \
-     colormapped colour has nothing to look the colour up in and makes the figure invalid. \
+     colourmapped colour has nothing to look the colour up in and makes the figure invalid. \
      Values that must be coloured through a scale are drawn as cells or as bars with colour \
      data instead."
 );
 
-/// Why a colormapped colour is unavailable at the fill of a series.
-const COLORMAPPED_SERIES_FILL: &str = colormapped_unavailable!(
+/// Why a colourmapped colour is unavailable at the fill of a series.
+const COLOURMAPPED_SERIES_FILL: &str = colourmapped_unavailable!(
     "The colour data of a series colours its points and the segments between them, and the \
-     area under the line has no value of its own to look a colour up by, so a colormapped \
+     area under the line has no value of its own to look a colour up by, so a colourmapped \
      fill makes the figure invalid. A fill takes a solid colour, or the colour of the series."
 );
 
-/// Why a colormapped colour is unavailable anywhere else.
-const COLORMAPPED_ELSEWHERE: &str = colormapped_unavailable!(
-    "This property provides no value to look a colour up by, so a colormapped colour \
+/// Why a colourmapped colour is unavailable anywhere else.
+const COLOURMAPPED_ELSEWHERE: &str = colourmapped_unavailable!(
+    "This property provides no value to look a colour up by, so a colourmapped colour \
      here is drawn in the middle colour of viridis."
 );
 
-/// Marks a colormapped colour unavailable wherever the IR holds no value to look the
+/// Marks a colourmapped colour unavailable wherever the IR holds no value to look the
 /// colour up by, or the artist names no colour scale of the figure to look it up in, and
 /// leaves every other choice and every other property alone.
-fn colormapped_without_a_value_to_index_by(
+fn colourmapped_without_a_value_to_index_by(
     figure: &Figure,
     kind: NodeKind,
     node: NodeId,
     path: &PropertyPath,
     value: &Value,
 ) -> Option<&'static str> {
-    if !matches!(value, Value::ColorSpec(ColorSpec::Colormapped)) {
+    if !matches!(value, Value::ColourSpec(ColourSpec::Colourmapped)) {
         return None;
     }
     let names_a_scale = || {
         figure
             .artist(node)
-            .and_then(|(_, artist)| artist.color_scale())
-            .is_some_and(|scale| figure.color_scale(scale).is_some())
+            .and_then(|(_, artist)| artist.colour_scale())
+            .is_some_and(|scale| figure.colour_scale(scale).is_some())
     };
     if kind == NodeKind::Series {
         let Some((_, Artist::Series(series))) = figure.artist(node) else {
             return None;
         };
-        return series_colormapped(figure, series, path, names_a_scale());
+        return series_colourmapped(figure, series, path, names_a_scale());
     }
     // Every colour of bars (the face and the outline) takes the colour of its bar's value,
     // so it needs colour data to look the colour up by and a scale to look it up in.
@@ -440,20 +440,20 @@ fn colormapped_without_a_value_to_index_by(
         let Some((_, Artist::Bar(bar))) = figure.artist(node) else {
             return None;
         };
-        if bar.color_data.is_none() {
-            return Some(COLORMAPPED_BARS_WITHOUT_COLOUR_DATA);
+        if bar.colour_data.is_none() {
+            return Some(COLOURMAPPED_BARS_WITHOUT_COLOUR_DATA);
         }
-        return (!names_a_scale()).then_some(COLORMAPPED_WITHOUT_A_SCALE);
+        return (!names_a_scale()).then_some(COLOURMAPPED_WITHOUT_A_SCALE);
     }
-    if indexes_the_colormap(kind, path) {
-        return (!names_a_scale()).then_some(COLORMAPPED_WITHOUT_A_SCALE);
+    if indexes_the_colourmap(kind, path) {
+        return (!names_a_scale()).then_some(COLOURMAPPED_WITHOUT_A_SCALE);
     }
     // The match is exhaustive, so a kind added to the IR does not compile until it is
-    // said why a colour of that kind cannot be colormapped.
+    // said why a colour of that kind cannot be colourmapped.
     Some(match kind {
-        NodeKind::Quiver => COLORMAPPED_ON_A_QUIVER,
-        NodeKind::Stairs => COLORMAPPED_ON_STAIRS,
-        // Every colour of a contour and of a surface indexes the colormap, every colour
+        NodeKind::Quiver => COLOURMAPPED_ON_A_QUIVER,
+        NodeKind::Stairs => COLOURMAPPED_ON_STAIRS,
+        // Every colour of a contour and of a surface indexes the colourmap, every colour
         // of a series and of bars is decided above, and a figure, a data array, a colour scale, an
         // axes, a panel and an image hold no colour specification at all (the fixed
         // colour of an out-of-range policy is a colour, not a specification), so these
@@ -464,33 +464,33 @@ fn colormapped_without_a_value_to_index_by(
         | NodeKind::Surface
         | NodeKind::Figure
         | NodeKind::DataArray
-        | NodeKind::ColorScale
+        | NodeKind::ColourScale
         | NodeKind::Axes
         | NodeKind::Image
         | NodeKind::ScalarImage
         | NodeKind::Cells
-        | NodeKind::Panel => COLORMAPPED_ELSEWHERE,
+        | NodeKind::Panel => COLOURMAPPED_ELSEWHERE,
     })
 }
 
-/// Returns why a colormapped colour is unavailable at a colour property of a series, or
+/// Returns why a colourmapped colour is unavailable at a colour property of a series, or
 /// `None` when it is available: the fill never is, and otherwise the series must have
 /// colour data and name a colour scale of the figure, and a marker colour needs one value
 /// per point.
-fn series_colormapped(
+fn series_colourmapped(
     figure: &Figure,
     series: &Series,
     path: &PropertyPath,
     names_a_scale: bool,
 ) -> Option<&'static str> {
     if path.segments() == ["fill"] {
-        return Some(COLORMAPPED_SERIES_FILL);
+        return Some(COLOURMAPPED_SERIES_FILL);
     }
-    let Some(colors) = series.color_data else {
-        return Some(COLORMAPPED_WITHOUT_COLOUR_DATA);
+    let Some(colours) = series.colour_data else {
+        return Some(COLOURMAPPED_WITHOUT_COLOUR_DATA);
     };
     if !names_a_scale {
-        return Some(COLORMAPPED_WITHOUT_A_SCALE);
+        return Some(COLOURMAPPED_WITHOUT_A_SCALE);
     }
     let on_a_marker = path
         .segments()
@@ -498,10 +498,10 @@ fn series_colormapped(
         .is_some_and(|first| first == "marker");
     let length = |id| figure.data_array(id).map(|data| data.array.len());
     let per_segment = matches!(
-        (length(colors), length(series.x)),
+        (length(colours), length(series.x)),
         (Some(values), Some(points)) if values + 1 == points
     );
-    (on_a_marker && per_segment).then_some(COLORMAPPED_MARKER_PER_SEGMENT)
+    (on_a_marker && per_segment).then_some(COLOURMAPPED_MARKER_PER_SEGMENT)
 }
 
 /// Why a clamp is unavailable at the non-finite category of a colour scale.
@@ -512,7 +512,7 @@ const CLAMP_AT_NON_FINITE: &str = "A non-finite value has no nearest end of the 
 /// Marks a clamp unavailable at the policy of the `non_finite` category of a colour
 /// scale, where the values have no nearest end of the scale to be clamped to, and leaves
 /// every other choice and every other property alone.
-fn clamp_without_a_nearest_end_of_the_colormap(
+fn clamp_without_a_nearest_end_of_the_colourmap(
     _figure: &Figure,
     kind: NodeKind,
     _node: NodeId,
@@ -520,7 +520,8 @@ fn clamp_without_a_nearest_end_of_the_colormap(
     value: &Value,
 ) -> Option<&'static str> {
     let clamp = matches!(value, Value::OutOfRange(OutOfRange::Clamp));
-    let at_non_finite = kind == NodeKind::ColorScale && path.segments() == ["non_finite", "policy"];
+    let at_non_finite =
+        kind == NodeKind::ColourScale && path.segments() == ["non_finite", "policy"];
     (clamp && at_non_finite).then_some(CLAMP_AT_NON_FINITE)
 }
 
@@ -548,13 +549,13 @@ fn legend_panel_that_the_figure_lacks(
 }
 
 /// Why a colourbar is unavailable as the content of a panel when it names no colour scale.
-const NO_SUCH_COLOR_SCALE: &str = "The figure has no colour scale of this identifier for the \
+const NO_SUCH_COLOUR_SCALE: &str = "The figure has no colour scale of this identifier for the \
      colourbar to show. A colour scale is created by the program that builds the figure, and \
      a panel can then show it as a colourbar.";
 
 /// Marks a panel's colourbar unavailable when the figure has no colour scale of the
 /// identifier it names, and leaves every other choice alone.
-fn colorbar_scale_that_the_figure_lacks(
+fn colourbar_scale_that_the_figure_lacks(
     figure: &Figure,
     _kind: NodeKind,
     _node: NodeId,
@@ -562,10 +563,10 @@ fn colorbar_scale_that_the_figure_lacks(
     value: &Value,
 ) -> Option<&'static str> {
     match value {
-        Value::PanelContent(PanelContent::Colorbar(colorbar))
-            if figure.color_scale(colorbar.scale).is_none() =>
+        Value::PanelContent(PanelContent::Colourbar(colourbar))
+            if figure.colour_scale(colourbar.scale).is_none() =>
         {
-            Some(NO_SUCH_COLOR_SCALE)
+            Some(NO_SUCH_COLOUR_SCALE)
         }
         _ => None,
     }
@@ -615,23 +616,23 @@ fn tick_text_without_matching_values(
 /// to look up through a colour scale.
 ///
 /// The match over the kinds of node is exhaustive, so a kind added to the IR does not
-/// compile until it is said what its colormapped colours index.
-fn indexes_the_colormap(kind: NodeKind, path: &PropertyPath) -> bool {
+/// compile until it is said what its colourmapped colours index.
+fn indexes_the_colourmap(kind: NodeKind, path: &PropertyPath) -> bool {
     let segments = path.segments();
     match kind {
         // Each isoline is coloured by its own level.
-        NodeKind::Contour => segments == ["line", "color"],
+        NodeKind::Contour => segments == ["line", "colour"],
         // Each face is coloured by its colour data, or by its height when it has none.
         NodeKind::Surface => segments == ["face"] || segments == ["edge"],
         // The outline of each cell takes the colour of its cell.
-        NodeKind::Cells => segments == ["edge", "color"],
+        NodeKind::Cells => segments == ["edge", "colour"],
         // An image holds no colour specification: a true-colour image carries its own
         // colours, and a scalar image maps its numbers through its scale rather than
         // through a colour property. The colours of a series and of bars index the
-        // colormap when they have colour data, which is decided before this is asked.
+        // colourmap when they have colour data, which is decided before this is asked.
         NodeKind::Figure
         | NodeKind::DataArray
-        | NodeKind::ColorScale
+        | NodeKind::ColourScale
         | NodeKind::Axes
         | NodeKind::Series
         | NodeKind::Quiver
@@ -660,27 +661,27 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Aspect(v) => aspect_label(v),
         Value::AspectAdjust(v) => aspect_adjust_label(v),
         Value::TitleAlign(v) => title_align_label(v),
-        Value::ColorSpec(v) => color_spec_label(v),
+        Value::ColourSpec(v) => colour_spec_label(v),
         Value::Grid(v) => grid_label(v),
         Value::Levels(v) => levels_label(v),
         Value::ContourPlacement(v) => contour_placement_label(v),
         Value::QuiverScale(v) => quiver_scale_label(v),
         Value::ImagePlane(v) => image_plane_label(v),
         Value::OutOfRange(v) => out_of_range_label(v),
-        Value::ColorScaleKind(v) => color_scale_kind_label(v),
-        Value::Colormap(v) => colormap_label(v),
-        Value::ColorScaleLevels(v) => color_scale_levels_label(v),
-        Value::ColorScaleNorm(v) => color_scale_norm_label(v),
+        Value::ColourScaleKind(v) => colour_scale_kind_label(v),
+        Value::Colourmap(v) => colourmap_label(v),
+        Value::ColourScaleLevels(v) => colour_scale_levels_label(v),
+        Value::ColourScaleNorm(v) => colour_scale_norm_label(v),
         Value::Legend(v) => legend_label(v),
         Value::PanelContent(v) => panel_content_label(v),
         Value::LegendEntryColumns(v) => legend_entry_columns_label(v),
         Value::Scale(v) => scale_label(v),
-        Value::ColormapName(v) => colormap_name_label(v),
+        Value::ColourmapName(v) => colourmap_name_label(v),
         Value::LegendLocation(v) => legend_location_label(v),
         Value::PanelLocation(v) => panel_location_label(v),
-        Value::ColorbarOrientation(v) => colorbar_orientation_label(v),
-        Value::InsideColorbarSide(v) => inside_colorbar_side_label(v),
-        Value::ColorbarTitlePlacement(v) => colorbar_title_placement_label(v),
+        Value::ColourbarOrientation(v) => colourbar_orientation_label(v),
+        Value::InsideColourbarSide(v) => inside_colourbar_side_label(v),
+        Value::ColourbarTitlePlacement(v) => colourbar_title_placement_label(v),
         Value::LegendEntryOrder(v) => legend_entry_order_label(v),
         Value::MarkerShape(v) => marker_shape_label(v),
         Value::DashStyle(v) => dash_style_label(v),
@@ -711,7 +712,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::Texts(_)
         | Value::Text(_)
         | Value::FigureSize(_)
-        | Value::Color(_)
+        | Value::Colour(_)
         | Value::TileLayout(_)
         | Value::Links(_)
         | Value::Parameters(_)
@@ -723,17 +724,17 @@ fn label_of(value: &Value) -> Option<&'static str> {
         | Value::InsideLegend(_)
         | Value::LegendEntryLayout(_)
         | Value::PanelLegend(_)
-        | Value::PanelColorbar(_)
-        | Value::InsideColorbar(_)
+        | Value::PanelColourbar(_)
+        | Value::InsideColourbar(_)
         | Value::LineStyle(_)
         | Value::MarkerStyle(_)
         | Value::ImagePlacement(_)
         | Value::PixelRange(_)
-        | Value::ColorScaleOutOfRange(_)
-        | Value::ContinuousColorScale(_)
-        | Value::DiscreteColorScale(_)
-        | Value::IndexedColorScale(_)
-        | Value::CategoricalColorScale(_)
+        | Value::ColourScaleOutOfRange(_)
+        | Value::ContinuousColourScale(_)
+        | Value::DiscreteColourScale(_)
+        | Value::IndexedColourScale(_)
+        | Value::CategoricalColourScale(_)
         | Value::Binning(_)
         | Value::Binning2d(_)
         | Value::UInt64(_)
@@ -891,13 +892,13 @@ tagged_choices! {
         });
     }
 
-    ColorSpec as ColorSpec (color_spec_choices, color_spec_label) replacing replacing {
-        ColorSpec::Auto => "Automatic" = ColorSpec::Auto;
-        ColorSpec::Rgba { .. } => "Fixed colour" = ColorSpec::Rgba {
-            color: replaced_color(replacing),
+    ColourSpec as ColourSpec (colour_spec_choices, colour_spec_label) replacing replacing {
+        ColourSpec::Auto => "Automatic" = ColourSpec::Auto;
+        ColourSpec::Rgba { .. } => "Fixed colour" = ColourSpec::Rgba {
+            colour: replaced_colour(replacing),
         };
-        ColorSpec::None => "None" = ColorSpec::None;
-        ColorSpec::Colormapped => "Colormapped" = ColorSpec::Colormapped;
+        ColourSpec::None => "None" = ColourSpec::None;
+        ColourSpec::Colourmapped => "Colourmapped" = ColourSpec::Colourmapped;
     }
 
     Grid as Grid (grid_choices, grid_label) replacing replacing {
@@ -976,7 +977,7 @@ tagged_choices! {
         OutOfRange::Transparent => "Transparent" = OutOfRange::Transparent;
         OutOfRange::Clamp => "Clamp" = OutOfRange::Clamp;
         OutOfRange::Rgba { .. } => "Fixed colour" = OutOfRange::Rgba {
-            color: replaced_color(replacing),
+            colour: replaced_colour(replacing),
         };
     }
 
@@ -996,27 +997,27 @@ tagged_choices! {
             Some(Value::PanelContent(PanelContent::Legend(legend))) => legend.clone(),
             _ => PanelLegend::default(),
         });
-        PanelContent::Colorbar(_) => "Colourbar" = PanelContent::Colorbar(match replacing {
-            Some(Value::PanelContent(PanelContent::Colorbar(colorbar))) => *colorbar,
-            _ => PanelColorbar {
+        PanelContent::Colourbar(_) => "Colourbar" = PanelContent::Colourbar(match replacing {
+            Some(Value::PanelContent(PanelContent::Colourbar(colourbar))) => *colourbar,
+            _ => PanelColourbar {
                 scale: FALLBACK_SCALE,
-                ..PanelColorbar::default()
+                ..PanelColourbar::default()
             },
         });
     }
 
     // A kind keeps what the kind it replaces shares with it: a continuous and a discrete
-    // scale keep the colormap, the norm, the below and above categories, the ticks and the
+    // scale keep the colourmap, the norm, the below and above categories, the ticks and the
     // limits (of a continuous scale, or of automatic band edges), and an indexed and a
     // categorical scale keep their colours and the outside category.
-    ColorScaleKind as ColorScaleKind (color_scale_kind_choices, color_scale_kind_label) replacing replacing {
-        ColorScaleKind::Continuous(_) => "Continuous" = ColorScaleKind::Continuous(match replacing {
-            Some(Value::ColorScaleKind(ColorScaleKind::Continuous(scale))) => scale.clone(),
-            Some(Value::ColorScaleKind(ColorScaleKind::Discrete(scale))) => ContinuousColorScale {
-                colormap: scale.colormap.clone(),
+    ColourScaleKind as ColourScaleKind (colour_scale_kind_choices, colour_scale_kind_label) replacing replacing {
+        ColourScaleKind::Continuous(_) => "Continuous" = ColourScaleKind::Continuous(match replacing {
+            Some(Value::ColourScaleKind(ColourScaleKind::Continuous(scale))) => scale.clone(),
+            Some(Value::ColourScaleKind(ColourScaleKind::Discrete(scale))) => ContinuousColourScale {
+                colourmap: scale.colourmap.clone(),
                 limits: match &scale.levels {
-                    ColorScaleLevels::Auto { limits, .. } => *limits,
-                    ColorScaleLevels::Explicit { values } => match (values.first(), values.last()) {
+                    ColourScaleLevels::Auto { limits, .. } => *limits,
+                    ColourScaleLevels::Explicit { values } => match (values.first(), values.last()) {
                         (Some(&min), Some(&max)) if min < max => Limits::Manual { min, max },
                         _ => Limits::Auto,
                     },
@@ -1027,13 +1028,13 @@ tagged_choices! {
                 ticks: scale.ticks.clone(),
                 tick_labels: scale.tick_labels.clone(),
             },
-            _ => ContinuousColorScale::default(),
+            _ => ContinuousColourScale::default(),
         });
-        ColorScaleKind::Discrete(_) => "Discrete" = ColorScaleKind::Discrete(match replacing {
-            Some(Value::ColorScaleKind(ColorScaleKind::Discrete(scale))) => scale.clone(),
-            Some(Value::ColorScaleKind(ColorScaleKind::Continuous(scale))) => DiscreteColorScale {
-                colormap: scale.colormap.clone(),
-                levels: ColorScaleLevels::Auto {
+        ColourScaleKind::Discrete(_) => "Discrete" = ColourScaleKind::Discrete(match replacing {
+            Some(Value::ColourScaleKind(ColourScaleKind::Discrete(scale))) => scale.clone(),
+            Some(Value::ColourScaleKind(ColourScaleKind::Continuous(scale))) => DiscreteColourScale {
+                colourmap: scale.colourmap.clone(),
+                levels: ColourScaleLevels::Auto {
                     count: FALLBACK_LEVEL_COUNT,
                     limits: scale.limits,
                 },
@@ -1043,58 +1044,58 @@ tagged_choices! {
                 ticks: scale.ticks.clone(),
                 tick_labels: scale.tick_labels.clone(),
             },
-            _ => DiscreteColorScale::default(),
+            _ => DiscreteColourScale::default(),
         });
-        ColorScaleKind::Indexed(_) => "Indexed" = ColorScaleKind::Indexed(match replacing {
-            Some(Value::ColorScaleKind(ColorScaleKind::Indexed(scale))) => scale.clone(),
-            Some(Value::ColorScaleKind(ColorScaleKind::Categorical(scale))) => IndexedColorScale {
-                colors: scale.categories.iter().map(|category| category.color).collect(),
+        ColourScaleKind::Indexed(_) => "Indexed" = ColourScaleKind::Indexed(match replacing {
+            Some(Value::ColourScaleKind(ColourScaleKind::Indexed(scale))) => scale.clone(),
+            Some(Value::ColourScaleKind(ColourScaleKind::Categorical(scale))) => IndexedColourScale {
+                colours: scale.categories.iter().map(|category| category.colour).collect(),
                 outside: scale.outside.clone(),
-                ..IndexedColorScale::default()
+                ..IndexedColourScale::default()
             },
-            _ => IndexedColorScale::default(),
+            _ => IndexedColourScale::default(),
         });
         // A category needs a label, so the entries of an indexed scale become categories
         // labelled with their indices.
-        ColorScaleKind::Categorical(_) => "Categorical" = ColorScaleKind::Categorical(match replacing {
-            Some(Value::ColorScaleKind(ColorScaleKind::Categorical(scale))) => scale.clone(),
-            Some(Value::ColorScaleKind(ColorScaleKind::Indexed(scale))) => CategoricalColorScale {
+        ColourScaleKind::Categorical(_) => "Categorical" = ColourScaleKind::Categorical(match replacing {
+            Some(Value::ColourScaleKind(ColourScaleKind::Categorical(scale))) => scale.clone(),
+            Some(Value::ColourScaleKind(ColourScaleKind::Indexed(scale))) => CategoricalColourScale {
                 categories: scale
-                    .colors
+                    .colours
                     .iter()
                     .enumerate()
-                    .map(|(index, &color)| ColorCategory {
-                        color,
+                    .map(|(index, &colour)| ColourCategory {
+                        colour,
                         label: Text::plain(index.to_string()),
                     })
                     .collect(),
                 outside: scale.outside.clone(),
             },
-            _ => CategoricalColorScale::default(),
+            _ => CategoricalColourScale::default(),
         });
     }
 
-    Colormap as Colormap (colormap_choices, colormap_label) replacing replacing {
-        Colormap::Named { .. } => "Named" = match replacing {
-            Some(Value::Colormap(named @ Colormap::Named { .. })) => named.clone(),
-            _ => Colormap::default(),
+    Colourmap as Colourmap (colourmap_choices, colourmap_label) replacing replacing {
+        Colourmap::Named { .. } => "Named" = match replacing {
+            Some(Value::Colourmap(named @ Colourmap::Named { .. })) => named.clone(),
+            _ => Colourmap::default(),
         };
-        Colormap::Listed { .. } => "Listed" = Colormap::Listed {
-            colors: match replacing {
-                Some(Value::Colormap(Colormap::Listed { colors })) => colors.clone(),
-                _ => FALLBACK_LISTED_COLORS.to_vec(),
+        Colourmap::Listed { .. } => "Listed" = Colourmap::Listed {
+            colours: match replacing {
+                Some(Value::Colourmap(Colourmap::Listed { colours })) => colours.clone(),
+                _ => FALLBACK_LISTED_COLOURS.to_vec(),
             },
         };
     }
 
-    ColorScaleLevels as ColorScaleLevels (color_scale_levels_choices, color_scale_levels_label) replacing replacing {
-        ColorScaleLevels::Auto { .. } => "Automatic" = match replacing {
-            Some(Value::ColorScaleLevels(auto @ ColorScaleLevels::Auto { .. })) => auto.clone(),
-            _ => ColorScaleLevels::default(),
+    ColourScaleLevels as ColourScaleLevels (colour_scale_levels_choices, colour_scale_levels_label) replacing replacing {
+        ColourScaleLevels::Auto { .. } => "Automatic" = match replacing {
+            Some(Value::ColourScaleLevels(auto @ ColourScaleLevels::Auto { .. })) => auto.clone(),
+            _ => ColourScaleLevels::default(),
         };
-        ColorScaleLevels::Explicit { .. } => "Explicit" = ColorScaleLevels::Explicit {
+        ColourScaleLevels::Explicit { .. } => "Explicit" = ColourScaleLevels::Explicit {
             values: match replacing {
-                Some(Value::ColorScaleLevels(ColorScaleLevels::Explicit { values })) => values.clone(),
+                Some(Value::ColourScaleLevels(ColourScaleLevels::Explicit { values })) => values.clone(),
                 _ => vec![FALLBACK_LIMITS.0, FALLBACK_LIMITS.1],
             },
         };
@@ -1237,19 +1238,19 @@ plain_choices! {
         Scale::Log => "Logarithmic";
     }
 
-    ColorScaleNorm as ColorScaleNorm (color_scale_norm_choices, color_scale_norm_label) {
-        ColorScaleNorm::Linear => "Linear";
-        ColorScaleNorm::Log => "Logarithmic";
+    ColourScaleNorm as ColourScaleNorm (colour_scale_norm_choices, colour_scale_norm_label) {
+        ColourScaleNorm::Linear => "Linear";
+        ColourScaleNorm::Log => "Logarithmic";
     }
 
-    ColormapName as ColormapName (colormap_name_choices, colormap_name_label) {
-        ColormapName::Viridis => "Viridis";
-        ColormapName::Cividis => "Cividis";
-        ColormapName::Magma => "Magma";
-        ColormapName::Inferno => "Inferno";
-        ColormapName::Plasma => "Plasma";
-        ColormapName::Coolwarm => "Coolwarm";
-        ColormapName::Gray => "Gray";
+    ColourmapName as ColourmapName (colourmap_name_choices, colourmap_name_label) {
+        ColourmapName::Viridis => "Viridis";
+        ColourmapName::Cividis => "Cividis";
+        ColourmapName::Magma => "Magma";
+        ColourmapName::Inferno => "Inferno";
+        ColourmapName::Plasma => "Plasma";
+        ColourmapName::Coolwarm => "Coolwarm";
+        ColourmapName::Grey => "Grey";
     }
 
     LegendLocation as LegendLocation (legend_location_choices, legend_location_label) {
@@ -1261,12 +1262,12 @@ plain_choices! {
         LegendLocation::South => "South";
         LegendLocation::East => "East";
         LegendLocation::West => "West";
-        LegendLocation::Center => "Centre";
+        LegendLocation::Centre => "Centre";
         LegendLocation::Best => "Best";
     }
 
     PanelLocation as PanelLocation (panel_location_choices, panel_location_label) {
-        PanelLocation::Center => "Centre";
+        PanelLocation::Centre => "Centre";
         PanelLocation::North => "North";
         PanelLocation::South => "South";
         PanelLocation::East => "East";
@@ -1277,21 +1278,21 @@ plain_choices! {
         PanelLocation::SouthWest => "South west";
     }
 
-    ColorbarOrientation as ColorbarOrientation (colorbar_orientation_choices, colorbar_orientation_label) {
-        ColorbarOrientation::Vertical => "Vertical";
-        ColorbarOrientation::Horizontal => "Horizontal";
+    ColourbarOrientation as ColourbarOrientation (colourbar_orientation_choices, colourbar_orientation_label) {
+        ColourbarOrientation::Vertical => "Vertical";
+        ColourbarOrientation::Horizontal => "Horizontal";
     }
 
-    InsideColorbarSide as InsideColorbarSide (inside_colorbar_side_choices, inside_colorbar_side_label) {
-        InsideColorbarSide::South => "South";
-        InsideColorbarSide::North => "North";
-        InsideColorbarSide::East => "East";
-        InsideColorbarSide::West => "West";
+    InsideColourbarSide as InsideColourbarSide (inside_colourbar_side_choices, inside_colourbar_side_label) {
+        InsideColourbarSide::South => "South";
+        InsideColourbarSide::North => "North";
+        InsideColourbarSide::East => "East";
+        InsideColourbarSide::West => "West";
     }
 
-    ColorbarTitlePlacement as ColorbarTitlePlacement (colorbar_title_placement_choices, colorbar_title_placement_label) {
-        ColorbarTitlePlacement::Along => "Along";
-        ColorbarTitlePlacement::Above => "Above";
+    ColourbarTitlePlacement as ColourbarTitlePlacement (colourbar_title_placement_choices, colourbar_title_placement_label) {
+        ColourbarTitlePlacement::Along => "Along";
+        ColourbarTitlePlacement::Above => "Above";
     }
 
     LegendEntryOrder as LegendEntryOrder (legend_entry_order_choices, legend_entry_order_label) {
@@ -1345,7 +1346,7 @@ plain_choices! {
     }
 
     TitleAlign as TitleAlign (title_align_choices, title_align_label) {
-        TitleAlign::Center => "Centre";
+        TitleAlign::Centre => "Centre";
         TitleAlign::Left => "Left";
         TitleAlign::Right => "Right";
     }
@@ -1368,11 +1369,11 @@ plain_choices! {
 
 /// The colour that a fixed colour takes from the value it replaces: the colour of a
 /// fixed colour, of an out-of-range policy that paints one, or black.
-fn replaced_color(replacing: Option<&Value>) -> Color {
+fn replaced_colour(replacing: Option<&Value>) -> Colour {
     match replacing {
-        Some(Value::ColorSpec(ColorSpec::Rgba { color })) => *color,
-        Some(Value::OutOfRange(OutOfRange::Rgba { color })) => *color,
-        _ => Color::BLACK,
+        Some(Value::ColourSpec(ColourSpec::Rgba { colour })) => *colour,
+        Some(Value::OutOfRange(OutOfRange::Rgba { colour })) => *colour,
+        _ => Colour::BLACK,
     }
 }
 

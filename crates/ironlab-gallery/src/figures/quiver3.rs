@@ -34,7 +34,7 @@ pub fn figure() -> Figure {
         ny.values(),
         nz.values(),
     )
-    .color(Color::BLACK)
+    .colour(Colour::BLACK)
     .line_width(0.5)
     .label(r"$\hat{n}$");
     ax.xlabel("$x$")

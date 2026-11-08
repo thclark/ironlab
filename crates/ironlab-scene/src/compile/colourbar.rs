@@ -8,12 +8,12 @@
 //! are always at the bottom or the left, and the ends of a bar are flat and never carry an out-of-range colour.
 //!
 //! The title of the scale lies along the bar, beyond its tick labels and centred on the bar (rotated to read upwards
-//! beside a standing bar), or above it as a heading, as the bar's [`ColorbarTitlePlacement`] says.
+//! beside a standing bar), or above it as a heading, as the bar's [`ColourbarTitlePlacement`] says.
 //!
 //! A panel colourbar runs along the span of the drawn plot boxes beside it, which the layout insets by the aligned
 //! margins of the rows or columns it spans, for a fraction of that span (the whole span standing and half of it lying
 //! unless the bar states its length), and is placed along the span and across its area by the panel's alignment. An
-//! inside colourbar lies along one edge of the plot area, inset from it by one margin, with its labels toward the
+//! inside colourbar lies along one edge of the plot area, inset from it by one margin, with its labels towards the
 //! interior, and takes no margin of the layout.
 //!
 //! A legend that lists a continuous, discrete or indexed scale draws the same colourbar as a bar item ([`LegendBar`]):
@@ -24,13 +24,13 @@
 use std::borrow::Cow;
 
 use ironlab_ir::{
-    Axes, Axis, ColorScaleDomain, ColorScaleKey, ColorScaleKind, ColorScaleNorm, ColorScaleSlot,
-    ColorbarOrientation, ColorbarTitlePlacement, InsideColorbarSide, NodeId, Panel, PanelColorbar,
-    Scale, Text, Ticks, TitleAlign,
+    Axes, Axis, ColourScaleDomain, ColourScaleKey, ColourScaleKind, ColourScaleNorm,
+    ColourScaleSlot, ColourbarOrientation, ColourbarTitlePlacement, InsideColourbarSide, NodeId,
+    Panel, PanelColourbar, Scale, Text, Ticks, TitleAlign,
 };
 
 use crate::display::{ImageGeometry, ImageItem, Item, ItemKind, Point, Rect, Rgba};
-use crate::hit::{AxisMap, ColorbarHit, ColorbarKeyHit, ColorbarOwner, HitMap, LegendOwner};
+use crate::hit::{AxisMap, ColourbarHit, ColourbarKeyHit, ColourbarOwner, HitMap, LegendOwner};
 use crate::maths::ticks;
 
 use super::Ctx;
@@ -45,7 +45,7 @@ use super::paths::{self, PathBuilder};
 use super::style::{ColourScales, INK, ResolvedScale};
 use super::text::{TextBlock, measure, measure_str};
 
-/// The number of samples along a continuous bar, one per entry of a bundled colormap, so that no band shows.
+/// The number of samples along a continuous bar, one per entry of a bundled colourmap, so that no band shows.
 const CONTINUOUS_SAMPLES: usize = 256;
 
 /// The outline of a category or key square, black so that a square of any colour, or none, reads as a swatch.
@@ -102,7 +102,7 @@ enum Piece {
 
 /// An out-of-range key of a colourbar.
 struct Key<'a> {
-    key: ColorScaleKey,
+    key: ColourScaleKey,
     /// The colour painted for values of the category, or `None` for an empty square.
     fill: Option<Rgba>,
     /// The author's label, or `None` for the default label.
@@ -110,14 +110,14 @@ struct Key<'a> {
 }
 
 /// A colourbar with its scale resolved and the text that does not depend on its length measured.
-pub(super) struct Colorbar<'a> {
-    owner: ColorbarOwner,
+pub(super) struct Colourbar<'a> {
+    owner: ColourbarOwner,
     /// The node that every item of the colourbar names as its source, and that warnings name.
     source: NodeId,
     scale: &'a ResolvedScale<'a>,
     vertical: bool,
     /// Where the title of the scale is drawn beside the bar.
-    placement: ColorbarTitlePlacement,
+    placement: ColourbarTitlePlacement,
     /// Whether the out-of-range keys are drawn as entry rows of a legend rather than as squares along the strip, as
     /// they are beside a standing bar item; the keys are then listed in `keys` but are no pieces of the strip.
     keys_as_rows: bool,
@@ -152,22 +152,22 @@ struct Strip {
     bounds: Option<(f64, f64)>,
 }
 
-impl<'a> Colorbar<'a> {
+impl<'a> Colourbar<'a> {
     /// Prepares the colourbar of `scale` held by `owner`, standing when `vertical`, with its title placed as
     /// `placement` says and its keys drawn as entry rows rather than squares when `keys_as_rows`, measuring its title
     /// and the labels of its categories.
     fn new(
         ctx: &mut Ctx,
-        owner: ColorbarOwner,
+        owner: ColourbarOwner,
         scale: &'a ResolvedScale<'a>,
         vertical: bool,
-        placement: ColorbarTitlePlacement,
+        placement: ColourbarTitlePlacement,
         keys_as_rows: bool,
     ) -> Self {
         let source = match owner {
-            ColorbarOwner::Panel(id)
-            | ColorbarOwner::Axes(id)
-            | ColorbarOwner::Legend(LegendOwner::Axes(id) | LegendOwner::Panel(id)) => id,
+            ColourbarOwner::Panel(id)
+            | ColourbarOwner::Axes(id)
+            | ColourbarOwner::Legend(LegendOwner::Axes(id) | LegendOwner::Panel(id)) => id,
         };
         let fs = ctx.font_size;
         let title = scale
@@ -176,20 +176,20 @@ impl<'a> Colorbar<'a> {
             .as_ref()
             .map(|t| measure(ctx, t, fs, source));
         let categories: Vec<(Option<Rgba>, TextBlock)> = match &scale.scale.kind {
-            ColorScaleKind::Categorical(c) => c
+            ColourScaleKind::Categorical(c) => c
                 .categories
                 .iter()
                 .enumerate()
                 .map(|(i, category)| {
                     (
-                        scale.slot_colour(ColorScaleSlot::Entry(i)),
+                        scale.slot_colour(ColourScaleSlot::Entry(i)),
                         measure(ctx, &category.label, TICK_SCALE * fs, source),
                     )
                 })
                 .collect(),
             _ => Vec::new(),
         };
-        let shown = |key: ColorScaleKey| {
+        let shown = |key: ColourScaleKey| {
             let category = scale.scale.key(key).filter(|c| c.show_key)?;
             Some(Key {
                 key,
@@ -199,32 +199,32 @@ impl<'a> Colorbar<'a> {
         };
         // The order of the keys along the bar: the keys of values beyond the high end lie beyond the high end, and the
         // keys of values beyond the low end, and of no value, beyond the low end, the non-finite key outermost.
-        let (before, after): (Vec<ColorScaleKey>, Vec<ColorScaleKey>) =
+        let (before, after): (Vec<ColourScaleKey>, Vec<ColourScaleKey>) =
             match (&scale.scale.kind, vertical) {
-                (ColorScaleKind::Categorical(_), _) => (
+                (ColourScaleKind::Categorical(_), _) => (
                     vec![],
-                    vec![ColorScaleKey::Outside, ColorScaleKey::NonFinite],
+                    vec![ColourScaleKey::Outside, ColourScaleKey::NonFinite],
                 ),
-                (ColorScaleKind::Indexed(_), true) => (
+                (ColourScaleKind::Indexed(_), true) => (
                     vec![],
-                    vec![ColorScaleKey::Outside, ColorScaleKey::NonFinite],
+                    vec![ColourScaleKey::Outside, ColourScaleKey::NonFinite],
                 ),
-                (ColorScaleKind::Indexed(_), false) => (
-                    vec![ColorScaleKey::NonFinite, ColorScaleKey::Outside],
+                (ColourScaleKind::Indexed(_), false) => (
+                    vec![ColourScaleKey::NonFinite, ColourScaleKey::Outside],
                     vec![],
                 ),
                 (_, true) => (
-                    vec![ColorScaleKey::Above],
-                    vec![ColorScaleKey::Below, ColorScaleKey::NonFinite],
+                    vec![ColourScaleKey::Above],
+                    vec![ColourScaleKey::Below, ColourScaleKey::NonFinite],
                 ),
                 (_, false) => (
-                    vec![ColorScaleKey::NonFinite, ColorScaleKey::Below],
-                    vec![ColorScaleKey::Above],
+                    vec![ColourScaleKey::NonFinite, ColourScaleKey::Below],
+                    vec![ColourScaleKey::Above],
                 ),
             };
         let mut keys = Vec::new();
         let mut pieces = Vec::new();
-        let mut push_keys = |order: &[ColorScaleKey], pieces: &mut Vec<Piece>| {
+        let mut push_keys = |order: &[ColourScaleKey], pieces: &mut Vec<Piece>| {
             for key in order.iter().filter_map(|&k| shown(k)) {
                 if !keys_as_rows {
                     pieces.push(Piece::Key(keys.len()));
@@ -256,12 +256,12 @@ impl<'a> Colorbar<'a> {
 
     /// Returns whether the title lies along the bar, beyond its tick labels, rather than above it.
     fn titled_along(&self) -> bool {
-        self.title.is_some() && self.placement == ColorbarTitlePlacement::Along
+        self.title.is_some() && self.placement == ColourbarTitlePlacement::Along
     }
 
     /// Returns whether the title is a heading above the bar.
     fn titled_above(&self) -> bool {
-        self.title.is_some() && self.placement == ColorbarTitlePlacement::Above
+        self.title.is_some() && self.placement == ColourbarTitlePlacement::Above
     }
 
     /// Returns whether the colourbar has a bar, which stretches to the length it is given, rather than squares alone.
@@ -304,14 +304,14 @@ impl<'a> Colorbar<'a> {
     fn ticks(&self, ctx: &mut Ctx, length: f64) -> Option<(AxisTicks, Range)> {
         let (min, max, log, ticks, tick_labels) = match (&self.scale.domain, &self.scale.scale.kind)
         {
-            (ColorScaleDomain::Continuous { min, max, norm }, ColorScaleKind::Continuous(c)) => (
+            (ColourScaleDomain::Continuous { min, max, norm }, ColourScaleKind::Continuous(c)) => (
                 *min,
                 *max,
-                *norm == ColorScaleNorm::Log,
+                *norm == ColourScaleNorm::Log,
                 c.ticks.clone(),
                 &c.tick_labels,
             ),
-            (ColorScaleDomain::Discrete { edges, norm }, ColorScaleKind::Discrete(d)) => {
+            (ColourScaleDomain::Discrete { edges, norm }, ColourScaleKind::Discrete(d)) => {
                 // Automatic ticks of a discrete scale mark every band edge.
                 let ticks = match &d.ticks {
                     Ticks::Auto => Ticks::Values(edges.clone()),
@@ -321,12 +321,12 @@ impl<'a> Colorbar<'a> {
                 (
                     first,
                     last,
-                    *norm == ColorScaleNorm::Log,
+                    *norm == ColourScaleNorm::Log,
                     ticks,
                     &d.tick_labels,
                 )
             }
-            (ColorScaleDomain::Entries { count }, ColorScaleKind::Indexed(i)) => {
+            (ColourScaleDomain::Entries { count }, ColourScaleKind::Indexed(i)) => {
                 // Entry k lies at the centre of the k-th of `count` blocks, and automatic ticks name whole entries.
                 let ticks = match &i.ticks {
                     Ticks::Auto => Ticks::Values(whole_ticks(
@@ -367,7 +367,7 @@ impl<'a> Colorbar<'a> {
 
     /// Returns the default label of a key: the range it stands for, with the limit written as the bar's ticks write
     /// it, or the kind of value it stands for.
-    fn default_key_label(&self, key: ColorScaleKey, ticks: Option<&(AxisTicks, Range)>) -> String {
+    fn default_key_label(&self, key: ColourScaleKey, ticks: Option<&(AxisTicks, Range)>) -> String {
         let limit = |value: f64| -> String {
             if let Some((t, range)) = ticks {
                 let tol = 1e-9 * (range.max - range.min).abs();
@@ -384,17 +384,17 @@ impl<'a> Colorbar<'a> {
             ticks::format_fixed(value, ticks::decimals_for(&[value]))
         };
         let (low, high) = match &self.scale.domain {
-            ColorScaleDomain::Continuous { min, max, .. } => (*min, *max),
-            ColorScaleDomain::Discrete { edges, .. } => (
+            ColourScaleDomain::Continuous { min, max, .. } => (*min, *max),
+            ColourScaleDomain::Discrete { edges, .. } => (
                 edges.first().copied().unwrap_or(f64::NAN),
                 edges.last().copied().unwrap_or(f64::NAN),
             ),
-            ColorScaleDomain::Entries { .. } => (f64::NAN, f64::NAN),
+            ColourScaleDomain::Entries { .. } => (f64::NAN, f64::NAN),
         };
         match key {
-            ColorScaleKey::Below => format!("< {}", limit(low)),
-            ColorScaleKey::Above => format!("> {}", limit(high)),
-            ColorScaleKey::Outside | ColorScaleKey::NonFinite => {
+            ColourScaleKey::Below => format!("< {}", limit(low)),
+            ColourScaleKey::Above => format!("> {}", limit(high)),
+            ColourScaleKey::Outside | ColourScaleKey::NonFinite => {
                 plain_key_label(key).unwrap_or_default().to_owned()
             }
         }
@@ -546,7 +546,7 @@ impl<'a> Colorbar<'a> {
     ///
     /// Along the bar, the size is the shortest the bar may be drawn, and across it the bar, its labels, its title
     /// (beside the bar when it lies along it, and above a lying bar when it is a heading) and the heading of a lying
-    /// bar; the title and the heading of a standing bar lie above it, in the margin [`Colorbar::top_margin`] gives,
+    /// bar; the title and the heading of a standing bar lie above it, in the margin [`Colourbar::top_margin`] gives,
     /// and only their widths count. The labels are measured for the length the bar is drawn at, `fraction` of `cross`.
     pub(super) fn size(
         &self,
@@ -652,7 +652,7 @@ impl<'a> Colorbar<'a> {
         // The start of a part `inner` long within a block from `lo` to `hi`, as the panel's title alignment says.
         let aligned = |lo: f64, hi: f64, inner: f64| match panel.title_align {
             TitleAlign::Left => lo,
-            TitleAlign::Center => lo + (hi - lo - inner) / 2.0,
+            TitleAlign::Centre => lo + (hi - lo - inner) / 2.0,
             TitleAlign::Right => hi - inner,
         };
         // The hit geometry of the bar, the extent of what the heading is aligned with, the block and the top of what the
@@ -726,7 +726,7 @@ impl<'a> Colorbar<'a> {
             let baseline = bottom - m.title_gap - heading.depth();
             heading.draw_on_page(ctx, Point::new(left, baseline), INK, panel.id, out);
         }
-        hits.colorbars.push(hit);
+        hits.colourbars.push(hit);
     }
 
     /// Draws the title with its left edge at `at.x`, its top at `at.y` when `top`, and its bottom there otherwise.
@@ -823,7 +823,7 @@ impl<'a> Colorbar<'a> {
         length: f64,
         gap: f64,
         out: &mut Vec<Item>,
-    ) -> ColorbarHit {
+    ) -> ColourbarHit {
         let fixed =
             self.squares() as f64 * m.thickness + self.pieces.len().saturating_sub(1) as f64 * gap;
         let bar_length = (length - fixed).max(0.0);
@@ -871,13 +871,13 @@ impl<'a> Colorbar<'a> {
             }
         };
 
-        let mut hit = ColorbarHit {
+        let mut hit = ColourbarHit {
             owner: self.owner,
             scale: self.scale.scale.id,
             orientation: if self.vertical {
-                ColorbarOrientation::Vertical
+                ColourbarOrientation::Vertical
             } else {
-                ColorbarOrientation::Horizontal
+                ColourbarOrientation::Horizontal
             },
             bar: Rect::new(0.0, 0.0, 0.0, 0.0),
             entries: Vec::new(),
@@ -885,7 +885,7 @@ impl<'a> Colorbar<'a> {
             backdrop: None,
             map: None,
             edges: match &self.scale.domain {
-                ColorScaleDomain::Discrete { edges, .. } => edges.clone(),
+                ColourScaleDomain::Discrete { edges, .. } => edges.clone(),
                 _ => Vec::new(),
             },
         };
@@ -961,7 +961,7 @@ impl<'a> Colorbar<'a> {
                         self.source,
                         out,
                     );
-                    hit.keys.push(ColorbarKeyHit {
+                    hit.keys.push(ColourbarKeyHit {
                         key: key.key,
                         rect: r,
                         label: measured.key_texts[i].clone(),
@@ -1000,19 +1000,20 @@ impl<'a> Colorbar<'a> {
         out: &mut Vec<Item>,
     ) {
         match &self.scale.domain {
-            ColorScaleDomain::Continuous { .. } => {
+            ColourScaleDomain::Continuous { .. } => {
                 let colours = (0..CONTINUOUS_SAMPLES).map(|k| {
                     let t = (k as f64 + 0.5) / CONTINUOUS_SAMPLES as f64;
-                    self.scale.slot_colour(ColorScaleSlot::Position(t))
+                    self.scale.slot_colour(ColourScaleSlot::Position(t))
                 });
                 out.extend(self.image(r, colours.collect()));
             }
-            ColorScaleDomain::Entries { count } => {
-                let colours = (0..*count).map(|k| self.scale.slot_colour(ColorScaleSlot::Entry(k)));
+            ColourScaleDomain::Entries { count } => {
+                let colours =
+                    (0..*count).map(|k| self.scale.slot_colour(ColourScaleSlot::Entry(k)));
                 out.extend(self.image(r, colours.collect()));
             }
-            ColorScaleDomain::Discrete { edges, norm } => {
-                let log = *norm == ColorScaleNorm::Log;
+            ColourScaleDomain::Discrete { edges, norm } => {
+                let log = *norm == ColourScaleNorm::Log;
                 let (min, max) = usable_span(edges[0], edges[edges.len() - 1], log);
                 let range = Range {
                     min,
@@ -1034,7 +1035,7 @@ impl<'a> Colorbar<'a> {
                     path.rect(band_rect);
                     let fill = self
                         .scale
-                        .slot_colour(ColorScaleSlot::Band(band))
+                        .slot_colour(ColourScaleSlot::Band(band))
                         .map(paths::fill);
                     out.extend(paths::item(self.source, path.finish(), fill, None));
                 }
@@ -1116,11 +1117,11 @@ fn heading_part(m: &Metrics, heading: Option<&TextBlock>) -> f64 {
 
 /// Returns the default label of a key that names no limit: `Out of range` for the outside key and `NaN / Inf` for
 /// the non-finite key; the labels of the keys beyond the limits, which name them, are written by the colourbar.
-fn plain_key_label(key: ColorScaleKey) -> Option<&'static str> {
+fn plain_key_label(key: ColourScaleKey) -> Option<&'static str> {
     match key {
-        ColorScaleKey::Outside => Some("Out of range"),
-        ColorScaleKey::NonFinite => Some("NaN / Inf"),
-        ColorScaleKey::Below | ColorScaleKey::Above => None,
+        ColourScaleKey::Outside => Some("Out of range"),
+        ColourScaleKey::NonFinite => Some("NaN / Inf"),
+        ColourScaleKey::Below | ColourScaleKey::Above => None,
     }
 }
 
@@ -1131,16 +1132,16 @@ fn plain_key_label(key: ColorScaleKey) -> Option<&'static str> {
 pub(super) fn category_swatches<'a>(
     scale: &'a ResolvedScale<'a>,
 ) -> Vec<(Option<Rgba>, Cow<'a, Text>)> {
-    let ColorScaleKind::Categorical(c) = &scale.scale.kind else {
+    let ColourScaleKind::Categorical(c) = &scale.scale.kind else {
         return Vec::new();
     };
     let categories = c.categories.iter().enumerate().map(|(i, category)| {
         (
-            scale.slot_colour(ColorScaleSlot::Entry(i)),
+            scale.slot_colour(ColourScaleSlot::Entry(i)),
             Cow::Borrowed(&category.label),
         )
     });
-    let keys = [ColorScaleKey::Outside, ColorScaleKey::NonFinite]
+    let keys = [ColourScaleKey::Outside, ColourScaleKey::NonFinite]
         .into_iter()
         .filter_map(|key| {
             let category = scale.scale.key(key).filter(|c| c.show_key)?;
@@ -1159,17 +1160,17 @@ pub(super) fn category_swatches<'a>(
 /// over an equal share of it, so that the sample shows what the scale means rather than a single colour of it.
 pub(super) fn sweep(scale: &ResolvedScale) -> Vec<Option<Rgba>> {
     match &scale.domain {
-        ColorScaleDomain::Continuous { .. } => (0..CONTINUOUS_SAMPLES)
+        ColourScaleDomain::Continuous { .. } => (0..CONTINUOUS_SAMPLES)
             .map(|k| {
                 let t = (k as f64 + 0.5) / CONTINUOUS_SAMPLES as f64;
-                scale.slot_colour(ColorScaleSlot::Position(t))
+                scale.slot_colour(ColourScaleSlot::Position(t))
             })
             .collect(),
-        ColorScaleDomain::Discrete { edges, .. } => (0..edges.len().saturating_sub(1).max(1))
-            .map(|band| scale.slot_colour(ColorScaleSlot::Band(band)))
+        ColourScaleDomain::Discrete { edges, .. } => (0..edges.len().saturating_sub(1).max(1))
+            .map(|band| scale.slot_colour(ColourScaleSlot::Band(band)))
             .collect(),
-        ColorScaleDomain::Entries { count } => (0..*count)
-            .map(|entry| scale.slot_colour(ColorScaleSlot::Entry(entry)))
+        ColourScaleDomain::Entries { count } => (0..*count)
+            .map(|entry| scale.slot_colour(ColourScaleSlot::Entry(entry)))
             .collect(),
     }
 }
@@ -1204,7 +1205,7 @@ pub(super) fn colour_row(source: NodeId, r: Rect, colours: &[Option<Rgba>]) -> O
 /// lying bar item spans the width of the legend on a row of its own, its keys squares along the bar as on a colourbar,
 /// labelled below and titled below its labels.
 pub(super) struct LegendBar<'a> {
-    bar: Colorbar<'a>,
+    bar: Colourbar<'a>,
     /// The number of entry rows along which a standing bar runs.
     rows: usize,
     /// The distance by which each end of a standing bar is kept inside its rows, so that the tick labels at its ends
@@ -1227,7 +1228,7 @@ pub(super) struct LegendBar<'a> {
 /// An out-of-range key of a standing bar item, drawn by the legend as an entry row of its own: a swatch of `fill`,
 /// or an empty swatch, beside `label`.
 pub(super) struct KeyRow {
-    pub key: ColorScaleKey,
+    pub key: ColourScaleKey,
     pub fill: Option<Rgba>,
     pub label: TextBlock,
     /// The source text of the label, which the hit map publishes.
@@ -1252,12 +1253,12 @@ impl<'a> LegendBar<'a> {
         inset: f64,
         sample: f64,
     ) -> Self {
-        let bar = Colorbar::new(
+        let bar = Colourbar::new(
             ctx,
-            ColorbarOwner::Legend(owner),
+            ColourbarOwner::Legend(owner),
             scale,
             !full_row,
-            ColorbarTitlePlacement::Along,
+            ColourbarTitlePlacement::Along,
             !full_row,
         );
         let m = Metrics::new(ctx.font_size);
@@ -1284,7 +1285,7 @@ impl<'a> LegendBar<'a> {
         let above = bar
             .keys
             .iter()
-            .take_while(|k| k.key == ColorScaleKey::Above)
+            .take_while(|k| k.key == ColourScaleKey::Above)
             .count();
         let offset = ((sample - m.thickness) / 2.0).max(0.0);
         Self {
@@ -1334,7 +1335,7 @@ impl<'a> LegendBar<'a> {
     /// Draws the item in `r` and returns its hit geometry, which the caller records in the hit map: a standing item
     /// centred on the sample column that starts at the left edge of `r`, over the height of the rows of its bar that
     /// `r` spans, its keys left to the caller; a lying item across the width of `r`, from its top.
-    pub(super) fn draw(&self, ctx: &mut Ctx, r: Rect, out: &mut Vec<Item>) -> ColorbarHit {
+    pub(super) fn draw(&self, ctx: &mut Ctx, r: Rect, out: &mut Vec<Item>) -> ColourbarHit {
         let bar = &self.bar;
         let m = Metrics::new(ctx.font_size);
         if bar.vertical {
@@ -1367,7 +1368,7 @@ impl<'a> LegendBar<'a> {
     }
 }
 
-impl Colorbar<'_> {
+impl Colourbar<'_> {
     /// Returns the keys of the colourbar as entry rows, labelled with the given labels and their source texts.
     fn key_rows(&self, labels: Vec<TextBlock>, texts: Vec<String>) -> Vec<KeyRow> {
         self.keys
@@ -1453,16 +1454,23 @@ fn whole_ticks(count: usize, target: usize) -> Vec<f64> {
 pub(super) fn prepare_panel<'a>(
     ctx: &mut Ctx,
     panel: &Panel,
-    colorbar: &PanelColorbar,
+    colourbar: &PanelColourbar,
     scales: &'a ColourScales<'a>,
-) -> Option<Colorbar<'a>> {
-    let owner = ColorbarOwner::Panel(panel.id);
-    let scale = usable(ctx, panel.id, colorbar.scale, scales)?;
-    let vertical = colorbar.orientation == ColorbarOrientation::Vertical;
-    let mut bar = Colorbar::new(ctx, owner, scale, vertical, colorbar.title_placement, false);
+) -> Option<Colourbar<'a>> {
+    let owner = ColourbarOwner::Panel(panel.id);
+    let scale = usable(ctx, panel.id, colourbar.scale, scales)?;
+    let vertical = colourbar.orientation == ColourbarOrientation::Vertical;
+    let mut bar = Colourbar::new(
+        ctx,
+        owner,
+        scale,
+        vertical,
+        colourbar.title_placement,
+        false,
+    );
     // Validation refuses a length that is not a fraction of the span, so such a length is drawn as the automatic one.
     let automatic = if vertical { 1.0 } else { 0.5 };
-    bar.fraction = colorbar
+    bar.fraction = colourbar
         .length
         .filter(|l| l.is_finite() && *l > 0.0)
         .map_or(automatic, |l| l.min(1.0));
@@ -1492,8 +1500,8 @@ fn usable<'a>(
 /// The colourbar is boxed as a boxed inside legend is, with the same background, frame, padding and inset from the
 /// plot area, so that its labels read over any artist. The box lies along its edge of the plot area, inset from it,
 /// `length` of the edge long (a categorical key as long as its squares need) and centred along it; the title, the
-/// bar, the keys and every label lie inside it, the labels toward the interior of the plot area. A title along the
-/// bar lies beyond the labels, toward the interior; a title above is a heading over the top end of a standing bar,
+/// bar, the keys and every label lie inside it, the labels towards the interior of the plot area. A title along the
+/// bar lies beyond the labels, towards the interior; a title above is a heading over the top end of a standing bar,
 /// and lies on the side of a lying bar away from its labels, against the edge of the plot area.
 pub(super) fn draw_inside(
     ctx: &mut Ctx,
@@ -1503,28 +1511,28 @@ pub(super) fn draw_inside(
     out: &mut Vec<Item>,
     hits: &mut HitMap,
 ) {
-    let Some(colorbar) = axes.colorbar else {
+    let Some(colourbar) = axes.colourbar else {
         return;
     };
-    let Some(scale) = usable(ctx, axes.id, colorbar.scale, scales) else {
+    let Some(scale) = usable(ctx, axes.id, colourbar.scale, scales) else {
         return;
     };
-    let side = colorbar.side;
-    let vertical = matches!(side, InsideColorbarSide::East | InsideColorbarSide::West);
-    let bar = Colorbar::new(
+    let side = colourbar.side;
+    let vertical = matches!(side, InsideColourbarSide::East | InsideColourbarSide::West);
+    let bar = Colourbar::new(
         ctx,
-        ColorbarOwner::Axes(axes.id),
+        ColourbarOwner::Axes(axes.id),
         scale,
         vertical,
-        colorbar.title_placement,
+        colourbar.title_placement,
         false,
     );
     let m = Metrics::new(ctx.font_size);
     let (pad, inset) = legend::inside_box_spacing(ctx.font_size);
     let edge = if vertical { plot.height } else { plot.width };
     // Validation refuses a length that is not a fraction of the edge, so such a length is drawn as the default.
-    let fraction = if colorbar.length.is_finite() && colorbar.length > 0.0 {
-        colorbar.length.min(1.0)
+    let fraction = if colourbar.length.is_finite() && colourbar.length > 0.0 {
+        colourbar.length.min(1.0)
     } else {
         0.8
     };
@@ -1566,14 +1574,14 @@ pub(super) fn draw_inside(
     };
     let along_start = centre - length / 2.0;
     let backdrop = match side {
-        InsideColorbarSide::South => {
+        InsideColourbarSide::South => {
             Rect::new(along_start, plot.bottom() - inset - depth, length, depth)
         }
-        InsideColorbarSide::North => Rect::new(along_start, plot.y + inset, length, depth),
-        InsideColorbarSide::East => {
+        InsideColourbarSide::North => Rect::new(along_start, plot.y + inset, length, depth),
+        InsideColourbarSide::East => {
             Rect::new(plot.right() - inset - depth, along_start, depth, length)
         }
-        InsideColorbarSide::West => Rect::new(plot.x + inset, along_start, depth, length),
+        InsideColourbarSide::West => Rect::new(plot.x + inset, along_start, depth, length),
     };
     // The content of the box, inside its padding.
     let content = Rect::new(
@@ -1590,10 +1598,10 @@ pub(super) fn draw_inside(
         0.0
     };
     let (cross, outward) = match side {
-        InsideColorbarSide::South => (content.bottom() - below - t, -1.0),
-        InsideColorbarSide::North => (content.y + below, 1.0),
-        InsideColorbarSide::East => (content.right() - t, -1.0),
-        InsideColorbarSide::West => (content.x, 1.0),
+        InsideColourbarSide::South => (content.bottom() - below - t, -1.0),
+        InsideColourbarSide::North => (content.y + below, 1.0),
+        InsideColourbarSide::East => (content.right() - t, -1.0),
+        InsideColourbarSide::West => (content.x, 1.0),
     };
     let (start, bounds) = if vertical {
         let top = content.y + heading;
@@ -1625,20 +1633,20 @@ pub(super) fn draw_inside(
         let middle = hit.bar.x + hit.bar.width / 2.0;
         match side {
             // A lying bar's heading lies on the side of the bar away from its labels.
-            InsideColorbarSide::South => {
+            InsideColourbarSide::South => {
                 let left = left_of(middle, content.x, content.right());
                 bar.draw_title(ctx, Point::new(left, cross + t + m.title_gap), true, out);
             }
-            InsideColorbarSide::North => {
+            InsideColourbarSide::North => {
                 let left = left_of(middle, content.x, content.right());
                 bar.draw_title(ctx, Point::new(left, cross - m.title_gap), false, out);
             }
             // A standing bar's heading lies over its top end, over the bar where the box allows.
-            InsideColorbarSide::East | InsideColorbarSide::West => {
+            InsideColourbarSide::East | InsideColourbarSide::West => {
                 let left = left_of(cross + t / 2.0, content.x, content.right());
                 bar.draw_title(ctx, Point::new(left, content.y), true, out);
             }
         }
     }
-    hits.colorbars.push(hit);
+    hits.colourbars.push(hit);
 }

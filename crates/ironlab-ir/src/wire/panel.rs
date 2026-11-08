@@ -23,7 +23,7 @@ proto_file! {
     /// The placement of the content of a panel within the panel.
     enum PanelLocation {
         /// The centre.
-        Center = 1;
+        Centre = 1;
         /// The centre of the top edge.
         North = 2;
         /// The centre of the bottom edge.
@@ -49,26 +49,26 @@ proto_file! {
             /// A legend.
             Legend(PanelContentLegend) legend = 1;
             /// A colourbar.
-            Colorbar(PanelContentColorbar) colorbar = 2;
+            Colourbar(PanelContentColourbar) colourbar = 2;
         }
     }
 
     /// A colourbar held by a panel, which shows a colour scale along the panel's cells.
-    message PanelColorbar {
+    message PanelColourbar {
         /// The node identifier of the colour scale that the bar shows; it must be present.
         optional uint64 scale = 1;
         /// The direction in which the bar runs.
-        enum ColorbarOrientation orientation = 2;
+        enum ColourbarOrientation orientation = 2;
         /// The length of the bar and its keys as a fraction of the span of the plot boxes
         /// beside it; absent means the automatic length, the whole span for a vertical
         /// bar and half of it for a horizontal one.
         optional double length = 3;
         /// Where the title of the scale is drawn beside the bar.
-        enum ColorbarTitlePlacement title_placement = 4;
+        enum ColourbarTitlePlacement title_placement = 4;
     }
 
     /// The direction in which a panel colourbar runs.
-    enum ColorbarOrientation {
+    enum ColourbarOrientation {
         /// Upright, with low values at the bottom.
         Vertical = 1;
         /// Flat, with low values at the left.
@@ -76,9 +76,9 @@ proto_file! {
     }
 
     /// A colourbar, which shows a colour scale along the cells of the panel.
-    message PanelContentColorbar {
+    message PanelContentColourbar {
         /// The colourbar; it must be present.
-        message PanelColorbar colorbar = 1;
+        message PanelColourbar colourbar = 1;
     }
 
     /// A legend, which lists the entries of every axes whose legend names the panel.

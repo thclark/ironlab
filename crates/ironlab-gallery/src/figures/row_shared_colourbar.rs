@@ -49,8 +49,8 @@ pub fn figure() -> Figure {
         .title("Temperature of an aluminium plate after a laser pulse")
         .tag("image")
         .tag("subplots")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .tag("out-of-range")
         .tag("aspect")
         .tag("physics")
@@ -60,11 +60,11 @@ pub fn figure() -> Figure {
         .parameter("has_legend", false);
     // One scale for the three times, so a colour means one temperature in every frame.
     let shared = fig
-        .color_scale()
-        .colormap(Colormap::Inferno)
+        .colour_scale()
+        .colourmap(Colourmap::Inferno)
         .limits(AMBIENT_C, 100.0)
-        .above(Color::rgb(0.3, 0.85, 0.95))
-        .show_key(ColorScaleKey::Above)
+        .above(Colour::rgb(0.3, 0.85, 0.95))
+        .show_key(ColourScaleKey::Above)
         .title("Temperature (°C)")
         .id();
 
@@ -76,7 +76,7 @@ pub fn figure() -> Figure {
         ax.scalar_image(&field)
             .pixel_columns(x[0], x[SAMPLES - 1])
             .pixel_rows(x[0], x[SAMPLES - 1])
-            .color_scale(shared);
+            .colour_scale(shared);
         ax.title(format!("$t = {t}$ s"))
             .xlabel("$x$ (mm)")
             .aspect(Aspect::Equal);
@@ -87,7 +87,7 @@ pub fn figure() -> Figure {
     // The bar lies along a panel spanning the row beneath the images, whose height fits the bar, its ticks and its
     // title.
     fig.panel_span(1, 0, 1, 3)
-        .colorbar(shared)
-        .orientation(ColorbarOrientation::Horizontal);
+        .colourbar(shared)
+        .orientation(ColourbarOrientation::Horizontal);
     fig
 }

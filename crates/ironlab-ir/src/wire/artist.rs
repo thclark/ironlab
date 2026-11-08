@@ -57,10 +57,10 @@ proto_file! {
         optional uint64 size_data = 9;
         /// The data identifier of the values that colour the series, one per point or
         /// one per segment; absent for a series of fixed colours.
-        optional uint64 color_data = 10;
+        optional uint64 colour_data = 10;
         /// The node identifier of the colour scale through which the colour data is
         /// mapped; absent when the series names none.
-        optional uint64 color_scale = 11;
+        optional uint64 colour_scale = 11;
         /// How the x values are placed: as data or as fractions of the plot area.
         enum Coords x_coords = 12;
         /// How the y values are placed: as data or as fractions of the plot area.
@@ -71,7 +71,7 @@ proto_file! {
         /// base.
         optional double base = 15;
         /// The colour of the area between the line and the base; absent means none.
-        message ColorSpec fill = 16;
+        message ColourSpec fill = 16;
         /// The opacity of the fill, from 0 to 1; absent means 1.
         optional double fill_opacity = 17;
     }
@@ -113,7 +113,7 @@ proto_file! {
         optional double fill_opacity = 11;
         /// The node identifier of the colour scale through which levels and bands are
         /// coloured; absent when the contour names none.
-        optional uint64 color_scale = 12;
+        optional uint64 colour_scale = 12;
     }
 
     /// The grid on which a field of shape `[ny, nx]` is sampled.
@@ -259,9 +259,9 @@ proto_file! {
         /// surface is coloured by its field.
         optional uint64 c = 6;
         /// The colour of the faces.
-        message ColorSpec face = 7;
+        message ColourSpec face = 7;
         /// The colour of the face edges.
-        message ColorSpec edge = 8;
+        message ColourSpec edge = 8;
         /// The width of the face edges in points.
         optional double edge_width_pt = 9;
         /// The data identifier of the alpha of the faces at every node, of shape
@@ -276,7 +276,7 @@ proto_file! {
         optional double edge_opacity = 13;
         /// The node identifier of the colour scale through which the colour data is
         /// mapped; absent when the surface names none.
-        optional uint64 color_scale = 14;
+        optional uint64 colour_scale = 14;
     }
 
     /// A true-colour image: a raster of pixels, each with its own colour.
@@ -312,7 +312,7 @@ proto_file! {
         optional uint64 values = 4;
         /// The node identifier of the colour scale through which the numbers are
         /// mapped; absent when the image names none.
-        optional uint64 color_scale = 5;
+        optional uint64 colour_scale = 5;
         /// Where the pixels lie in the axes.
         message ImagePlacement placement = 6;
         /// The data identifier of the alpha of every pixel, of shape `[ny, nx]`,
@@ -411,10 +411,10 @@ proto_file! {
         /// width and the offset replaced when grouping became a helper of the facade.
         reserved 8, 9, 10, slot, gap, group;
         /// The colour of the bars; absent means the next colour of the colour order.
-        message ColorSpec face = 11;
+        message ColourSpec face = 11;
         /// The number and name of the fixed colour of each bar, which colour data
         /// replaced.
-        reserved 12, colors;
+        reserved 12, colours;
         /// The style of the outline of every bar; absent means a solid black line 0.5
         /// points wide.
         message LineStyle edge = 13;
@@ -422,10 +422,10 @@ proto_file! {
         optional double face_opacity = 14;
         /// The data identifier of the values that colour the bars, one per bar; absent
         /// for bars of fixed colours.
-        optional uint64 color_data = 15;
+        optional uint64 colour_data = 15;
         /// The node identifier of the colour scale through which the colour data is
         /// mapped; absent when the bars name none.
-        optional uint64 color_scale = 16;
+        optional uint64 colour_scale = 16;
         /// The opacity of the outlines, from 0 to 1; absent means 1.
         optional double edge_opacity = 17;
         /// How wide each bar is along the category axis; absent means 0.55 of the pitch
@@ -528,7 +528,7 @@ proto_file! {
         /// samples was used.
         message BinRange range = 2;
         /// How the counts of the bins were normalised; it must be specified.
-        enum HistNorm normalization = 3;
+        enum HistNorm normalisation = 3;
         /// The number of samples counted into the bins; it must be present.
         optional double total = 4;
         /// The number of samples left out because they were not finite; absent means 0.
@@ -552,7 +552,7 @@ proto_file! {
         /// the samples.
         message BinRange y_range = 4;
         /// How the counts of the bins were normalised; it must be specified.
-        enum HistNorm normalization = 5;
+        enum HistNorm normalisation = 5;
         /// The count below which a bin was left empty; absent when every bin was drawn.
         optional double min_count = 6;
         /// The number of samples counted into the bins; it must be present.
@@ -667,7 +667,7 @@ proto_file! {
         /// colour order.
         message LineStyle line = 7;
         /// The colour of the area between the outline and the base; absent means none.
-        message ColorSpec fill = 8;
+        message ColourSpec fill = 8;
         /// The opacity of the fill, from 0 to 1; absent means 1.
         optional double fill_opacity = 9;
         /// The opacity of the outline, from 0 to 1; absent means 1.
@@ -739,7 +739,7 @@ proto_file! {
         message LineStyle edge = 8;
         /// The node identifier of the colour scale through which the values are mapped;
         /// absent when the cells name none.
-        optional uint64 color_scale = 9;
+        optional uint64 colour_scale = 9;
         /// The data identifier of the alpha of every cell, of shape `[ny, nx]`, holding
         /// floating-point values from 0 to 1 or 8-bit values from 0 to 255; absent when
         /// the cells are uniformly opaque before the opacity.

@@ -32,7 +32,7 @@ pub struct Property {
 /// The list contains every path that [`Edit::Set`](crate::Edit::Set) accepts for some
 /// node of the kind, including every intermediate path: a node kind with manual limits
 /// on its x axis lists `x`, `x.label`, `x.label.content`, `x.limits`, `x.limits.min` and
-/// so on. The entries of a palette (`kind.indexed.colors.0` and so on) are not listed,
+/// so on. The entries of a palette (`kind.indexed.colours.0` and so on) are not listed,
 /// because which entries there are depends on the node rather than on its kind; see
 /// [`properties_of`]. A path that descends into a variant is listed once even when several variants
 /// share the field (as the x data of rectilinear and curvilinear grids do). Identifiers,
@@ -51,7 +51,7 @@ pub fn properties(kind: NodeKind) -> Vec<Property> {
 /// index order, each followed by the properties below it.
 ///
 /// Every entry property is `conditional`, because which entries there are depends on the
-/// node. A palette whose variant is not set (the listed colours of a named colormap) has no
+/// node. A palette whose variant is not set (the listed colours of a named colourmap) has no
 /// entries. Returns an empty list when the node is not in the figure.
 pub fn properties_of(figure: &Figure, node: NodeId) -> Vec<Property> {
     let Some(kind) = figure.node_kind(node) else {

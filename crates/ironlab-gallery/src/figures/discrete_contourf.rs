@@ -34,10 +34,10 @@ pub fn figure() -> Figure {
         .title(r"Pressure coefficient $C_p$ of the potential flow past a cylinder")
         .tag("contour")
         .tag("line")
-        .tag("color-scale")
+        .tag("colour-scale")
         .tag("levels")
         .tag("aspect")
-        .tag("colorbar")
+        .tag("colourbar")
         .parameter("dimensionality", "2D")
         .parameter("artists", 3)
         .parameter("data_points", 18_125)
@@ -47,28 +47,28 @@ pub fn figure() -> Figure {
     let y = fig.data("y / a", y).id();
     let cp = fig.data("C_p", cp).id();
     let bands = fig
-        .color_scale()
-        .colormap(Colormap::Cividis)
+        .colour_scale()
+        .colourmap(Colourmap::Cividis)
         .discrete(&edges)
         .ticks(&edges)
         .title("$C_p$")
         .id();
 
     let mut ax = fig.axes(0, 0);
-    ax.contourf(x, y, cp).color_scale(bands);
+    ax.contourf(x, y, cp).colour_scale(bands);
     // The isolines name the axes' default scale, which is the scale of the filled contour, and so take its edges.
-    ax.contour(x, y, cp).color(Color::BLACK).line_width(0.4);
+    ax.contour(x, y, cp).colour(Colour::BLACK).line_width(0.4);
     ax.plot(
         circle.iter().map(|t| t.cos()).collect::<Vec<_>>(),
         circle.iter().map(|t| t.sin()).collect::<Vec<_>>(),
     )
-    .color(Color::BLACK)
+    .colour(Colour::BLACK)
     .line_width(0.75);
     ax.aspect(Aspect::Equal)
         .xlabel("$x / a$")
         .ylabel("$y / a$");
     fig.panel(0, 1)
-        .colorbar(bands)
-        .title_placement(ColorbarTitlePlacement::Above);
+        .colourbar(bands)
+        .title_placement(ColourbarTitlePlacement::Above);
     fig
 }

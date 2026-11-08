@@ -10,7 +10,7 @@
 //! values and their record are all that remains, and a viewer cannot rebin them.
 
 use ironlab_ir::{
-    Artist, Bar, BarOffset, BarWidth, Binning, Binning2d, CellEdges, CellGap, Cells, ColorSpec,
+    Artist, Bar, BarOffset, BarWidth, Binning, Binning2d, CellEdges, CellGap, Cells, ColourSpec,
     Contour, Figure, Grid, Levels, LineStyle, NdArray, NodeId, Orientation, PerBar, Stairs,
     StairsData, Text,
 };
@@ -20,8 +20,8 @@ use crate::binning::{
     BinRange, BinningError, Bins, HistNorm, HistStyle, Histogram, Histogram2d, HistogramSummary,
     bin_edges, histogram, histogram2d, normalise_1d,
 };
-use crate::color::IntoColorSpec;
-use crate::color_scale;
+use crate::colour::IntoColourSpec;
+use crate::colour_scale;
 use crate::data::{DataSource, matrix_array};
 
 /// Returns the centre of each bin between neighbouring edges.
@@ -80,7 +80,7 @@ fn record(
         bins: bins.clone(),
         edges,
         range,
-        normalization: norm,
+        normalisation: norm,
         total: summary.total,
         excluded_non_finite: summary.excluded_non_finite as u64,
         excluded_out_of_range: summary.excluded_out_of_range as u64,
@@ -133,7 +133,7 @@ pub(crate) fn binned_bars(
 /// so a viewer of the figure cannot rebin it.
 ///
 /// Every setter that changes the binning ([`bins`](Self::bins), [`range`](Self::range),
-/// [`weights`](Self::weights) and [`normalize`](Self::normalize)) bins the sample again and
+/// [`weights`](Self::weights) and [`normalise`](Self::normalise)) bins the sample again and
 /// replaces the stored arrays and the record, releasing the arrays it replaces;
 /// [`style`](Self::style) replaces the artist in place, keeping its identifier, its position
 /// among the artists of its axes, its label, its colour, its orientation and its record. The
@@ -156,7 +156,7 @@ pub(crate) fn binned_bars(
 /// let mut ax = fig.axes(0, 0);
 /// let mut h = ax.hist(sample);
 /// h.bins(Bins::Count(4))
-///     .normalize(HistNorm::Probability)
+///     .normalise(HistNorm::Probability)
 ///     .style(HistStyle::Step)
 ///     .label("Sample");
 /// assert_eq!(h.summary().excluded_non_finite, 1);
@@ -173,7 +173,7 @@ pub struct HistMut<'a> {
     norm: HistNorm,
     style: HistStyle,
     /// The colour of the series: the face of the bars, or the outline of the stairs.
-    color: ColorSpec,
+    colour: ColourSpec,
     summary: HistogramSummary,
     error: Option<BinningError>,
 }
@@ -199,7 +199,7 @@ impl<'a> HistMut<'a> {
             range: None,
             norm: HistNorm::default(),
             style: HistStyle::Bar,
-            color: ColorSpec::Auto,
+            colour: ColourSpec::Auto,
             summary: HistogramSummary::default(),
             error: None,
         };
@@ -256,7 +256,7 @@ impl HistMut<'_> {
 
     /// Sets what the value of each bin represents: a count (the default), a probability,
     /// a density or a cumulative count, among others (see [`HistNorm`]).
-    pub fn normalize(&mut self, norm: HistNorm) -> &mut Self {
+    pub fn normalise(&mut self, norm: HistNorm) -> &mut Self {
         self.norm = norm;
         self.rebin()
     }
@@ -299,15 +299,15 @@ impl HistMut<'_> {
     /// Sets the colour of the histogram: the face of the bars, or the outline of the
     /// stairs, whose fill takes the colour of the outline. The default is the next colour
     /// of the colour order of the axes.
-    pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.color = color.into_color_spec();
-        let (color, filled) = (self.color, self.style == HistStyle::FilledStep);
+    pub fn colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.colour = colour.into_colour_spec();
+        let (colour, filled) = (self.colour, self.style == HistStyle::FilledStep);
         match self.fig.artist_mut(self.id) {
-            Some(Artist::Bar(b)) => b.face = color,
+            Some(Artist::Bar(b)) => b.face = colour,
             Some(Artist::Stairs(s)) => {
-                s.line.color = color;
+                s.line.colour = colour;
                 if filled {
-                    s.fill = color;
+                    s.fill = colour;
                 }
             }
             _ => unreachable!("a histogram handle always refers to bars or stairs"),
@@ -399,7 +399,7 @@ impl HistMut<'_> {
             HistStyle::Bar => Artist::Bar(Bar {
                 label,
                 visible,
-                face: self.color,
+                face: self.colour,
                 binning,
                 ..binned_bars(self.fig, self.id, &edges, values, orientation)
             }),
@@ -417,13 +417,13 @@ impl HistMut<'_> {
                 },
                 base: Some(0.0),
                 line: LineStyle {
-                    color: self.color,
+                    colour: self.colour,
                     ..LineStyle::default()
                 },
                 fill: if self.style == HistStyle::FilledStep {
-                    self.color
+                    self.colour
                 } else {
-                    ColorSpec::None
+                    ColourSpec::None
                 },
                 binning,
                 ..Stairs::default()
@@ -474,7 +474,7 @@ impl HistMut<'_> {
 /// let mut ax = fig.axes(0, 0);
 /// let mut hists = ax.hists(Bins::Count(8));
 /// hists
-///     .normalize(HistNorm::Density)
+///     .normalise(HistNorm::Density)
 ///     .stacked("all", "Control", control)
 ///     .stacked("all", "Treated", treated);
 /// let ids = hists.ids();
@@ -559,7 +559,7 @@ impl HistsMut<'_> {
     /// member in a column of its own by its own total, unless
     /// [`common_norm`](Self::common_norm) says otherwise. Counts and count densities are
     /// not divided by a total, and are the same either way.
-    pub fn normalize(&mut self, norm: HistNorm) -> &mut Self {
+    pub fn normalise(&mut self, norm: HistNorm) -> &mut Self {
         self.norm = norm;
         self.update()
     }
@@ -577,7 +577,7 @@ impl HistsMut<'_> {
     /// let mut ax = fig.axes(0, 0);
     /// let mut hists = ax.hists(Bins::Edges(vec![0.0, 1.0, 2.0]));
     /// hists
-    ///     .normalize(HistNorm::Probability)
+    ///     .normalise(HistNorm::Probability)
     ///     .common_norm(false)
     ///     .stacked("all", "Small", [0.5])
     ///     .stacked("all", "Large", [0.5, 1.5, 1.5]);
@@ -858,7 +858,7 @@ impl Pairs {
             y_edges,
             x_range,
             y_range,
-            normalization: self.norm,
+            normalisation: self.norm,
             min_count: self.min_count,
             total: summary.total,
             excluded_non_finite: summary.excluded_non_finite as u64,
@@ -931,7 +931,7 @@ macro_rules! binning_2d_setters {
 
             /// Sets what the value of each bin represents (see [`HistNorm`]); a density is
             /// divided by the area of its bin.
-            pub fn normalize(&mut self, norm: HistNorm) -> &mut Self {
+            pub fn normalise(&mut self, norm: HistNorm) -> &mut Self {
                 self.pairs.norm = norm;
                 self.rebin()
             }
@@ -945,10 +945,10 @@ macro_rules! binning_2d_setters {
             /// Maps the binned values to colours through the colour scale with the given
             /// identifier, in place of the default scale of its axes, which is deleted
             /// when this call created it and nothing else names it, as
-            /// [`CellsMut::color_scale`](crate::CellsMut::color_scale) does.
-            pub fn color_scale(&mut self, scale: NodeId) -> &mut Self {
+            /// [`CellsMut::colour_scale`](crate::CellsMut::colour_scale) does.
+            pub fn colour_scale(&mut self, scale: NodeId) -> &mut Self {
                 self.created_scale =
-                    color_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
+                    colour_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
                 self
             }
         }
@@ -966,7 +966,7 @@ macro_rules! binning_2d_setters {
 /// samples, so a viewer of the figure cannot rebin them.
 ///
 /// The setters that change the binning ([`bins`](Self::bins), [`range`](Self::range),
-/// [`weights`](Self::weights), [`normalize`](Self::normalize) and
+/// [`weights`](Self::weights), [`normalise`](Self::normalise) and
 /// [`min_count`](Self::min_count)) bin the pairs again and replace the stored arrays and the
 /// record, releasing the arrays they replace. A specification that cannot be applied never
 /// panics: the histogram is stored with no cells and no record, and [`error`](Self::error)
@@ -982,8 +982,8 @@ macro_rules! binning_2d_setters {
 /// ax.hist2d(x, y)
 ///     .bins(Bins::Count(2), Bins::Count(2))
 ///     .min_count(1.0);
-/// let scale = ax.color_scale().id();
-/// ax.colorbar(scale, InsideColorbarSide::East);
+/// let scale = ax.colour_scale().id();
+/// ax.colourbar(scale, InsideColourbarSide::East);
 /// assert!(fig.validate().is_valid());
 /// ```
 #[derive(Debug)]
@@ -1002,7 +1002,7 @@ impl<'a> Hist2dMut<'a> {
     /// the artists of the axes, mapped through the default colour scale of the axes.
     pub(crate) fn create(fig: &'a mut Figure, axes: NodeId, x: DataSource, y: DataSource) -> Self {
         let pairs = Pairs::new(fig, x, y);
-        let (scale, created) = color_scale::default_or_new(fig, axes);
+        let (scale, created) = colour_scale::default_or_new(fig, axes);
         let id = fig.alloc_node_id();
         let values = fig.add_data(NdArray::default());
         fig.axes_mut(axes)
@@ -1012,7 +1012,7 @@ impl<'a> Hist2dMut<'a> {
                 id,
                 values,
                 gap: CellGap { x: 0.0, y: 0.0 },
-                color_scale: Some(scale),
+                colour_scale: Some(scale),
                 ..Cells::default()
             }));
         let mut handle = Self {
@@ -1118,7 +1118,7 @@ impl Hist2dMut<'_> {
 /// fig.axes(0, 0)
 ///     .density_contour(&x, &y)
 ///     .bins(Bins::Count(12), Bins::Count(12))
-///     .normalize(HistNorm::Density)
+///     .normalise(HistNorm::Density)
 ///     .levels(6)
 ///     .filled(true);
 /// assert!(fig.validate().is_valid());
@@ -1140,7 +1140,7 @@ impl<'a> DensityContourMut<'a> {
     /// of the axes.
     pub(crate) fn create(fig: &'a mut Figure, axes: NodeId, x: DataSource, y: DataSource) -> Self {
         let pairs = Pairs::new(fig, x, y);
-        let (scale, created) = color_scale::default_or_new(fig, axes);
+        let (scale, created) = colour_scale::default_or_new(fig, axes);
         let id = fig.alloc_node_id();
         let grid = Grid::Rectilinear {
             x: store(fig, Vec::new()),
@@ -1154,7 +1154,7 @@ impl<'a> DensityContourMut<'a> {
                 id,
                 grid,
                 z,
-                color_scale: Some(scale),
+                colour_scale: Some(scale),
                 ..Contour::default()
             }));
         let mut handle = Self {

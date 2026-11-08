@@ -3,7 +3,7 @@
 proto_file! {
     /// An sRGB colour with straight (non-premultiplied) alpha, each component from 0
     /// to 1.
-    message Color {
+    message Colour {
         /// The red component.
         float r = 1;
         /// The green component.
@@ -15,41 +15,41 @@ proto_file! {
     }
 
     /// How a colour is chosen for a stroke, fill or marker.
-    message ColorSpec {
+    message ColourSpec {
         /// The kind of colour; unset means the default of the context.
-        oneof kind: ColorSpecKind {
+        oneof kind: ColourSpecKind {
             /// The renderer chooses the colour.
-            Auto(ColorSpecAuto) automatic = 1;
+            Auto(ColourSpecAuto) automatic = 1;
             /// A fixed colour.
-            Rgba(ColorSpecRgba) rgba = 2;
+            Rgba(ColourSpecRgba) rgba = 2;
             /// Nothing is drawn.
-            None(ColorSpecNone) none = 3;
-            /// The colour is taken from the axes colormap.
-            Colormapped(ColorSpecColormapped) colormapped = 4;
+            None(ColourSpecNone) none = 3;
+            /// The colour is taken from the axes colourmap.
+            Colourmapped(ColourSpecColourmapped) colourmapped = 4;
         }
     }
 
     /// The renderer chooses the colour: for series the next colour of the axes colour
     /// order, and inside a marker of a series the colour of the series' line.
-    message ColorSpecAuto {}
+    message ColourSpecAuto {}
 
     /// A fixed colour.
-    message ColorSpecRgba {
+    message ColourSpecRgba {
         /// The colour to use.
-        message Color color = 1;
+        message Colour colour = 1;
     }
 
     /// Nothing is drawn.
-    message ColorSpecNone {}
+    message ColourSpecNone {}
 
-    /// The colour is taken from the axes colormap, indexed by the data value scaled
+    /// The colour is taken from the axes colourmap, indexed by the data value scaled
     /// into the axes colour limits.
-    message ColorSpecColormapped {}
+    message ColourSpecColourmapped {}
 
     /// The style of a stroked line.
     message LineStyle {
         /// The line colour.
-        message ColorSpec color = 1;
+        message ColourSpec colour = 1;
         /// The line width in points.
         optional double width_pt = 2;
         /// The dash pattern of the line.
@@ -81,9 +81,9 @@ proto_file! {
         /// The marker size in points, measured as the width of the marker.
         optional double size_pt = 2;
         /// The colour of the marker interior.
-        message ColorSpec face = 3;
+        message ColourSpec face = 3;
         /// The colour of the marker outline.
-        message ColorSpec edge = 4;
+        message ColourSpec edge = 4;
     }
 
     /// The shape of a marker.

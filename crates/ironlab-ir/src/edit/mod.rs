@@ -12,7 +12,7 @@
 //!
 //! [`Edit::Set`] addresses a property by a [`PropertyPath`] of Protocol Buffers field
 //! names that starts at the fields of the node: the figure (`title`, `size.width_mm`,
-//! `layout.rows`, `links`, `parameters`, ...), an axes (`x.limits`, `colormap`,
+//! `layout.rows`, `links`, `parameters`, ...), an axes (`x.limits`, `colourmap`,
 //! `projection.view3d.azimuth_deg`, `legend.inside.location`, ...), the variant struct
 //! of an artist (`line.width_pt`, `visible`, `levels`, ...), a panel (`align`,
 //! `content.legend.layout.columns`, ...) or a data array (`name`). A path descends into a
@@ -21,10 +21,10 @@
 //! listed by [`properties`].
 //!
 //! A segment of decimal digits names an entry of a palette by its index, after the
-//! segment that names the list: `kind.indexed.colors.3`,
-//! `kind.categorical.categories.1.color`, `kind.categorical.categories.1.label` and
-//! `kind.continuous.colormap.colors.0` (or `kind.discrete.colormap.colors.0`) of a listed
-//! colormap. The index is written in canonical decimal form, without a sign, a leading
+//! segment that names the list: `kind.indexed.colours.3`,
+//! `kind.categorical.categories.1.colour`, `kind.categorical.categories.1.label` and
+//! `kind.continuous.colourmap.colours.0` (or `kind.discrete.colourmap.colours.0`) of a listed
+//! colourmap. The index is written in canonical decimal form, without a sign, a leading
 //! zero or an exponent, so that one entry has exactly one path; any other spelling is an
 //! unknown path, and an index past the last entry is [`EditError::EntryOutOfRange`].
 //! Numeric segments name entries of palettes only. The list itself, and a category as a
@@ -259,7 +259,7 @@ pub enum EditError {
     },
 
     /// The path names an entry of a list by an index that the list does not have, such
-    /// as `kind.indexed.colors.9` of a palette of nine entries; an index too large to
+    /// as `kind.indexed.colours.9` of a palette of nine entries; an index too large to
     /// represent is out of range too.
     #[error(
         "edit {edit:?}: {path} of {node} names an entry beyond the {count} entries of its list"

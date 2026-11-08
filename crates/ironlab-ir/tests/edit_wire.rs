@@ -310,7 +310,7 @@ fn the_json_form_of_the_image_values_uses_snake_case_type_names() {
             NodeId(3),
             "non_finite.policy",
             Value::OutOfRange(OutOfRange::Rgba {
-                color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+                colour: Colour::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
             }),
         ),
         set(
@@ -341,7 +341,7 @@ fn the_json_form_of_the_image_values_uses_snake_case_type_names() {
             &serde_json::json!({"type": "image_plane", "value": {"type": "xy", "z": null}}),
             &serde_json::json!({
                 "type": "out_of_range",
-                "value": {"type": "rgba", "color": "#ff000080"}
+                "value": {"type": "rgba", "colour": "#ff000080"}
             }),
             &serde_json::json!({"type": "out_of_range", "value": {"type": "clamp"}}),
         ]
@@ -427,42 +427,46 @@ fn a_transaction_missing_a_required_field_is_refused_with_its_path() {
             "out_of_range_value",
         ),
         (
-            wire::ValueKind::ColorScaleOutOfRange(wire::ValueColorScaleOutOfRange { value: None }),
-            "color_scale_out_of_range_value",
-        ),
-        (
-            wire::ValueKind::ColorScaleKind(wire::ValueColorScaleKind { value: None }),
-            "color_scale_kind_value",
-        ),
-        (
-            wire::ValueKind::ContinuousColorScale(wire::ValueContinuousColorScale { value: None }),
-            "continuous_color_scale_value",
-        ),
-        (
-            wire::ValueKind::DiscreteColorScale(wire::ValueDiscreteColorScale { value: None }),
-            "discrete_color_scale_value",
-        ),
-        (
-            wire::ValueKind::IndexedColorScale(wire::ValueIndexedColorScale { value: None }),
-            "indexed_color_scale_value",
-        ),
-        (
-            wire::ValueKind::CategoricalColorScale(wire::ValueCategoricalColorScale {
+            wire::ValueKind::ColourScaleOutOfRange(wire::ValueColourScaleOutOfRange {
                 value: None,
             }),
-            "categorical_color_scale_value",
+            "colour_scale_out_of_range_value",
         ),
         (
-            wire::ValueKind::Colormap(wire::ValueColormap { value: None }),
-            "colormap_value",
+            wire::ValueKind::ColourScaleKind(wire::ValueColourScaleKind { value: None }),
+            "colour_scale_kind_value",
         ),
         (
-            wire::ValueKind::ColorScaleLevels(wire::ValueColorScaleLevels { value: None }),
-            "color_scale_levels_value",
+            wire::ValueKind::ContinuousColourScale(wire::ValueContinuousColourScale {
+                value: None,
+            }),
+            "continuous_colour_scale_value",
         ),
         (
-            wire::ValueKind::ColorScaleNorm(wire::ValueColorScaleNorm { value: 0 }),
-            "color_scale_norm_value",
+            wire::ValueKind::DiscreteColourScale(wire::ValueDiscreteColourScale { value: None }),
+            "discrete_colour_scale_value",
+        ),
+        (
+            wire::ValueKind::IndexedColourScale(wire::ValueIndexedColourScale { value: None }),
+            "indexed_colour_scale_value",
+        ),
+        (
+            wire::ValueKind::CategoricalColourScale(wire::ValueCategoricalColourScale {
+                value: None,
+            }),
+            "categorical_colour_scale_value",
+        ),
+        (
+            wire::ValueKind::Colourmap(wire::ValueColourmap { value: None }),
+            "colourmap_value",
+        ),
+        (
+            wire::ValueKind::ColourScaleLevels(wire::ValueColourScaleLevels { value: None }),
+            "colour_scale_levels_value",
+        ),
+        (
+            wire::ValueKind::ColourScaleNorm(wire::ValueColourScaleNorm { value: 0 }),
+            "colour_scale_norm_value",
         ),
     ] {
         assert_missing(

@@ -56,7 +56,7 @@
 //! because there is nothing about it worth reading. [`is_shown`] decides that.
 //!
 //! The entries of a palette — the colours of an indexed colour scale, the categories of a
-//! categorical one and the colours of a listed colormap — each have rows of their own: a
+//! categorical one and the colours of a listed colourmap — each have rows of their own: a
 //! colour row per entry, and a colour row and a label row per category, ordered by index.
 //! The list itself has no row, because the IR gives it no settable path: how many entries
 //! a palette has, and in which order, comes from the program that builds the figure, as
@@ -66,7 +66,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, Cell, Choice, ColorScaleKind, DataArray, Dimension, Edit, Figure, Limits, NodeId,
+    Artist, Cell, Choice, ColourScaleKind, DataArray, Dimension, Edit, Figure, Limits, NodeId,
     NodeKind, Panel, PanelContent, Parameter, Property, PropertyPath, Transaction, Value,
     ValueType, choices, command, properties_of, property_choices,
 };
@@ -148,21 +148,21 @@ pub fn tree_rows(figure: &Figure) -> Vec<TreeRow> {
         let name = row_label(NodeKind::DataArray, Some(data_array_name(data)));
         rows.push(row(data.id, NodeKind::DataArray, name, 2));
     }
-    if !figure.color_scales.is_empty() {
-        rows.push(group(NodeKind::ColorScale, "Colour scales"));
+    if !figure.colour_scales.is_empty() {
+        rows.push(group(NodeKind::ColourScale, "Colour scales"));
     }
-    for scale in &figure.color_scales {
+    for scale in &figure.colour_scales {
         let name = text_label(scale.title.as_ref()).unwrap_or_else(|| {
             match scale.kind {
-                ColorScaleKind::Continuous(_) => "continuous",
-                ColorScaleKind::Discrete(_) => "discrete",
-                ColorScaleKind::Indexed(_) => "indexed",
-                ColorScaleKind::Categorical(_) => "categorical",
+                ColourScaleKind::Continuous(_) => "continuous",
+                ColourScaleKind::Discrete(_) => "discrete",
+                ColourScaleKind::Indexed(_) => "indexed",
+                ColourScaleKind::Categorical(_) => "categorical",
             }
             .to_owned()
         });
-        let name = row_label(NodeKind::ColorScale, Some(name));
-        rows.push(row(scale.id, NodeKind::ColorScale, name, 2));
+        let name = row_label(NodeKind::ColourScale, Some(name));
+        rows.push(row(scale.id, NodeKind::ColourScale, name, 2));
     }
     for axes in &figure.axes {
         let name = text_label(axes.title.as_ref()).unwrap_or_else(|| cell_label(axes.cell));
@@ -219,7 +219,7 @@ pub fn kind_name(kind: NodeKind) -> &'static str {
         NodeKind::Stairs => "Stairs",
         NodeKind::Cells => "Cells",
         NodeKind::DataArray => "Data array",
-        NodeKind::ColorScale => "Colour scale",
+        NodeKind::ColourScale => "Colour scale",
         NodeKind::Panel => "Panel",
     }
 }
@@ -249,7 +249,7 @@ fn panel_label(panel: &Panel) -> String {
     let name = text_label(panel.title.as_ref()).unwrap_or_else(|| {
         match panel.content {
             PanelContent::Legend(_) => "Legend panel",
-            PanelContent::Colorbar(_) => "Colourbar panel",
+            PanelContent::Colourbar(_) => "Colourbar panel",
         }
         .to_owned()
     });
@@ -318,7 +318,7 @@ pub enum Editor {
         offered: Vec<Choice>,
     },
     /// A colour picker; the components below the colour are not listed separately.
-    Color,
+    Colour,
     /// A list of numbers, typed as text, or a list of the sizes of the rows or columns
     /// of the tile layout, in which the word `fit` stands for a fitted size.
     Numbers,
@@ -463,7 +463,7 @@ pub fn property_groups(figure: &Figure, overlay: &Overlay, node: NodeId) -> Vec<
             continue;
         };
         let editor = editor_for(figure, kind, node, &property, &value);
-        if matches!(editor, Editor::RichText | Editor::Color) {
+        if matches!(editor, Editor::RichText | Editor::Colour) {
             covered.push(property.path.clone());
         }
         let segments = property.path.segments();
@@ -570,12 +570,12 @@ const DATA_ARRAY_REASON: &str = "A data array, its name included, comes from the
      figure looks, not what it draws.";
 
 /// The reason the colour scale an artist maps its numbers through is not changed here.
-const COLOR_SCALE_REFERENCE_REASON: &str = "The colour scale an artist maps its numbers \
+const COLOUR_SCALE_REFERENCE_REASON: &str = "The colour scale an artist maps its numbers \
      through is set by the program that builds the figure, as part of how its artists \
      share their scales. The scale itself is edited in its own row under Colour scales.";
 
 /// The reason the colour scale a colourbar shows is not changed here.
-const COLORBAR_SCALE_REASON: &str = "The colour scale a colourbar shows is set by the \
+const COLOURBAR_SCALE_REASON: &str = "The colour scale a colourbar shows is set by the \
      program that builds the figure, as the scale of an artist is. The scale itself is edited \
      in its own row under Colour scales.";
 
@@ -651,10 +651,10 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         NodeKind::Panel if segments == ["content"] => Some(PANEL_CONTENT_REASON),
         // Which colour scale a colourbar shows relates it to another node of the figure, as
         // the scale of an artist does.
-        NodeKind::Panel if segments == ["content", "colorbar", "scale"] => {
-            Some(COLORBAR_SCALE_REASON)
+        NodeKind::Panel if segments == ["content", "colourbar", "scale"] => {
+            Some(COLOURBAR_SCALE_REASON)
         }
-        NodeKind::Axes if segments == ["colorbar", "scale"] => Some(COLORBAR_SCALE_REASON),
+        NodeKind::Axes if segments == ["colourbar", "scale"] => Some(COLOURBAR_SCALE_REASON),
         NodeKind::DataArray => Some(DATA_ARRAY_REASON),
         // Which colour scale an artist names relates the artist to another node of the
         // figure, which is structure as the panel of a legend is.
@@ -664,9 +664,9 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         | NodeKind::ScalarImage
         | NodeKind::Cells
         | NodeKind::Bar
-            if segments == ["color_scale"] =>
+            if segments == ["colour_scale"] =>
         {
-            Some(COLOR_SCALE_REFERENCE_REASON)
+            Some(COLOUR_SCALE_REFERENCE_REASON)
         }
         // The pixels or values of an image are a data reference, which is read-only by its
         // type, so an image has no read-only property of its own. Every property of a colour
@@ -690,7 +690,7 @@ pub fn read_only_reason(kind: NodeKind, path: &PropertyPath) -> Option<&'static 
         | NodeKind::Bar
         | NodeKind::Stairs
         | NodeKind::Cells
-        | NodeKind::ColorScale
+        | NodeKind::ColourScale
         | NodeKind::Panel => None,
     }
 }
@@ -719,17 +719,17 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
         | ValueType::PanelLegend
-        | ValueType::PanelColorbar
-        | ValueType::InsideColorbar
+        | ValueType::PanelColourbar
+        | ValueType::InsideColourbar
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
         | ValueType::PixelRange
-        | ValueType::ColorScaleOutOfRange
-        | ValueType::ContinuousColorScale
-        | ValueType::DiscreteColorScale
-        | ValueType::IndexedColorScale
-        | ValueType::CategoricalColorScale
+        | ValueType::ColourScaleOutOfRange
+        | ValueType::ContinuousColourScale
+        | ValueType::DiscreteColourScale
+        | ValueType::IndexedColourScale
+        | ValueType::CategoricalColourScale
         | ValueType::Binning
         | ValueType::Binning2d
         | ValueType::CellGap => true,
@@ -747,7 +747,7 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Interpreter
         | ValueType::FontSetId
         | ValueType::Embolden
-        | ValueType::Color
+        | ValueType::Colour
         | ValueType::Links
         | ValueType::Parameters
         | ValueType::Projection
@@ -761,17 +761,17 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::Aspect
         | ValueType::AspectAdjust
         | ValueType::TitleAlign
-        | ValueType::ColormapName
+        | ValueType::ColourmapName
         | ValueType::Legend
         | ValueType::LegendLocation
         | ValueType::PanelLocation
         | ValueType::PanelContent
-        | ValueType::ColorbarOrientation
-        | ValueType::InsideColorbarSide
-        | ValueType::ColorbarTitlePlacement
+        | ValueType::ColourbarOrientation
+        | ValueType::InsideColourbarSide
+        | ValueType::ColourbarTitlePlacement
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
-        | ValueType::ColorSpec
+        | ValueType::ColourSpec
         | ValueType::DashStyle
         | ValueType::MarkerShape
         | ValueType::Coords
@@ -781,10 +781,10 @@ pub fn is_composite(value_type: ValueType) -> bool {
         | ValueType::QuiverScale
         | ValueType::ImagePlane
         | ValueType::OutOfRange
-        | ValueType::ColorScaleKind
-        | ValueType::Colormap
-        | ValueType::ColorScaleNorm
-        | ValueType::ColorScaleLevels
+        | ValueType::ColourScaleKind
+        | ValueType::Colourmap
+        | ValueType::ColourScaleNorm
+        | ValueType::ColourScaleLevels
         | ValueType::Orientation
         | ValueType::UInt64
         | ValueType::PerBar
@@ -829,7 +829,7 @@ fn editor_for(
         ValueType::Double | ValueType::Float => number_editor(&property.path, value, false),
         ValueType::String => Editor::Text,
         ValueType::Text => Editor::RichText,
-        ValueType::Color => Editor::Color,
+        ValueType::Colour => Editor::Colour,
         ValueType::Doubles | ValueType::TrackSizes => Editor::Numbers,
         ValueType::Strings => Editor::Words,
         ValueType::Texts => Editor::ReadOnly {
@@ -858,26 +858,26 @@ fn editor_for(
         | ValueType::Aspect
         | ValueType::AspectAdjust
         | ValueType::TitleAlign
-        | ValueType::ColorSpec
+        | ValueType::ColourSpec
         | ValueType::Grid
         | ValueType::Levels
         | ValueType::ContourPlacement
         | ValueType::QuiverScale
         | ValueType::ImagePlane
         | ValueType::OutOfRange
-        | ValueType::ColorScaleKind
-        | ValueType::Colormap
-        | ValueType::ColorScaleNorm
-        | ValueType::ColorScaleLevels
+        | ValueType::ColourScaleKind
+        | ValueType::Colourmap
+        | ValueType::ColourScaleNorm
+        | ValueType::ColourScaleLevels
         | ValueType::Scale
-        | ValueType::ColormapName
+        | ValueType::ColourmapName
         | ValueType::Legend
         | ValueType::LegendLocation
         | ValueType::PanelLocation
         | ValueType::PanelContent
-        | ValueType::ColorbarOrientation
-        | ValueType::InsideColorbarSide
-        | ValueType::ColorbarTitlePlacement
+        | ValueType::ColourbarOrientation
+        | ValueType::InsideColourbarSide
+        | ValueType::ColourbarTitlePlacement
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
@@ -911,17 +911,17 @@ fn editor_for(
         | ValueType::InsideLegend
         | ValueType::LegendEntryLayout
         | ValueType::PanelLegend
-        | ValueType::PanelColorbar
-        | ValueType::InsideColorbar
+        | ValueType::PanelColourbar
+        | ValueType::InsideColourbar
         | ValueType::LineStyle
         | ValueType::MarkerStyle
         | ValueType::ImagePlacement
         | ValueType::PixelRange
-        | ValueType::ColorScaleOutOfRange
-        | ValueType::ContinuousColorScale
-        | ValueType::DiscreteColorScale
-        | ValueType::IndexedColorScale
-        | ValueType::CategoricalColorScale
+        | ValueType::ColourScaleOutOfRange
+        | ValueType::ContinuousColourScale
+        | ValueType::DiscreteColourScale
+        | ValueType::IndexedColourScale
+        | ValueType::CategoricalColourScale
         | ValueType::Binning
         | ValueType::Binning2d
         | ValueType::CellGap => Editor::Group,

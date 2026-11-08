@@ -95,7 +95,7 @@ pub fn figure() -> Figure {
         .stacked("balance", "Heating", heating)
         .stacked("balance", "Fabric losses", fabric)
         .stacked("balance", "Ventilation losses", ventilation);
-    ax.hline(0.0).color(Color::BLACK).line_width(0.5);
+    ax.hline(0.0).colour(Colour::BLACK).line_width(0.5);
     ax.xcategories(ZONES.map(|z| z.0))
         .ylabel("Annual heat (MWh)")
         .title("Stacked: a heat balance")
@@ -105,7 +105,7 @@ pub fn figure() -> Figure {
     let rows: Vec<f64> = (0..SUBSYSTEMS.len()).map(|k| k as f64).collect();
     let mut ax = fig.axes_span(0, 1, 2, 1);
     ax.barh(&rows, SUBSYSTEMS.map(|s| s.1))
-        .face_color(Color::rgb(0.30, 0.47, 0.66));
+        .face_colour(Colour::rgb(0.30, 0.47, 0.66));
     ax.ycategories(SUBSYSTEMS.map(|s| s.0))
         .xlabel("Mean downtime per failure (days)")
         .title("Horizontal: long category names");
@@ -117,7 +117,7 @@ pub fn figure() -> Figure {
     let mut ax = fig.axes(2, 0);
     ax.bar(&substances, range)
         .base_data(melting)
-        .face_color(Color::rgb(0.35, 0.65, 0.85));
+        .face_colour(Colour::rgb(0.35, 0.65, 0.85));
     ax.xcategories(LIQUID_RANGES.map(|s| s.0))
         .xtick_label_angle(30.0)
         .ylabel(r"Temperature ($^\circ$C)")
@@ -126,11 +126,11 @@ pub fn figure() -> Figure {
     // The specific strength of each material, with every bar grey but the highlighted one.
     let materials: Vec<f64> = (0..MATERIALS.len()).map(|k| k as f64).collect();
     let strength = MATERIALS.map(|m| m.1 / m.2 * 1.0e3);
-    let grey = Color::rgb(0.65, 0.65, 0.65);
-    let red = Color::rgb(0.80, 0.15, 0.10);
-    let colors = MATERIALS.map(|m| if m.0 == HIGHLIGHTED { red } else { grey });
+    let grey = Colour::rgb(0.65, 0.65, 0.65);
+    let red = Colour::rgb(0.80, 0.15, 0.10);
+    let colours = MATERIALS.map(|m| if m.0 == HIGHLIGHTED { red } else { grey });
     let mut ax = fig.axes(2, 1);
-    ax.bar(&materials, strength).colors(colors);
+    ax.bar(&materials, strength).colours(colours);
     ax.xcategories(MATERIALS.map(|m| m.0))
         .xtick_label_angle(30.0)
         .ylabel(r"Specific strength (kN$\,$m/kg)")

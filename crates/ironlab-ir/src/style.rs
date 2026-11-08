@@ -13,7 +13,7 @@ use crate::error::IrError;
 /// `#rrggbb` when it is opaque, or `#rrggbbaa` otherwise, so the stored precision
 /// is eight bits per component.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Color {
+pub struct Colour {
     /// The red component, from 0 to 1.
     pub r: f32,
     /// The green component, from 0 to 1.
@@ -24,11 +24,11 @@ pub struct Color {
     pub a: f32,
 }
 
-impl Color {
+impl Colour {
     /// Opaque black.
-    pub const BLACK: Color = Color::rgb(0.0, 0.0, 0.0);
+    pub const BLACK: Colour = Colour::rgb(0.0, 0.0, 0.0);
     /// Opaque white.
-    pub const WHITE: Color = Color::rgb(1.0, 1.0, 1.0);
+    pub const WHITE: Colour = Colour::rgb(1.0, 1.0, 1.0);
 
     /// Creates an opaque colour from red, green and blue components between 0 and 1.
     pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
@@ -48,9 +48,9 @@ impl Color {
     ///
     /// # Errors
     ///
-    /// Returns [`IrError::InvalidColor`] when the string has any other form.
+    /// Returns [`IrError::InvalidColour`] when the string has any other form.
     pub fn from_hex(hex: &str) -> Result<Self, IrError> {
-        let invalid = || IrError::InvalidColor(hex.to_owned());
+        let invalid = || IrError::InvalidColour(hex.to_owned());
         let digits = hex.strip_prefix('#').ok_or_else(invalid)?.as_bytes();
         if !matches!(digits.len(), 6 | 8) || !digits.iter().all(u8::is_ascii_hexdigit) {
             return Err(invalid());
@@ -91,28 +91,28 @@ fn level(component: f32) -> u8 {
     (component.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-impl Default for Color {
+impl Default for Colour {
     fn default() -> Self {
         Self::BLACK
     }
 }
 
-impl Serialize for Color {
+impl Serialize for Colour {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_hex())
     }
 }
 
-impl<'de> Deserialize<'de> for Color {
+impl<'de> Deserialize<'de> for Colour {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let hex = String::deserialize(deserializer)?;
-        Color::from_hex(&hex).map_err(serde::de::Error::custom)
+        Colour::from_hex(&hex).map_err(serde::de::Error::custom)
     }
 }
 
-impl JsonSchema for Color {
+impl JsonSchema for Colour {
     fn schema_name() -> Cow<'static, str> {
-        "Color".into()
+        "Colour".into()
     }
 
     fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
@@ -128,24 +128,24 @@ impl JsonSchema for Color {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum ColorSpec {
+pub enum ColourSpec {
     /// The renderer chooses the colour: for series this is the next colour of the
     /// axes colour order (Okabe–Ito), inside a marker of a series it is the colour of
     /// the series' line, and on the isolines of a contour, the faces and edges of a surface
     /// and the outlines of cells, which have no colour of their own, it is the colour mapped
-    /// through the artist's colour scale, as for `colormapped`.
+    /// through the artist's colour scale, as for `colourmapped`.
     #[default]
     Auto,
     /// A fixed colour.
     Rgba {
         /// The colour to use.
-        color: Color,
+        colour: Colour,
     },
     /// Nothing is drawn.
     None,
     /// The colour is mapped from the data value through the colour scale that the
     /// artist names.
-    Colormapped,
+    Colourmapped,
 }
 
 /// The style of a stroked line.
@@ -153,7 +153,7 @@ pub enum ColorSpec {
 #[schemars(deny_unknown_fields)]
 pub struct LineStyle {
     /// The line colour.
-    pub color: ColorSpec,
+    pub colour: ColourSpec,
     /// The line width in points.
     pub width_pt: f64,
     /// The dash pattern of the line.
@@ -163,7 +163,7 @@ pub struct LineStyle {
 impl Default for LineStyle {
     fn default() -> Self {
         Self {
-            color: ColorSpec::Auto,
+            colour: ColourSpec::Auto,
             width_pt: 0.75,
             dash: DashStyle::Solid,
         }
@@ -200,9 +200,9 @@ pub struct MarkerStyle {
     /// The marker size in points, measured as the width of the marker.
     pub size_pt: f64,
     /// The colour of the marker interior.
-    pub face: ColorSpec,
+    pub face: ColourSpec,
     /// The colour of the marker outline.
-    pub edge: ColorSpec,
+    pub edge: ColourSpec,
 }
 
 impl Default for MarkerStyle {
@@ -210,8 +210,8 @@ impl Default for MarkerStyle {
         Self {
             shape: MarkerShape::None,
             size_pt: 4.0,
-            face: ColorSpec::None,
-            edge: ColorSpec::Auto,
+            face: ColourSpec::None,
+            edge: ColourSpec::Auto,
         }
     }
 }

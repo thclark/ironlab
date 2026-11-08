@@ -7,8 +7,8 @@
 //!   identifier of stored data as `scalar_image` does, and naming the default colour scale of the axes as
 //!   `scalar_image` does, creating it when the axes has none.
 //! - `CellsMut` setters, named as those of `SurfaceMut` and `ScalarImageMut` are: `label`, `column_edges(data)`,
-//!   `row_edges(data)`, `unit_columns()`, `unit_rows()`, `gap(x, y)`, `edge_color`, `edge_width`, `alpha(data)`,
-//!   `face_opacity`, `edge_opacity`, `color_scale(id)`, and the getter `id()`. Data that a setter replaces is
+//!   `row_edges(data)`, `unit_columns()`, `unit_rows()`, `gap(x, y)`, `edge_colour`, `edge_width`, `alpha(data)`,
+//!   `face_opacity`, `edge_opacity`, `colour_scale(id)`, and the getter `id()`. Data that a setter replaces is
 //!   released from the figure when nothing else uses it and it has no name, as for every other artist.
 //! - `AxesMut::occupancy<R: AsRef<[f64]>>(rows: impl IntoIterator<Item = R>) -> CellsMut`, which pads ragged rows
 //!   with NaN to the longest row, stores them as cells on unit edges with a gap of 0.2 along x and y, and hides the
@@ -19,12 +19,12 @@ mod common;
 
 use common::{artist, axes, data, has_error, has_warning};
 use ironlab::IssueKind;
-use ironlab::ir::{Artist, CellEdges, CellGap, Cells, ColorScaleKind, NdArray};
+use ironlab::ir::{Artist, CellEdges, CellGap, Cells, ColourScaleKind, NdArray};
 use ironlab::prelude::*;
 
-const GREEN: Color = Color::rgb(0.0, 0.6, 0.3);
-const RED: Color = Color::rgb(0.8, 0.2, 0.1);
-const GREY: Color = Color::rgb(0.6, 0.6, 0.6);
+const GREEN: Colour = Colour::rgb(0.0, 0.6, 0.3);
+const RED: Colour = Colour::rgb(0.8, 0.2, 0.1);
+const GREY: Colour = Colour::rgb(0.6, 0.6, 0.6);
 
 /// Returns the cells with the given identifier.
 #[track_caller]
@@ -61,18 +61,18 @@ fn cells_stores_the_values_with_the_defaults_of_a_heatmap_and_the_default_scale(
     let mut fig = Figure::new();
     let z = Matrix::from_rows(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
     let id = fig.axes(0, 0).cells(&z).id();
-    let default = fig.axes(0, 0).color_scale().id();
+    let default = fig.axes(0, 0).colour_scale().id();
     let c = cells(&fig, id);
     let stored = data(&fig, c.values);
     assert_eq!(stored.shape, vec![2, 3]);
     assert_eq!(stored.as_f64(), Some(z.values()));
     assert_eq!((c.columns, c.rows), (CellEdges::Unit, CellEdges::Unit));
     assert_eq!(c.gap, CellGap { x: 0.0, y: 0.0 });
-    assert_eq!(c.edge.color, ColorSpec::None, "no outline");
+    assert_eq!(c.edge.colour, ColourSpec::None, "no outline");
     assert_eq!(c.alpha, None);
     assert_eq!((c.face_opacity, c.edge_opacity), (1.0, 1.0));
     assert_eq!(
-        c.color_scale,
+        c.colour_scale,
         Some(default),
         "the default scale of the axes"
     );
@@ -87,28 +87,28 @@ fn byte_statuses_through_a_categorical_scale_replace_the_default_scale() {
     let mut fig = Figure::new();
     let status = statuses(&mut fig);
     let codes = ByteMatrix::from_rows(&[[0, 1, 2], [2, 1, 0]]);
-    let id = fig.axes(0, 0).cells(&codes).color_scale(status).id();
+    let id = fig.axes(0, 0).cells(&codes).colour_scale(status).id();
     let c = cells(&fig, id);
     assert_eq!(
         data(&fig, c.values).as_u8(),
         Some(&[0u8, 1, 2, 2, 1, 0][..])
     );
-    assert_eq!(c.color_scale, Some(status));
+    assert_eq!(c.colour_scale, Some(status));
     assert_eq!(
-        fig.ir().color_scales.len(),
+        fig.ir().colour_scales.len(),
         1,
         "the default scale is deleted"
     );
     assert!(matches!(
-        fig.ir().color_scales[0].kind,
-        ColorScaleKind::Categorical(_)
+        fig.ir().colour_scales[0].kind,
+        ColourScaleKind::Categorical(_)
     ));
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
 
 // WHY: each setter is the facade's name for one property of the cells artist, so each must write exactly that
 // property: explicit edges, how a two-dimensional histogram of unequal bins is stored, as data the edges name; the
-// gap along x and y independently; an outline colour, which `None` hides and `Colormapped` takes from each cell; and
+// gap along x and y independently; an outline colour, which `None` hides and `Colourmapped` takes from each cell; and
 // the alpha array and the two opacities that fade the cells.
 #[test]
 fn cells_setters_write_the_properties_they_name() {
@@ -122,7 +122,7 @@ fn cells_setters_write_the_properties_they_name() {
         .column_edges([0.0, 1.0, 3.0, 7.0])
         .row_edges([10.0, 5.0, 0.0])
         .gap(0.1, 0.25)
-        .edge_color(Color::WHITE)
+        .edge_colour(Colour::WHITE)
         .edge_width(1.5)
         .alpha(&alpha)
         .face_opacity(0.75)
@@ -143,9 +143,9 @@ fn cells_setters_write_the_properties_they_name() {
     assert_eq!(data(&fig, rows), &NdArray::vector(vec![10.0, 5.0, 0.0]));
     assert_eq!(c.gap, CellGap { x: 0.1, y: 0.25 });
     assert_eq!(
-        c.edge.color,
-        ColorSpec::Rgba {
-            color: Color::WHITE
+        c.edge.colour,
+        ColourSpec::Rgba {
+            colour: Colour::WHITE
         }
     );
     assert_eq!(c.edge.width_pt, 1.5);
@@ -157,12 +157,12 @@ fn cells_setters_write_the_properties_they_name() {
     let id = fig
         .axes(0, 0)
         .cells(&z)
-        .edge_color(ColorSpec::Colormapped)
-        .edge_color(None)
+        .edge_colour(ColourSpec::Colourmapped)
+        .edge_colour(None)
         .id();
     assert_eq!(
-        cells(&fig, id).edge.color,
-        ColorSpec::None,
+        cells(&fig, id).edge.colour,
+        ColourSpec::None,
         "`None` hides the outline"
     );
 }
@@ -228,7 +228,7 @@ fn occupancy_pads_ragged_rows_with_nan_on_unit_edges_with_a_gap_and_hides_the_x_
     let mut fig = Figure::new();
     let status = statuses(&mut fig);
     let rows = [vec![0.0, 1.0, 2.0], vec![1.0], vec![2.0, 2.0]];
-    let id = fig.axes(0, 0).occupancy(&rows).color_scale(status).id();
+    let id = fig.axes(0, 0).occupancy(&rows).colour_scale(status).id();
     let c = cells(&fig, id);
     let stored = data(&fig, c.values);
     assert_eq!(
@@ -253,7 +253,7 @@ fn occupancy_pads_ragged_rows_with_nan_on_unit_edges_with_a_gap_and_hides_the_x_
     );
     assert_eq!((c.columns, c.rows), (CellEdges::Unit, CellEdges::Unit));
     assert_eq!(c.gap, CellGap { x: 0.2, y: 0.2 });
-    assert_eq!(c.color_scale, Some(status));
+    assert_eq!(c.colour_scale, Some(status));
     let ax = axes(&fig, common::parent(&fig, id).id);
     assert!(!ax.x.visible, "the x axis is hidden");
     assert!(ax.y.visible, "the y axis is left to name the rows");

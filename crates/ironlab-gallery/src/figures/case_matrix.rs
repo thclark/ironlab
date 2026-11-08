@@ -45,8 +45,8 @@ pub fn figure() -> Figure {
         .title("Convergence of the transition model")
         .tag("image")
         .tag("scatter")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .tag("legend")
         .tag("simulations")
         .parameter("dimensionality", "2D")
@@ -55,17 +55,17 @@ pub fn figure() -> Figure {
         .parameter("has_legend", true);
     let counts = fig.data("iterations", counts).id();
     let effort = fig
-        .color_scale()
-        .colormap(Colormap::Viridis)
+        .colour_scale()
+        .colourmap(Colourmap::Viridis)
         .discrete([0.0, 10.0, 20.0, 30.0, 50.0, 80.0])
-        .key_label(ColorScaleKey::NonFinite, "not entered")
+        .key_label(ColourScaleKey::NonFinite, "not entered")
         .title("Iterations to converge")
         .id();
     let mut ax = fig.axes(0, 0);
     ax.scalar_image(counts)
         .pixel_columns(reynolds[0], reynolds[REYNOLDS - 1])
         .pixel_rows(0.0, (MACH.len() - 1) as f64)
-        .color_scale(effort);
+        .colour_scale(effort);
     let (x, y): (Vec<f64>, Vec<f64>) = COMPARED
         .iter()
         .map(|&(row, col)| (reynolds[col], row as f64))
@@ -74,8 +74,8 @@ pub fn figure() -> Figure {
         .label("Compared with wind tunnel")
         .marker(Marker::Diamond)
         .marker_size(7.0)
-        .marker_face(Color::WHITE)
-        .marker_edge(Color::BLACK);
+        .marker_face(Colour::WHITE)
+        .marker_edge(Colour::BLACK);
     let rows: Vec<f64> = (0..MACH.len()).map(|k| k as f64).collect();
     let names: Vec<String> = MACH.iter().map(|m| format!("{m:.2}")).collect();
     ax.xlabel("Reynolds number (millions)")
@@ -86,7 +86,7 @@ pub fn figure() -> Figure {
         .legend(LegendLocation::NorthWest);
 
     fig.panel(1, 0)
-        .colorbar(effort)
-        .orientation(ColorbarOrientation::Horizontal);
+        .colourbar(effort)
+        .orientation(ColourbarOrientation::Horizontal);
     fig
 }

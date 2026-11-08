@@ -7,8 +7,8 @@
 //!
 //! - `AxesMut::hist(sample: impl Into<DataSource>) -> HistMut`, binned with `Bins::default()` and `HistNorm::Count`
 //!   and drawn with `HistStyle::Bar`. A sample given by identifier is read, not referenced.
-//! - `HistMut` setters `bins(Bins)`, `range(min, max)`, `weights(impl Into<DataSource>)`, `normalize(HistNorm)`,
-//!   `style(HistStyle)`, `orientation(Orientation)`, `label` and `color(impl IntoColorSpec)` (the colour of the series:
+//! - `HistMut` setters `bins(Bins)`, `range(min, max)`, `weights(impl Into<DataSource>)`, `normalise(HistNorm)`,
+//!   `style(HistStyle)`, `orientation(Orientation)`, `label` and `colour(impl IntoColourSpec)` (the colour of the series:
 //!   the face of the bars, or the outline of the stairs, whose fill takes the outline's colour); and the getters
 //!   `id() -> NodeId`, `summary() -> HistogramSummary` and `error() -> Option<&BinningError>`. It has no `gap` and no
 //!   `group`: histograms touch, and several histograms are placed together by `hists`.
@@ -35,12 +35,12 @@ use common::{
 use ironlab::IssueKind;
 use ironlab::binning::{BinningError, bin_edges, histogram};
 use ironlab::ir::{
-    Artist, BarOffset, BarWidth, Binning, ColorSpec, NdArray, Orientation, PerBar, StairsData,
+    Artist, BarOffset, BarWidth, Binning, ColourSpec, NdArray, Orientation, PerBar, StairsData,
 };
 use ironlab::prelude::*;
 use ironlab_scene::hit::{AxesHitKind, AxisMap};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
 
 /// A sample of ten values with 1, 2, 3 and 4 values in the unit bins from 0 to 4.
 const STEPPED: [f64; 10] = [0.5, 1.5, 1.5, 2.5, 2.5, 2.5, 3.5, 3.5, 3.5, 3.5];
@@ -231,7 +231,7 @@ fn hist_stores_one_touching_bar_per_bin_from_zero_to_its_count() {
     assert_eq!(b.orientation, Orientation::Vertical);
     assert_eq!(
         b.face,
-        ColorSpec::Auto,
+        ColourSpec::Auto,
         "the next colour of the colour order"
     );
     assert_close(
@@ -256,7 +256,7 @@ fn hist_stores_one_touching_bar_per_bin_from_zero_to_its_count() {
     assert_close(&edges, &[0.0, 1.0, 2.0, 3.0, 4.0], "edges");
     assert_eq!(values, [1.0, 2.0, 3.0, 4.0]);
     assert!(
-        fig.ir().color_scales.is_empty(),
+        fig.ir().colour_scales.is_empty(),
         "no colour scale is created"
     );
     let report = fig.validate();
@@ -312,7 +312,7 @@ fn hist_draws_the_binning_of_the_sample_with_every_setting_applied() {
                 .weights(&weights)
                 .range(-1.0, 5.0)
                 .bins(bins.clone())
-                .normalize(norm)
+                .normalise(norm)
                 .style(style)
                 .id();
             let (edges, values) = drawn_bins(&fig, id);
@@ -345,7 +345,7 @@ fn the_bars_of_a_density_histogram_enclose_unit_area() {
         let mut fig = Figure::new();
         let mut ax = fig.axes(0, 0);
         let mut h = ax.hist(SPREAD);
-        h.bins(bins.clone()).normalize(HistNorm::Density);
+        h.bins(bins.clone()).normalise(HistNorm::Density);
         if let Some((min, max)) = range {
             h.range(min, max);
         }
@@ -371,10 +371,10 @@ fn the_step_styles_store_stairs_on_the_bin_edges_closed_down_to_zero() {
         .style(HistStyle::Step)
         .id();
     let s = stairs(&fig, step);
-    assert_eq!(s.fill, ColorSpec::None, "a step outline is not filled");
+    assert_eq!(s.fill, ColourSpec::None, "a step outline is not filled");
     assert_eq!(
-        s.line.color,
-        ColorSpec::Auto,
+        s.line.colour,
+        ColourSpec::Auto,
         "the next colour of the colour order"
     );
     assert_eq!(s.orientation, Orientation::Vertical);
@@ -386,11 +386,11 @@ fn the_step_styles_store_stairs_on_the_bin_edges_closed_down_to_zero() {
         .axes(0, 0)
         .hist(STEPPED)
         .style(HistStyle::FilledStep)
-        .color(RED)
+        .colour(RED)
         .id();
     assert_eq!(
-        stairs(&fig, filled).line.color,
-        ColorSpec::Rgba { color: RED }
+        stairs(&fig, filled).line.colour,
+        ColourSpec::Rgba { colour: RED }
     );
     drawn_bins(&fig, filled);
     let auto_filled = fig
@@ -477,7 +477,7 @@ fn every_style_records_the_bins_range_normalisation_total_and_exclusions() {
             .hist(sample)
             .bins(Bins::Count(4))
             .range(0.0, 4.0)
-            .normalize(HistNorm::Density)
+            .normalise(HistNorm::Density)
             .style(style)
             .id();
         assert_eq!(
@@ -486,7 +486,7 @@ fn every_style_records_the_bins_range_normalisation_total_and_exclusions() {
                 edges: NodeId::default(),
                 bins: Bins::Count(4),
                 range: Some([0.0, 4.0]),
-                normalization: HistNorm::Density,
+                normalisation: HistNorm::Density,
                 total: 4.0,
                 excluded_non_finite: 2,
                 excluded_out_of_range: 2,
@@ -512,7 +512,7 @@ fn a_bare_histogram_records_the_automatic_rule_no_range_and_counts() {
             edges: NodeId::default(),
             bins: Bins::Rule(BinRule::Auto),
             range: None,
-            normalization: HistNorm::Count,
+            normalisation: HistNorm::Count,
             total: 10.0,
             excluded_non_finite: 0,
             excluded_out_of_range: 0,
@@ -549,13 +549,13 @@ fn rebinning_and_restyling_keep_the_record_true_to_the_final_settings() {
         .axes(0, 0)
         .hist(STEPPED)
         .bins(Bins::Count(10))
-        .normalize(HistNorm::Probability)
+        .normalise(HistNorm::Probability)
         .range(0.0, 2.0)
         .style(HistStyle::Step)
         .bins(Bins::Width(0.5))
         .weights(weights)
         .range(1.0, 4.0)
-        .normalize(HistNorm::Cdf)
+        .normalise(HistNorm::Cdf)
         .style(HistStyle::Bar)
         .bins(Bins::Rule(BinRule::Sqrt))
         .id();
@@ -565,7 +565,7 @@ fn rebinning_and_restyling_keep_the_record_true_to_the_final_settings() {
             edges: NodeId::default(),
             bins: Bins::Rule(BinRule::Sqrt),
             range: Some([1.0, 4.0]),
-            normalization: HistNorm::Cdf,
+            normalisation: HistNorm::Cdf,
             // Every weight but the first, whose sample, 0.5, lies below the range.
             total: 14.0,
             excluded_non_finite: 0,
@@ -603,7 +603,7 @@ fn the_datatip_of_each_bin_reports_its_count_and_density_from_the_record() {
             .axes(0, 0)
             .hist(STEPPED)
             .bins(Bins::Edges(edges.clone()))
-            .normalize(HistNorm::Density)
+            .normalise(HistNorm::Density)
             .style(style)
             .id();
         let scene = compile(&fig);
@@ -654,12 +654,12 @@ fn rebinning_leaves_the_figure_as_the_final_settings_alone_would_make_it() {
             .hist(STEPPED)
             .style(style)
             .bins(Bins::Count(10))
-            .normalize(HistNorm::Probability)
+            .normalise(HistNorm::Probability)
             .range(0.0, 2.0)
             .bins(Bins::Width(0.5))
             .weights(weights)
             .range(0.0, 4.0)
-            .normalize(HistNorm::Density)
+            .normalise(HistNorm::Density)
             .bins(Bins::Count(4))
             .id();
         let mut direct = Figure::new();
@@ -670,7 +670,7 @@ fn rebinning_leaves_the_figure_as_the_final_settings_alone_would_make_it() {
             .bins(Bins::Count(4))
             .range(0.0, 4.0)
             .weights(weights)
-            .normalize(HistNorm::Density)
+            .normalise(HistNorm::Density)
             .id();
         assert_eq!(
             drawn_bins(&tried, id),
@@ -703,12 +703,12 @@ fn the_order_of_the_setters_does_not_change_the_histogram() {
         .hist(STEPPED)
         .style(HistStyle::FilledStep)
         .bins(Bins::Count(3))
-        .normalize(HistNorm::Cdf)
+        .normalise(HistNorm::Cdf)
         .id();
     let style_last = ax
         .hist(STEPPED)
         .bins(Bins::Count(3))
-        .normalize(HistNorm::Cdf)
+        .normalise(HistNorm::Cdf)
         .style(HistStyle::FilledStep)
         .id();
     assert_eq!(drawn_bins(&fig, style_first), drawn_bins(&fig, style_last));
@@ -729,8 +729,8 @@ fn switching_the_style_keeps_the_identifier_position_label_colour_and_record() {
     let before = ax.hist(STEPPED).label("before").id();
     let mut h = ax.hist(STEPPED);
     h.label("switched")
-        .color(RED)
-        .normalize(HistNorm::Probability);
+        .colour(RED)
+        .normalise(HistNorm::Probability);
     let id = h.id();
     for style in [
         HistStyle::Step,
@@ -750,17 +750,17 @@ fn switching_the_style_keeps_the_identifier_position_label_colour_and_record() {
     let s = stairs(&fig, id);
     assert_eq!(s.label, Some(Text::new("switched")));
     assert_eq!(
-        s.line.color,
-        ColorSpec::Rgba { color: RED },
+        s.line.colour,
+        ColourSpec::Rgba { colour: RED },
         "the colour survives the switches"
     );
     assert_eq!(
         s.fill,
-        ColorSpec::None,
+        ColourSpec::None,
         "the last style, a step outline, is not filled"
     );
     assert_eq!(
-        s.binning.as_ref().map(|r| r.normalization),
+        s.binning.as_ref().map(|r| r.normalisation),
         Some(HistNorm::Probability),
         "the record survives the switches"
     );
@@ -783,11 +783,11 @@ fn switching_the_style_keeps_the_identifier_position_label_colour_and_record() {
 #[test]
 fn a_style_switched_and_switched_back_is_the_histogram_it_was() {
     let mut fig = Figure::new();
-    let original = fig.axes(0, 0).hist(STEPPED).color(RED).id();
+    let original = fig.axes(0, 0).hist(STEPPED).colour(RED).id();
     let round_trip = fig
         .axes(0, 0)
         .hist(STEPPED)
-        .color(RED)
+        .colour(RED)
         .style(HistStyle::FilledStep)
         .style(HistStyle::Bar)
         .id();
@@ -797,7 +797,7 @@ fn a_style_switched_and_switched_back_is_the_histogram_it_was() {
         bar_extents(&fig, round_trip),
         "the same widths, offsets and bases"
     );
-    assert_eq!(bar(&fig, round_trip).face, ColorSpec::Rgba { color: RED });
+    assert_eq!(bar(&fig, round_trip).face, ColourSpec::Rgba { colour: RED });
     assert!(fig.validate().warnings.is_empty(), "{:?}", fig.validate());
 }
 
@@ -822,13 +822,17 @@ fn overlaid_step_histograms_of_two_samples_share_their_bins_and_differ_in_colour
     let ids = [before.as_slice(), after.as_slice()].map(|sample| {
         ax.hist(sample.to_vec())
             .bins(Bins::Edges(edges.clone()))
-            .normalize(HistNorm::Density)
+            .normalise(HistNorm::Density)
             .style(HistStyle::Step)
             .id()
     });
     for id in ids {
         let s = stairs(&fig, id);
-        assert_eq!(s.fill, ColorSpec::None, "an overlaid outline is not filled");
+        assert_eq!(
+            s.fill,
+            ColourSpec::None,
+            "an overlaid outline is not filled"
+        );
         let (drawn, values) = drawn_bins(&fig, id);
         assert_close(&drawn, &edges, "the shared edges");
         let area: f64 = drawn
@@ -877,7 +881,7 @@ fn a_cumulative_histogram_over_a_range_accumulates_only_the_samples_it_includes(
         h.bins(Bins::Count(4))
             .range(0.0, 4.0)
             .style(style)
-            .normalize(HistNorm::CumulativeCount);
+            .normalise(HistNorm::CumulativeCount);
         assert_eq!(h.summary().total, 10.0, "{style:?}");
         let id = h.id();
         let (edges, values) = drawn_bins(&fig, id);
@@ -894,7 +898,7 @@ fn a_cumulative_histogram_over_a_range_accumulates_only_the_samples_it_includes(
             .bins(Bins::Count(4))
             .range(0.0, 4.0)
             .style(style)
-            .normalize(HistNorm::Cdf)
+            .normalise(HistNorm::Cdf)
             .id();
         let (_, values) = drawn_bins(&fig, cdf);
         assert_close(&values, &[0.1, 0.3, 0.6, 1.0], &format!("{style:?} CDF"));
@@ -1217,7 +1221,7 @@ fn the_datatip_of_a_grouped_histogram_reads_the_whole_bin_whatever_the_normalisa
         let mut fig = Figure::new();
         let mut ax = fig.axes(0, 0);
         let mut hists = ax.hists(Bins::Edges(edges.clone()));
-        hists.normalize(norm);
+        hists.normalise(norm);
         for (label, sample, ..) in members {
             hists.series(label, sample.to_vec());
         }
@@ -1364,7 +1368,7 @@ fn each_member_of_hists_records_its_own_total_and_exclusions() {
                 edges: NodeId::default(),
                 bins: rule.clone(),
                 range: None,
-                normalization: HistNorm::Count,
+                normalisation: HistNorm::Count,
                 total: 5.0,
                 excluded_non_finite: 0,
                 excluded_out_of_range: 0,
@@ -1377,7 +1381,7 @@ fn each_member_of_hists_records_its_own_total_and_exclusions() {
                 edges: NodeId::default(),
                 bins: rule.clone(),
                 range: None,
-                normalization: HistNorm::Count,
+                normalisation: HistNorm::Count,
                 total: 5.0 - excluded_out_of_range as f64,
                 excluded_non_finite: 1,
                 excluded_out_of_range,
@@ -1404,7 +1408,7 @@ fn the_members_of_hists_are_labelled_coloured_apart_and_clean() {
         assert_eq!(b.label, Some(Text::new(label)));
         assert_eq!(
             b.face,
-            ColorSpec::Auto,
+            ColourSpec::Auto,
             "the next colour of the colour order"
         );
     }
@@ -1450,7 +1454,7 @@ fn hists_of_a_bad_specification_draw_nothing_and_the_helper_reports_why() {
 // which a datatip needs, and its own exclusions. The range bounds the shared edges, whatever the pooled sample spans,
 // and excludes from each member the values outside it. A stacked member rests on the values of the member below it.
 #[test]
-fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
+fn hists_normalise_and_range_apply_to_every_member_whenever_they_are_set() {
     let first = [0.5, 1.5, 1.5, 2.5, -2.0, f64::NAN];
     let second = [0.2, 3.9, 3.1, 9.0];
     let edges = vec![0.0, 1.0, 2.0, 3.0, 4.0];
@@ -1461,7 +1465,7 @@ fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
             let mut ax = fig.axes(0, 0);
             let mut hists = ax.hists(Bins::Count(4));
             if settings_first {
-                hists.range(0.0, 4.0).normalize(HistNorm::Density);
+                hists.range(0.0, 4.0).normalise(HistNorm::Density);
             }
             if stacked {
                 hists
@@ -1471,7 +1475,7 @@ fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
                 hists.series("first", first).series("second", second);
             }
             if !settings_first {
-                hists.normalize(HistNorm::Density).range(0.0, 4.0);
+                hists.normalise(HistNorm::Density).range(0.0, 4.0);
             }
             assert_eq!(hists.error(), None, "{what}");
             let ids = hists.ids();
@@ -1500,7 +1504,7 @@ fn hists_normalize_and_range_apply_to_every_member_whenever_they_are_set() {
                         edges: NodeId::default(),
                         bins: Bins::Count(4),
                         range: Some([0.0, 4.0]),
-                        normalization: HistNorm::Density,
+                        normalisation: HistNorm::Density,
                         total,
                         excluded_non_finite: non_finite,
                         excluded_out_of_range: out_of_range,
@@ -1576,7 +1580,7 @@ fn the_top_of_a_stack_is_the_normalised_histogram_of_the_pooled_sample() {
         let ids = fig
             .axes(0, 0)
             .hists(Bins::Edges(edges.clone()))
-            .normalize(norm)
+            .normalise(norm)
             .stacked("both", "first", STEPPED)
             .stacked("both", "second", OTHER)
             .ids();
@@ -1662,7 +1666,7 @@ fn common_norm_overrides_the_layout_whenever_it_is_set() {
                 let mut fig = Figure::new();
                 let mut ax = fig.axes(0, 0);
                 let mut hists = ax.hists(Bins::Edges(edges.clone()));
-                hists.normalize(HistNorm::Probability);
+                hists.normalise(HistNorm::Probability);
                 if let (Some(common), true) = (common, setter_first) {
                     hists.common_norm(common);
                 }
@@ -1715,7 +1719,7 @@ fn the_members_of_a_stack_record_the_pooled_total_of_their_stack_and_their_own_e
     let ids = fig
         .axes(0, 0)
         .hists(Bins::Edges(edges.clone()))
-        .normalize(HistNorm::Density)
+        .normalise(HistNorm::Density)
         .series("alone", alone)
         .stacked("s", "lower", lower)
         .stacked("s", "upper", upper)
@@ -1728,7 +1732,7 @@ fn the_members_of_a_stack_record_the_pooled_total_of_their_stack_and_their_own_e
                 edges: NodeId::default(),
                 bins: Bins::Edges(edges.clone()),
                 range: None,
-                normalization: HistNorm::Density,
+                normalisation: HistNorm::Density,
                 total,
                 excluded_non_finite: non_finite,
                 excluded_out_of_range: out_of_range,
@@ -1762,7 +1766,7 @@ fn the_datatip_of_a_stacked_member_reports_its_own_count_and_its_share_of_the_de
         let mut fig = Figure::new();
         let mut ax = fig.axes(0, 0);
         let mut hists = ax.hists(Bins::Edges(edges.clone()));
-        hists.normalize(norm);
+        hists.normalise(norm);
         for (k, (sample, _)) in members.iter().enumerate() {
             hists.stacked("both", format!("m{k}"), sample.to_vec());
         }

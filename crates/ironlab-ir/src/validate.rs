@@ -8,9 +8,10 @@ use crate::artist::{
     Quiver, ScalarImage, Series, Stairs, StairsData, Surface,
 };
 use crate::axes::{Aspect, Axes, Axis, Limits, PolarAngle, Projection, Scale, TickLabels, Ticks};
-use crate::color_scale::{
-    ColorMapping, ColorScale, ColorScaleClass, ColorScaleDomain, ColorScaleKind, ColorScaleLevels,
-    ColorScaleNorm, Colormap, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
+use crate::colour_scale::{
+    ColourMapping, ColourScale, ColourScaleClass, ColourScaleDomain, ColourScaleKind,
+    ColourScaleLevels, ColourScaleNorm, Colourmap, LISTED_COLOURMAP_MAX, LISTED_COLOURMAP_MIN,
+    OutOfRange,
 };
 use crate::data::{DataArray, NdArray, NdArrayElement, Values};
 use crate::figure::{Figure, Parameter};
@@ -22,7 +23,7 @@ use crate::legend::{
 use crate::link::Dimension;
 use crate::nodes::{NodeKind, visit};
 use crate::panel::{Panel, PanelContent};
-use crate::style::ColorSpec;
+use crate::style::ColourSpec;
 
 /// The outcome of validating a figure.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -63,7 +64,7 @@ pub enum IssueKind {
     /// entries that names an artist by a node that is not an artist, or such an item that
     /// names a colour scale by a node that is not a colour scale. It is reported against the node that holds the reference, and a reference
     /// that names no node at all is reported as [`IssueKind::UnknownData`],
-    /// [`IssueKind::UnknownColorScale`], [`IssueKind::DanglingPanelLegend`] or
+    /// [`IssueKind::UnknownColourScale`], [`IssueKind::DanglingPanelLegend`] or
     /// [`IssueKind::DanglingLegendItem`] instead.
     WrongNodeKind,
     /// An artist, a colourbar or a legend item names its colour scale by an identifier
@@ -71,22 +72,22 @@ pub enum IssueKind {
     /// reference: the artist, the panel of a panel colourbar, the axes of an inside
     /// colourbar, or the owner of a legend that lists the scale (the panel of a legend
     /// panel, or the axes of an inside legend).
-    UnknownColorScale,
+    UnknownColourScale,
     /// An artist maps numbers to colours but names no colour scale: a scalar image, cells, a
-    /// contour whose bands are filled or whose isolines are colormapped or automatic, a
-    /// surface whose faces or edges are colormapped or automatic, or a series or bars with
-    /// colour data, whatever their colours. The axes hold no colormap to fall back on, so the
-    /// artist cannot be coloured. It is reported against the artist. A colormapped quiver,
-    /// or a colormapped colour of a series or bars without colour data, maps no number and
+    /// contour whose bands are filled or whose isolines are colourmapped or automatic, a
+    /// surface whose faces or edges are colourmapped or automatic, or a series or bars with
+    /// colour data, whatever their colours. The axes hold no colourmap to fall back on, so the
+    /// artist cannot be coloured. It is reported against the artist. A colourmapped quiver,
+    /// or a colourmapped colour of a series or bars without colour data, maps no number and
     /// needs no scale.
-    MissingColorScale,
+    MissingColourScale,
     /// A colour scale cannot map any value: an indexed scale with no entries, or a
     /// categorical scale with no categories. It is reported against the scale, whether or
     /// not an artist names it, because a colourbar may show it alone.
-    InvalidColorScale,
-    /// The listed colormap of a continuous or discrete colour scale holds fewer than 2 or
+    InvalidColourScale,
+    /// The listed colourmap of a continuous or discrete colour scale holds fewer than 2 or
     /// more than 1024 colours. It is reported against the scale.
-    InvalidColormap,
+    InvalidColourmap,
     /// A data array's number of values differs from the product of its shape. It is
     /// reported against the data array.
     InvalidArray,
@@ -98,7 +99,7 @@ pub enum IssueKind {
     /// The arrays referenced by an artist have inconsistent lengths or shapes. The colour
     /// data of a series is such a mismatch unless it holds one value per point, or one
     /// value per segment (one fewer than the points) for a series that draws a line and
-    /// has no colormapped marker face or edge, since a marker colour needs a value at its
+    /// has no colourmapped marker face or edge, since a marker colour needs a value at its
     /// point. The arrays of bars and stairs must be one-dimensional, with one entry per bar
     /// (the colour data included, when there is any), one more edge than values, or
     /// one sample per value; the values of cells must be two-dimensional, with one more
@@ -203,7 +204,7 @@ pub enum IssueKind {
     /// greater than 0 and at most 1. The length of an inside colourbar, a fraction of the
     /// edge it lies along, is reported against the axes; the stated length of a panel
     /// colourbar, a fraction of the span of the plot boxes beside it, against the panel.
-    InvalidColorbarLength,
+    InvalidColourbarLength,
     /// Data plotted along a logarithmic axis contains finite values less than or
     /// equal to zero, which are not drawn. It is also reported for a base of bars that is
     /// not positive on a logarithmic value axis, in which case the bars are drawn from the
@@ -281,11 +282,11 @@ pub enum IssueKind {
     /// does not increase. Bin edges that are not finite and strictly increasing are
     /// [`InvalidEdges`](IssueKind::InvalidEdges) instead.
     InvalidBinning,
-    /// A colour that cannot take its colour from a colour scale is colormapped: a colour of
+    /// A colour that cannot take its colour from a colour scale is colourmapped: a colour of
     /// stairs (their line or fill), which have no colour data to map and no colour scale to
     /// look the colour up in, or the fill of a series, whose colour data colours its points
     /// and segments and not the area beneath them.
-    ColormapNotSupported,
+    ColourmapNotSupported,
     /// Stairs or a series have a fill other than none but no base, so there is nothing to
     /// fill down to.
     FillWithoutBase,
@@ -365,7 +366,7 @@ impl Figure {
     /// that is not finite and positive or an origin that is not finite, and explicit tick
     /// values that are not finite or, on a logarithmic axis or scale, not positive),
     /// explicit tick labels that do not name explicit tick values one by one, invalid
-    /// contour levels and band edges, a listed colormap of fewer than 2 or more than 1024
+    /// contour levels and band edges, a listed colourmap of fewer than 2 or more than 1024
     /// colours, an indexed or categorical colour scale with no entries, parameters with an
     /// empty name or a non-finite number, tags that are empty or repeated, an image
     /// placement whose pixel centres or plane offset are not finite or whose first and
@@ -409,7 +410,7 @@ impl Figure {
     ///
     /// Bars, stairs and cells are errors in a three-dimensional axes. Their own errors are
     /// a gap outside `[0, 1)`, a slot width that is not finite and positive, edges or
-    /// samples that are not finite and strictly monotonic, a colormapped colour on bars or
+    /// samples that are not finite and strictly monotonic, a colourmapped colour on bars or
     /// stairs, and a fill on stairs without a base; their warnings are a base or an edge
     /// that is not positive on a logarithmic axis, and a member of a group of bars that
     /// differs from the first member. The tick label angle of an axis that is drawn must
@@ -494,11 +495,11 @@ impl Check for DataArray {
     }
 }
 
-impl Check for ColorScale {
+impl Check for ColourScale {
     type Parent = Figure;
 
     fn check(&self, validator: &mut Validator<'_>, _: &Figure) {
-        for (kind, message) in color_scale_problems(self) {
+        for (kind, message) in colour_scale_problems(self) {
             validator.error(Some(self.id), kind, message);
         }
     }
@@ -523,12 +524,12 @@ impl Check for Panel {
                 validator.check_legend_items(self.id, None, &legend.entries);
                 validator.check_panel_has_entries(self.id, &legend.entries);
             }
-            PanelContent::Colorbar(colorbar) => {
-                validator.check_color_scale_reference(self.id, Some(colorbar.scale), None);
-                if let Some(length) = colorbar.length.filter(|&l| !is_fraction(l)) {
+            PanelContent::Colourbar(colourbar) => {
+                validator.check_colour_scale_reference(self.id, Some(colourbar.scale), None);
+                if let Some(length) = colourbar.length.filter(|&l| !is_fraction(l)) {
                     validator.error(
                         Some(self.id),
-                        IssueKind::InvalidColorbarLength,
+                        IssueKind::InvalidColourbarLength,
                         format!(
                             "the length {length} of the colourbar is not a fraction of the span                              beside it greater than 0 and at most 1"
                         ),
@@ -550,8 +551,8 @@ impl Check for Artist {
 
     fn check(&self, validator: &mut Validator<'_>, axes: &Axes) {
         let usage = ArtistUsage {
-            color_scale: self.color_scale(),
-            color: self.color_mapping(),
+            colour_scale: self.colour_scale(),
+            colour: self.colour_mapping(),
             ..self.usage()
         };
         validator.check_artist(axes, self.id(), usage);
@@ -843,8 +844,8 @@ impl<'a> Validator<'a> {
             // Two items of one scale show it twice, whatever rows each asks for.
             let same = |earlier: &crate::LegendItem| match (&earlier.content, &item.content) {
                 (
-                    LegendItemContent::ColorScale { scale: a, .. },
-                    LegendItemContent::ColorScale { scale: b, .. },
+                    LegendItemContent::ColourScale { scale: a, .. },
+                    LegendItemContent::ColourScale { scale: b, .. },
                 ) => a == b,
                 (a, b) => a == b,
             };
@@ -859,10 +860,10 @@ impl<'a> Validator<'a> {
             }
             let artist = match &item.content {
                 LegendItemContent::Artist(artist) => artist,
-                LegendItemContent::ColorScale { scale, rows } => {
+                LegendItemContent::ColourScale { scale, rows } => {
                     // A scale is a node of the figure, so any legend may list any scale;
                     // a scale draws its own labels, so its item is never unnamed.
-                    self.check_color_scale_reference(legend, Some(*scale), None);
+                    self.check_colour_scale_reference(legend, Some(*scale), None);
                     if *rows == 0 {
                         self.error(
                             Some(legend),
@@ -952,16 +953,16 @@ impl<'a> Validator<'a> {
             None => {}
         }
 
-        if let Some(colorbar) = axes.colorbar {
-            self.check_color_scale_reference(axes.id, Some(colorbar.scale), None);
-            if !is_fraction(colorbar.length) {
+        if let Some(colourbar) = axes.colourbar {
+            self.check_colour_scale_reference(axes.id, Some(colourbar.scale), None);
+            if !is_fraction(colourbar.length) {
                 self.error(
                     Some(axes.id),
-                    IssueKind::InvalidColorbarLength,
+                    IssueKind::InvalidColourbarLength,
                     format!(
                         "the length {} of the inside colourbar is not a fraction of its edge \
                          greater than 0 and at most 1",
-                        colorbar.length
+                        colourbar.length
                     ),
                 );
             }
@@ -1200,7 +1201,7 @@ impl<'a> Validator<'a> {
         // opacity among them) is not also reported as having nothing to draw, so that the
         // error stands alone.
         let errors_before = self.report.errors.len();
-        let scale = self.check_color_scale_reference(id, usage.color_scale, usage.color);
+        let scale = self.check_colour_scale_reference(id, usage.colour_scale, usage.colour);
         self.check_opacities(id, &usage.opacities);
         if three_d && usage.two_d_only {
             self.error(
@@ -1226,7 +1227,7 @@ impl<'a> Validator<'a> {
         }
 
         let references_are_valid = self.check_references(id, &usage.references, &usage.bytes);
-        if references_are_valid && let (Some(scale), Some(mapping)) = (scale, usage.color) {
+        if references_are_valid && let (Some(scale), Some(mapping)) = (scale, usage.colour) {
             self.check_mapped_values(id, scale, mapping.values);
         }
         match &usage.shape {
@@ -1362,11 +1363,11 @@ impl<'a> Validator<'a> {
                 what,
                 arrays,
                 x,
-                colors,
+                colours,
                 ..
             } => {
                 self.check_equal_counts(node, what, arrays)
-                    && colors.is_none_or(|colors| self.check_series_colors(node, *x, colors))
+                    && colours.is_none_or(|colours| self.check_series_colours(node, *x, colours))
             }
             Shape::Grid {
                 grid,
@@ -1413,8 +1414,8 @@ impl<'a> Validator<'a> {
         if let BarWidth::Data(widths) = bar.width {
             arrays.push(("widths", widths));
         }
-        if let Some(colors) = bar.color_data {
-            arrays.push(("colour data", colors));
+        if let Some(colours) = bar.colour_data {
+            arrays.push(("colour data", colours));
         }
         if !self.check_vectors(node, &arrays) {
             return false;
@@ -2055,27 +2056,27 @@ impl<'a> Validator<'a> {
     /// scale of the figure, and that an artist that maps numbers to colours names one.
     /// Returns the scale when the reference names a colour scale that is itself valid,
     /// against which the numbers the artist maps can be checked.
-    fn check_color_scale_reference(
+    fn check_colour_scale_reference(
         &mut self,
         node: NodeId,
         reference: Option<NodeId>,
-        mapping: Option<ColorMapping>,
-    ) -> Option<&'a ColorScale> {
+        mapping: Option<ColourMapping>,
+    ) -> Option<&'a ColourScale> {
         let figure: &'a Figure = self.figure;
         let Some(scale) = reference else {
             if mapping.is_some() {
                 self.error(
                     Some(node),
-                    IssueKind::MissingColorScale,
+                    IssueKind::MissingColourScale,
                     "the artist maps numbers to colours but names no colour scale, and the \
-                     axes hold no colormap to fall back on"
+                     axes hold no colourmap to fall back on"
                         .to_owned(),
                 );
             }
             return None;
         };
-        match figure.color_scale(scale) {
-            Some(found) => color_scale_problems(found).is_empty().then_some(found),
+        match figure.colour_scale(scale) {
+            Some(found) => colour_scale_problems(found).is_empty().then_some(found),
             None => {
                 let (kind, message) = match self.kinds.get(&scale) {
                     Some(kind) => (
@@ -2083,7 +2084,7 @@ impl<'a> Validator<'a> {
                         format!("{scale} is a node of kind {kind:?}, not a colour scale"),
                     ),
                     None => (
-                        IssueKind::UnknownColorScale,
+                        IssueKind::UnknownColourScale,
                         format!("the colour scale {scale} is not a node of the figure"),
                     ),
                 };
@@ -2096,21 +2097,21 @@ impl<'a> Validator<'a> {
     /// Reports the numbers of an array that an artist maps through a valid colour scale
     /// and that fall in a category of the scale whose policy is strict, one error for
     /// each such category; the array is a valid data array.
-    fn check_mapped_values(&mut self, node: NodeId, scale: &ColorScale, values: NodeId) {
+    fn check_mapped_values(&mut self, node: NodeId, scale: &ColourScale, values: NodeId) {
         let domain = match scale.fixed_domain() {
             Some(domain) => domain,
             None => {
                 let automatic = *self
                     .automatic_limits
                     .entry(scale.id)
-                    .or_insert_with(|| self.figure.automatic_color_limits(scale.id));
+                    .or_insert_with(|| self.figure.automatic_colour_limits(scale.id));
                 // Without a value to range over, no finite value lies beyond automatic
                 // limits, except a value that is not positive under a logarithmic norm,
                 // which the domain places below whatever its limits.
                 let (min, max) = scale
                     .range(automatic)
                     .unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
-                ColorScaleDomain::Continuous {
+                ColourScaleDomain::Continuous {
                     min,
                     max,
                     norm: scale.kind.norm(),
@@ -2123,29 +2124,29 @@ impl<'a> Validator<'a> {
         // The number of values in each category: below, above, outside and non-finite.
         let mut counts = [0usize; 4];
         for_each_value(array, |value| match domain.classify(value) {
-            ColorScaleClass::Inside(_) => {}
-            ColorScaleClass::Below => counts[0] += 1,
-            ColorScaleClass::Above => counts[1] += 1,
-            ColorScaleClass::Outside => counts[2] += 1,
-            ColorScaleClass::NonFinite => counts[3] += 1,
+            ColourScaleClass::Inside(_) => {}
+            ColourScaleClass::Below => counts[0] += 1,
+            ColourScaleClass::Above => counts[1] += 1,
+            ColourScaleClass::Outside => counts[2] += 1,
+            ColourScaleClass::NonFinite => counts[3] += 1,
         });
         let classes = [
             (
-                ColorScaleClass::Below,
+                ColourScaleClass::Below,
                 "below",
                 "below the range of the scale",
             ),
             (
-                ColorScaleClass::Above,
+                ColourScaleClass::Above,
                 "above",
                 "above the range of the scale",
             ),
             (
-                ColorScaleClass::Outside,
+                ColourScaleClass::Outside,
                 "outside",
                 "not whole numbers that name an entry of the scale",
             ),
-            (ColorScaleClass::NonFinite, "non_finite", "not finite"),
+            (ColourScaleClass::NonFinite, "non_finite", "not finite"),
         ];
         for ((class, name, condition), count) in classes.into_iter().zip(counts) {
             let strict = scale
@@ -2168,15 +2169,15 @@ impl<'a> Validator<'a> {
     /// Checks the length of the colour data of a series of as many points as `x` has
     /// values, and returns whether it is valid: one value per point, or one value per
     /// segment (one fewer than the points) when the series draws a line and has no
-    /// colormapped marker face or edge, which would need a value per point.
-    fn check_series_colors(&mut self, node: NodeId, x: NodeId, colors: SeriesColors) -> bool {
+    /// colourmapped marker face or edge, which would need a value per point.
+    fn check_series_colours(&mut self, node: NodeId, x: NodeId, colours: SeriesColours) -> bool {
         let points = self.arrays[&x].len();
-        let values = self.arrays[&colors.data].len();
+        let values = self.arrays[&colours.data].len();
         let per_segment = values + 1 == points;
-        if values == points || (per_segment && colors.draws_line && !colors.mapped_markers) {
+        if values == points || (per_segment && colours.draws_line && !colours.mapped_markers) {
             return true;
         }
-        let message = if per_segment && !colors.draws_line {
+        let message = if per_segment && !colours.draws_line {
             format!(
                 "the colour data holds {values} values, one per segment of {points} points, but \
                  the series draws no line, so it has no segments to colour"
@@ -2184,7 +2185,7 @@ impl<'a> Validator<'a> {
         } else if per_segment {
             format!(
                 "the colour data holds {values} values, one per segment of {points} points, but \
-                 a colormapped marker face or edge needs one value per point"
+                 a colourmapped marker face or edge needs one value per point"
             )
         } else {
             format!(
@@ -2408,21 +2409,21 @@ pub(crate) struct ArtistUsage<'a> {
     /// The levels of a contour, when it has levels of its own.
     levels: Option<&'a Levels>,
     /// The colour scale that the artist names, if any.
-    color_scale: Option<NodeId>,
+    colour_scale: Option<NodeId>,
     /// How the artist maps numbers to colours, when it maps any.
-    color: Option<ColorMapping>,
+    colour: Option<ColourMapping>,
     /// How the arrays of the artist must agree in shape.
     shape: Shape<'a>,
 }
 
 /// The colour data of a series, with what decides which lengths of it are valid.
 #[derive(Clone, Copy)]
-struct SeriesColors {
+struct SeriesColours {
     /// The colour data.
     data: NodeId,
     /// Whether the series draws a line, without which there are no segments to colour.
     draws_line: bool,
-    /// Whether the series draws markers with a colormapped face or edge, which need one
+    /// Whether the series draws markers with a colourmapped face or edge, which need one
     /// value per point.
     mapped_markers: bool,
 }
@@ -2442,7 +2443,7 @@ enum Shape<'a> {
         x: NodeId,
         /// The colour data of a series, whose length is checked against the number of
         /// points by its own rule.
-        colors: Option<SeriesColors>,
+        colours: Option<SeriesColours>,
     },
     /// A field on a grid, which must be two-dimensional and match its grid; the artist
     /// has nothing to draw when the grid has no cell between its nodes.
@@ -2503,8 +2504,8 @@ impl<'a> ArtistUsage<'a> {
             filled: false,
             opacities: Vec::new(),
             levels: None,
-            color_scale: None,
-            color: None,
+            colour_scale: None,
+            colour: None,
             shape,
         }
     }
@@ -2556,31 +2557,31 @@ impl Usage for Series {
         let positions = point_positions(self.x, self.y, self.z);
         let mut references = ids(&positions);
         references.extend(self.size_data);
-        references.extend(self.color_data);
-        let colors = self.color_data.map(|data| SeriesColors {
+        references.extend(self.colour_data);
+        let colours = self.colour_data.map(|data| SeriesColours {
             data,
             draws_line: self.draws_line(),
             mapped_markers: self.draws_markers()
-                && [self.marker.face, self.marker.edge].contains(&ColorSpec::Colormapped),
+                && [self.marker.face, self.marker.edge].contains(&ColourSpec::Colourmapped),
         });
         let shape = Shape::Points {
             what: "the coordinate and size arrays",
             arrays: vec![Some(self.x), Some(self.y), self.z, self.size_data],
             points: "the coordinate arrays",
             x: self.x,
-            colors,
+            colours,
         };
         let mut problems = Vec::new();
-        if self.fill == ColorSpec::Colormapped {
+        if self.fill == ColourSpec::Colourmapped {
             problems.push((
-                IssueKind::ColormapNotSupported,
-                "the fill colour of the series is colormapped, but the colour data of a series \
+                IssueKind::ColourmapNotSupported,
+                "the fill colour of the series is colourmapped, but the colour data of a series \
                  colours its points and segments, and the area under the line has no value of \
                  its own to look a colour up by"
                     .to_owned(),
             ));
         }
-        if self.fill != ColorSpec::None && self.base.is_none() {
+        if self.fill != ColourSpec::None && self.base.is_none() {
             problems.push((
                 IssueKind::FillWithoutBase,
                 "the series is filled but has no base, so there is nothing to fill down to"
@@ -2593,7 +2594,7 @@ impl Usage for Series {
             problems,
             opacities: vec![("fill opacity", self.fill_opacity)],
             fill_base: self.fill_base(),
-            filled: self.fill != ColorSpec::None,
+            filled: self.fill != ColourSpec::None,
             ..ArtistUsage::new(references, positions, self.z.is_some(), shape)
         }
     }
@@ -2617,7 +2618,7 @@ impl Usage for Quiver {
             ],
             points: "the position arrays",
             x: self.x,
-            colors: None,
+            colours: None,
         };
         let three_d = self.z.is_some() || self.w.is_some();
         ArtistUsage::new(references, positions, three_d, shape)
@@ -2719,7 +2720,7 @@ impl Usage for Bar {
         if let BarWidth::Data(widths) = self.width {
             references.push(widths);
         }
-        references.extend(self.color_data);
+        references.extend(self.colour_data);
         references.extend(self.binning.as_ref().map(|binning| binning.edges));
         let mut problems = Vec::new();
         let width = match self.width {
@@ -2754,7 +2755,7 @@ impl Usage for Bar {
         if let Some(binning) = &self.binning {
             problems.extend(binning_problems(binning));
         }
-        // A colormapped face or edge follows the rules of a series: with colour data it
+        // A colourmapped face or edge follows the rules of a series: with colour data it
         // needs a scale, which the colour mapping of the bars requires, and without colour
         // data it maps nothing and is drawn as an automatic colour.
         ArtistUsage {
@@ -2778,11 +2779,11 @@ impl Usage for Stairs {
         let mut references = ids(&positions);
         references.extend(self.binning.as_ref().map(|binning| binning.edges));
         let mut problems =
-            colormap_problems("stairs", &[("line", self.line.color), ("fill", self.fill)]);
+            colourmap_problems("stairs", &[("line", self.line.colour), ("fill", self.fill)]);
         if let Some(binning) = &self.binning {
             problems.extend(binning_problems(binning));
         }
-        if self.fill != ColorSpec::None && self.base.is_none() {
+        if self.fill != ColourSpec::None && self.base.is_none() {
             problems.push((
                 IssueKind::FillWithoutBase,
                 "the stairs are filled but have no base, so there is nothing to fill down to"
@@ -2936,16 +2937,16 @@ fn range_problems(what: &str, range: Option<[f64; 2]>) -> Vec<(IssueKind, String
 }
 
 /// Returns a problem for each named colour of `artist`, which has no colour data and no
-/// colour scale, that is colormapped.
-fn colormap_problems(artist: &str, colors: &[(&str, ColorSpec)]) -> Vec<(IssueKind, String)> {
-    colors
+/// colour scale, that is colourmapped.
+fn colourmap_problems(artist: &str, colours: &[(&str, ColourSpec)]) -> Vec<(IssueKind, String)> {
+    colours
         .iter()
-        .filter(|&&(_, color)| color == ColorSpec::Colormapped)
+        .filter(|&&(_, colour)| colour == ColourSpec::Colourmapped)
         .map(|&(what, _)| {
             (
-                IssueKind::ColormapNotSupported,
+                IssueKind::ColourmapNotSupported,
                 format!(
-                    "the {what} colour of the {artist} is colormapped, but {artist} have no \
+                    "the {what} colour of the {artist} is colourmapped, but {artist} have no \
                      colour data to map and no colour scale to look it up in"
                 ),
             )
@@ -2961,27 +2962,27 @@ fn fractions(x: Coords, y: Coords) -> [bool; 2] {
 /// Returns the problems of a colour scale itself, each with its kind and message, which
 /// are reported against the scale and make it unusable for checking the numbers mapped
 /// through it.
-fn color_scale_problems(scale: &ColorScale) -> Vec<(IssueKind, String)> {
+fn colour_scale_problems(scale: &ColourScale) -> Vec<(IssueKind, String)> {
     let mut problems = Vec::new();
-    let log = scale.kind.norm() == ColorScaleNorm::Log;
-    let mut colormap = |colormap: &Colormap| {
-        if let Colormap::Listed { colors } = colormap
-            && !(LISTED_COLORMAP_MIN..=LISTED_COLORMAP_MAX).contains(&colors.len())
+    let log = scale.kind.norm() == ColourScaleNorm::Log;
+    let mut colourmap = |colourmap: &Colourmap| {
+        if let Colourmap::Listed { colours } = colourmap
+            && !(LISTED_COLOURMAP_MIN..=LISTED_COLOURMAP_MAX).contains(&colours.len())
         {
             problems.push((
-                IssueKind::InvalidColormap,
+                IssueKind::InvalidColourmap,
                 format!(
-                    "the listed colormap holds {} colours, but it must hold from \
-                     {LISTED_COLORMAP_MIN} to {LISTED_COLORMAP_MAX}",
-                    colors.len()
+                    "the listed colourmap holds {} colours, but it must hold from \
+                     {LISTED_COLOURMAP_MIN} to {LISTED_COLOURMAP_MAX}",
+                    colours.len()
                 ),
             ));
         }
     };
     match &scale.kind {
-        ColorScaleKind::Continuous(continuous) => colormap(&continuous.colormap),
-        ColorScaleKind::Discrete(discrete) => colormap(&discrete.colormap),
-        ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {}
+        ColourScaleKind::Continuous(continuous) => colourmap(&continuous.colourmap),
+        ColourScaleKind::Discrete(discrete) => colourmap(&discrete.colourmap),
+        ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {}
     }
     if let Some(limits) = scale.kind.limits()
         && let Some(message) = limits_problem("limits", limits, log)
@@ -2989,49 +2990,49 @@ fn color_scale_problems(scale: &ColorScale) -> Vec<(IssueKind, String)> {
         problems.push((IssueKind::InvalidLimits, message));
     }
     let band_edges = match &scale.kind {
-        ColorScaleKind::Discrete(discrete) => match &discrete.levels {
-            ColorScaleLevels::Auto { count: 0, .. } => {
+        ColourScaleKind::Discrete(discrete) => match &discrete.levels {
+            ColourScaleLevels::Auto { count: 0, .. } => {
                 Some("the automatic number of bands is zero".to_owned())
             }
-            ColorScaleLevels::Auto { .. } => None,
-            ColorScaleLevels::Explicit { values } if values.len() < 2 => Some(format!(
+            ColourScaleLevels::Auto { .. } => None,
+            ColourScaleLevels::Explicit { values } if values.len() < 2 => Some(format!(
                 "there are {} band edges, but a band needs two",
                 values.len()
             )),
-            ColorScaleLevels::Explicit { values } if !values.iter().all(|v| v.is_finite()) => {
+            ColourScaleLevels::Explicit { values } if !values.iter().all(|v| v.is_finite()) => {
                 Some("a band edge is not finite".to_owned())
             }
-            ColorScaleLevels::Explicit { values }
+            ColourScaleLevels::Explicit { values }
                 if values.windows(2).any(|pair| pair[0] >= pair[1]) =>
             {
                 Some("the band edges are not strictly increasing".to_owned())
             }
-            ColorScaleLevels::Explicit { values } if log && values[0] <= 0.0 => Some(format!(
+            ColourScaleLevels::Explicit { values } if log && values[0] <= 0.0 => Some(format!(
                 "the first band edge {} is not positive under a logarithmic norm",
                 values[0]
             )),
-            ColorScaleLevels::Explicit { .. } => None,
+            ColourScaleLevels::Explicit { .. } => None,
         },
         _ => None,
     };
     problems.extend(band_edges.map(|message| (IssueKind::InvalidLevels, message)));
     let entries = match &scale.kind {
-        ColorScaleKind::Indexed(indexed) if indexed.colors.is_empty() => {
+        ColourScaleKind::Indexed(indexed) if indexed.colours.is_empty() => {
             Some("the indexed colour scale has no entries, so it maps no value to a colour")
         }
-        ColorScaleKind::Categorical(categorical) if categorical.categories.is_empty() => {
+        ColourScaleKind::Categorical(categorical) if categorical.categories.is_empty() => {
             Some("the categorical colour scale has no categories, so it maps no value to a colour")
         }
         _ => None,
     };
-    problems.extend(entries.map(|message| (IssueKind::InvalidColorScale, message.to_owned())));
+    problems.extend(entries.map(|message| (IssueKind::InvalidColourScale, message.to_owned())));
     let ticks = match &scale.kind {
-        ColorScaleKind::Continuous(continuous) => {
+        ColourScaleKind::Continuous(continuous) => {
             Some((&continuous.ticks, &continuous.tick_labels))
         }
-        ColorScaleKind::Discrete(discrete) => Some((&discrete.ticks, &discrete.tick_labels)),
-        ColorScaleKind::Indexed(indexed) => Some((&indexed.ticks, &indexed.tick_labels)),
-        ColorScaleKind::Categorical(_) => None,
+        ColourScaleKind::Discrete(discrete) => Some((&discrete.ticks, &discrete.tick_labels)),
+        ColourScaleKind::Indexed(indexed) => Some((&indexed.ticks, &indexed.tick_labels)),
+        ColourScaleKind::Categorical(_) => None,
     };
     if let Some((ticks, labels)) = ticks {
         problems.extend(tick_problems("colour scale", ticks, labels, log));

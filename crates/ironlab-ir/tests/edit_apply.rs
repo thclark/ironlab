@@ -1230,13 +1230,13 @@ fn switching_the_axis_of_an_image_to_a_logarithmic_scale_depends_on_its_pixel_ed
         let axes = b.axes2d(0, 0);
         let values = b.matrix(2, 3, |j, i| (j + i) as f64);
         let image = b.node();
-        let scale = b.color_scale(ColorScaleKind::default());
+        let scale = b.colour_scale(ColourScaleKind::default());
         b.push(
             axes,
             Artist::ScalarImage(ScalarImage {
                 id: image,
                 values,
-                color_scale: Some(scale),
+                colour_scale: Some(scale),
                 placement: ImagePlacement {
                     columns,
                     ..ImagePlacement::default()
@@ -1957,11 +1957,11 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
     let spare = b.matrix(3, 4, |j, i| (j * 4 + i) as f64 / 11.0);
     let rgb = b.bytes(vec![3, 4, 3], (0..36).collect());
     let ids = [b.node(), b.node(), b.node(), b.node(), b.node()];
-    let continuous = b.color_scale(ColorScaleKind::default());
+    let continuous = b.colour_scale(ColourScaleKind::default());
     // The field holds the whole numbers 0 to 5, each an entry of this palette.
-    let palette = b.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![Color::BLACK; 6],
-        ..IndexedColorScale::default()
+    let palette = b.colour_scale(ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![Colour::BLACK; 6],
+        ..IndexedColourScale::default()
     }));
     b.push(
         axes,
@@ -1969,7 +1969,7 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
             id: ids[0],
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
-            color_scale: Some(continuous),
+            colour_scale: Some(continuous),
             ..Surface::default()
         }),
     );
@@ -1986,7 +1986,7 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
         Artist::ScalarImage(ScalarImage {
             id: ids[2],
             values: field,
-            color_scale: Some(palette),
+            colour_scale: Some(palette),
             ..ScalarImage::default()
         }),
     );
@@ -1995,7 +1995,7 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
         Artist::ScalarImage(ScalarImage {
             id: ids[3],
             values: field,
-            color_scale: Some(continuous),
+            colour_scale: Some(continuous),
             ..ScalarImage::default()
         }),
     );
@@ -2006,7 +2006,7 @@ fn translucency_figure() -> (Figure, [NodeId; 5], NodeId) {
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
             fill: true,
-            color_scale: Some(continuous),
+            colour_scale: Some(continuous),
             ..Contour::default()
         }),
     );

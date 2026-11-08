@@ -9,8 +9,8 @@
 //! compiler, so that the expectation does not depend on the code under test.
 
 use ironlab_ir::{
-    BarOffset, BarWidth, Color, ColorScaleKind, ColorSpec, ContinuousColorScale, IndexedColorScale,
-    Limits, NodeId, Orientation, PerBar, Scale,
+    BarOffset, BarWidth, Colour, ColourScaleKind, ColourSpec, ContinuousColourScale,
+    IndexedColourScale, Limits, NodeId, Orientation, PerBar, Scale,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Item, ItemKind, Rect, Rgba, Stroke};
@@ -21,9 +21,9 @@ use crate::probe::{assert_close, axis_maps, from_source, leaves};
 /// Agreement expected of a rectangle mapped from data to the page and back.
 const TOL: f64 = 1e-9;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Probes
@@ -79,7 +79,7 @@ fn drawn(scene: &Scene, ax: NodeId, bar: NodeId) -> Vec<Drawn> {
             "a bar is an axis-aligned rectangle: {corners:?}"
         );
         let page = leaf.bbox().expect("a path has a box");
-        let fill = path.fill.map(|f| f.color);
+        let fill = path.fill.map(|f| f.colour);
         let stroke = path.stroke.clone();
         if let Some(same) = out.iter_mut().find(|d| same_rect(d.page, page)) {
             same.fill = same.fill.or(fill);
@@ -129,8 +129,8 @@ fn assert_colour(actual: Option<Rgba>, expected: [u8; 3], what: &str) {
     );
 }
 
-fn rgb8_of(color: Color) -> [u8; 3] {
-    rgb8(rgba(color))
+fn rgb8_of(colour: Colour) -> [u8; 3] {
+    rgb8(rgba(colour))
 }
 
 /// An axes holding nothing yet.
@@ -836,7 +836,7 @@ fn automatic_faces_take_the_colour_order_and_edges_default_to_thin_black() {
                 &format!("the {k}th colour of the order"),
             );
             let stroke = d.stroke.expect("bars are outlined by default");
-            assert_colour(Some(stroke.color), [0, 0, 0], "a black outline");
+            assert_colour(Some(stroke.colour), [0, 0, 0], "a black outline");
             assert_close(stroke.width, 0.5, 1e-12);
             assert!(stroke.dash.is_empty(), "a solid outline: {:?}", stroke.dash);
         }
@@ -851,12 +851,12 @@ fn fixed_and_none_faces_and_edges_are_drawn_as_given_and_an_automatic_edge_takes
 {
     let (mut fx, ax) = axes();
     let fixed = fx.bar(ax, &[0.0], &[1.0], |b, _| {
-        b.face = ColorSpec::Rgba { color: RED };
-        b.edge.color = ColorSpec::None;
+        b.face = ColourSpec::Rgba { colour: RED };
+        b.edge.colour = ColourSpec::None;
     });
     let hollow = fx.bar(ax, &[1.0], &[1.0], |b, _| {
-        b.face = ColorSpec::None;
-        b.edge.color = ColorSpec::Auto;
+        b.face = ColourSpec::None;
+        b.edge.colour = ColourSpec::Auto;
     });
     let scene = compile_figure(&fx.build());
     let fixed = &drawn(&scene, ax, fixed)[0];
@@ -865,7 +865,7 @@ fn fixed_and_none_faces_and_edges_are_drawn_as_given_and_an_automatic_edge_takes
     let hollow = &drawn(&scene, ax, hollow)[0];
     assert!(hollow.fill.is_none(), "no face");
     assert_colour(
-        hollow.stroke.as_ref().map(|s| s.color),
+        hollow.stroke.as_ref().map(|s| s.colour),
         COLOUR_ORDER[0],
         "an automatic edge takes the series colour",
     );
@@ -877,8 +877,8 @@ fn fixed_and_none_faces_and_edges_are_drawn_as_given_and_an_automatic_edge_takes
 fn face_and_edge_opacities_multiply_the_alpha_of_their_colours() {
     let (mut fx, ax) = axes();
     let bar = fx.bar(ax, &[0.0], &[1.0], |b, _| {
-        b.face = ColorSpec::Rgba {
-            color: Color::rgba(1.0, 0.0, 0.0, 0.8),
+        b.face = ColourSpec::Rgba {
+            colour: Colour::rgba(1.0, 0.0, 0.0, 0.8),
         };
         b.face_opacity = 0.5;
         b.edge_opacity = 0.25;
@@ -887,7 +887,7 @@ fn face_and_edge_opacities_multiply_the_alpha_of_their_colours() {
     let d = &drawn(&scene, ax, bar)[0];
     assert_close(f64::from(d.fill.expect("filled").a), 0.4, 1e-6);
     assert_close(
-        f64::from(d.stroke.as_ref().expect("stroked").color.a),
+        f64::from(d.stroke.as_ref().expect("stroked").colour.a),
         0.25,
         1e-6,
     );
@@ -897,16 +897,16 @@ fn face_and_edge_opacities_multiply_the_alpha_of_their_colours() {
 // belong to, is done through colour data and an indexed scale: each bar takes the entry its value names, so the bars
 // must be painted in exactly the palette entries their data index, whatever their positions.
 #[test]
-fn a_colormapped_face_gives_each_bar_the_colour_of_its_value_through_the_scale() {
+fn a_colourmapped_face_gives_each_bar_the_colour_of_its_value_through_the_scale() {
     let (mut fx, ax) = axes();
-    let palette = fx.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![RED, GREEN, BLUE],
-        ..IndexedColorScale::default()
+    let palette = fx.colour_scale(ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![RED, GREEN, BLUE],
+        ..IndexedColourScale::default()
     }));
     let bar = fx.bar(ax, &[0.0, 1.0, 2.0, 3.0], &[1.0, 2.0, 3.0, 4.0], |b, fx| {
-        b.face = ColorSpec::Colormapped;
-        b.color_data = Some(fx.vector(&[0.0, 2.0, 0.0, 1.0]));
-        b.color_scale = Some(palette);
+        b.face = ColourSpec::Colourmapped;
+        b.colour_data = Some(fx.vector(&[0.0, 2.0, 0.0, 1.0]));
+        b.colour_scale = Some(palette);
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, bar);
@@ -919,45 +919,45 @@ fn a_colormapped_face_gives_each_bar_the_colour_of_its_value_through_the_scale()
     }
 }
 
-// Why: a colormapped outline lets hollow bars, or bars of one face colour, be told apart by their own colours; each
+// Why: a colourmapped outline lets hollow bars, or bars of one face colour, be told apart by their own colours; each
 // outline takes the colour of its bar's value through the scale.
 #[test]
-fn a_colormapped_edge_gives_each_outline_the_colour_of_its_bars_value() {
+fn a_colourmapped_edge_gives_each_outline_the_colour_of_its_bars_value() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: ironlab_ir::Colormap::Listed {
-            colors: vec![RED, BLUE],
+    let scale = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: ironlab_ir::Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     }));
     let bar = fx.bar(ax, &[0.0, 1.0], &[1.0, 1.0], |b, fx| {
-        b.face = ColorSpec::None;
-        b.edge.color = ColorSpec::Colormapped;
-        b.color_data = Some(fx.vector(&[0.0, 1.0]));
-        b.color_scale = Some(scale);
+        b.face = ColourSpec::None;
+        b.edge.colour = ColourSpec::Colourmapped;
+        b.colour_data = Some(fx.vector(&[0.0, 1.0]));
+        b.colour_scale = Some(scale);
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, bar);
     assert_colour(
-        at(&bars, 0.0).stroke.as_ref().map(|s| s.color),
+        at(&bars, 0.0).stroke.as_ref().map(|s| s.colour),
         rgb8_of(RED),
         "the low end",
     );
     assert_colour(
-        at(&bars, 1.0).stroke.as_ref().map(|s| s.color),
+        at(&bars, 1.0).stroke.as_ref().map(|s| s.colour),
         rgb8_of(BLUE),
         "the high end",
     );
 }
 
-// Why: a colormapped face without colour data has no value to map; it is drawn as an automatic face would be, in the
-// series colour, as a colormapped marker of a series without colour data is, rather than vanishing.
+// Why: a colourmapped face without colour data has no value to map; it is drawn as an automatic face would be, in the
+// series colour, as a colourmapped marker of a series without colour data is, rather than vanishing.
 #[test]
-fn a_colormapped_face_without_colour_data_is_drawn_in_the_series_colour() {
+fn a_colourmapped_face_without_colour_data_is_drawn_in_the_series_colour() {
     let (mut fx, ax) = axes();
     let bar = fx.bar(ax, &[0.0, 1.0], &[1.0, 2.0], |b, _| {
-        b.face = ColorSpec::Colormapped;
+        b.face = ColourSpec::Colourmapped;
     });
     let scene = compile_figure(&fx.build());
     let bars = drawn(&scene, ax, bar);

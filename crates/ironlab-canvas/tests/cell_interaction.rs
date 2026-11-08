@@ -58,9 +58,9 @@ use ironlab_canvas::interaction::{CellDatatip, PixelValue, Tip};
 use ironlab_canvas::{DATATIP_RADIUS_POINTS, FigureState, cell_datatip_text};
 
 use ironlab_ir::{
-    Artist, Axes, CategoricalColorScale, CellEdges, CellGap, Cells, Color, ColorCategory,
-    ColorScale, ColorScaleKind, ColorScaleLevels, ColorSpec, ContinuousColorScale,
-    DiscreteColorScale, Figure, IndexedColorScale, Limits, NdArray, NodeId, Series, Text,
+    Artist, Axes, CategoricalColourScale, CellEdges, CellGap, Cells, Colour, ColourCategory,
+    ColourScale, ColourScaleKind, ColourScaleLevels, ColourSpec, ContinuousColourScale,
+    DiscreteColourScale, Figure, IndexedColourScale, Limits, NdArray, NodeId, Series, Text,
     TickLabels, Ticks,
 };
 use ironlab_scene::display::Point;
@@ -74,37 +74,37 @@ use ironlab_scene::hit::{AxesHitKind, HitMap};
 const SCALE: NodeId = NodeId(90);
 
 /// A colour scale (node 90) of the given kind.
-fn scale(kind: ColorScaleKind) -> ColorScale {
-    ColorScale {
+fn scale(kind: ColourScaleKind) -> ColourScale {
+    ColourScale {
         id: SCALE,
         kind,
-        ..ColorScale::default()
+        ..ColourScale::default()
     }
 }
 
 /// A continuous scale between 0 and 1.
-fn continuous() -> ColorScale {
-    scale(ColorScaleKind::Continuous(ContinuousColorScale {
+fn continuous() -> ColourScale {
+    scale(ColourScaleKind::Continuous(ContinuousColourScale {
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     }))
 }
 
 /// A categorical scale of the three statuses of a branch.
-fn statuses() -> ColorScale {
-    scale(ColorScaleKind::Categorical(CategoricalColorScale {
+fn statuses() -> ColourScale {
+    scale(ColourScaleKind::Categorical(CategoricalColourScale {
         categories: [
-            (Color::rgb(0.0, 0.6, 0.3), "taken"),
-            (Color::rgb(0.8, 0.2, 0.1), "not taken"),
-            (Color::rgb(0.5, 0.5, 0.5), "unreachable"),
+            (Colour::rgb(0.0, 0.6, 0.3), "taken"),
+            (Colour::rgb(0.8, 0.2, 0.1), "not taken"),
+            (Colour::rgb(0.5, 0.5, 0.5), "unreachable"),
         ]
         .into_iter()
-        .map(|(color, label)| ColorCategory {
-            color,
+        .map(|(colour, label)| ColourCategory {
+            colour,
             label: Text::plain(label),
         })
         .collect(),
-        ..CategoricalColorScale::default()
+        ..CategoricalColourScale::default()
     }))
 }
 
@@ -112,14 +112,14 @@ fn statuses() -> ColorScale {
 /// through `scale`, edited by `edit`, which may add arrays to the figure and artists to the axes.
 fn figure_of(
     values: NdArray,
-    scale: ColorScale,
+    scale: ColourScale,
     edit: impl FnOnce(&mut Cells, &mut Axes, &mut Vec<ironlab_ir::DataArray>),
 ) -> Figure {
     let mut data = vec![data_array(array_id(0), values)];
     let mut cells = Cells {
         id: NodeId(3),
         values: array_id(0),
-        color_scale: Some(SCALE),
+        colour_scale: Some(SCALE),
         ..Cells::default()
     };
     let mut axes = Axes {
@@ -132,7 +132,7 @@ fn figure_of(
         id: NodeId(1),
         data,
         axes: vec![axes],
-        color_scales: vec![scale],
+        colour_scales: vec![scale],
         ..Figure::new()
     }
 }
@@ -273,9 +273,9 @@ fn a_cell_reports_its_value_in_the_words_of_its_scale() {
         "an 8-bit status is widened and named"
     );
 
-    let palette = scale(ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![Color::rgb(1.0, 0.0, 0.0), Color::rgb(0.0, 0.0, 1.0)],
-        ..IndexedColorScale::default()
+    let palette = scale(ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![Colour::rgb(1.0, 0.0, 0.0), Colour::rgb(0.0, 0.0, 1.0)],
+        ..IndexedColourScale::default()
     }));
     let (state, hit) = compiled(figure_of(
         matrix(1, 2, vec![1.0, 0.0]),
@@ -287,11 +287,11 @@ fn a_cell_reports_its_value_in_the_words_of_its_scale() {
         PixelValue::Index(1.0)
     );
 
-    let bands = scale(ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Explicit {
+    let bands = scale(ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Explicit {
             values: vec![0.0, 0.5, 1.0],
         },
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     }));
     let (state, hit) = compiled(figure_of(
         matrix(1, 2, vec![0.25, 0.75]),
@@ -378,8 +378,8 @@ fn nothing_is_read_in_the_gap_between_cells_or_over_the_padding_of_a_ragged_row(
             cells.gap = CellGap { x: 0.4, y: 0.4 };
             // Outlined, so that a hit recorded for every cell of the grid, rather than for every cell drawn, would
             // show here: the padding has neither face nor outline.
-            cells.edge.color = ColorSpec::Rgba {
-                color: Color::rgb(0.0, 0.0, 0.0),
+            cells.edge.colour = ColourSpec::Rgba {
+                colour: Colour::rgb(0.0, 0.0, 0.0),
             };
         },
     ));
@@ -475,7 +475,7 @@ fn a_cell_of_a_binned_two_dimensional_histogram_reports_the_count_and_density_of
     let counts = [4.0, 6.0, 2.0];
     let total = 12.0;
     let area = |k: usize| (columns[k + 1] - columns[k]) * 2.0;
-    let automatic = || scale(ColorScaleKind::Continuous(ContinuousColorScale::default()));
+    let automatic = || scale(ColourScaleKind::Continuous(ContinuousColourScale::default()));
     for norm in [
         HistNorm::Count,
         HistNorm::Probability,
@@ -507,7 +507,7 @@ fn a_cell_of_a_binned_two_dimensional_histogram_reports_the_count_and_density_of
                     y_edges: array_id(2),
                     x_range: None,
                     y_range: None,
-                    normalization: norm,
+                    normalisation: norm,
                     min_count: None,
                     total,
                     excluded_non_finite: 0,

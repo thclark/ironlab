@@ -13,7 +13,7 @@ use super::paths::{self, PathBuilder};
 use super::plane::Plane;
 use super::style::{self, GRID, INK};
 use super::text::TextBlock;
-use super::{colorbar, legend, limits::Range};
+use super::{colourbar, legend, limits::Range};
 
 /// The width of the axes box and tick marks, in points.
 const FRAME_WIDTH: f64 = 0.5;
@@ -395,7 +395,7 @@ pub(super) fn emit(ctx: &mut Ctx, input: &AxesInput, out: &mut Vec<Item>, hits: 
 
     draw_box_and_ticks(ctx, input, &x, &y, out);
     draw_labels(ctx, input, &x, &y, decor, out);
-    colorbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
+    colourbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &data_points, out, hits);
 
     hits.axes.push(AxesHit {
@@ -610,7 +610,7 @@ fn draw_box_and_ticks(ctx: &Ctx, input: &AxesInput, x: &AxisMap, y: &AxisMap, ou
 /// Returns the left edge of a title of the given width aligned with the plot area as `align` says.
 pub(super) fn title_left(align: TitleAlign, plot: Rect, width: f64) -> f64 {
     match align {
-        TitleAlign::Center => plot.x + (plot.width - width) / 2.0,
+        TitleAlign::Centre => plot.x + (plot.width - width) / 2.0,
         TitleAlign::Left => plot.x,
         TitleAlign::Right => plot.right() - width,
     }

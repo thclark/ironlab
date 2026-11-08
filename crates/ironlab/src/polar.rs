@@ -8,7 +8,7 @@
 //! the charts that are drawn with series, histograms and stacked bars.
 
 use ironlab_ir::{
-    AngleUnits, ColorSpec, Limits, MarkerShape, PolarAngle, PolarView, Projection, Scale,
+    AngleUnits, ColourSpec, Limits, MarkerShape, PolarAngle, PolarView, Projection, Scale,
     SphericalView, Text, Ticks, View3d,
 };
 
@@ -330,7 +330,7 @@ impl AxesMut<'_> {
         series
             .marker(MarkerShape::Circle)
             .base(base)
-            .fill(ColorSpec::Auto)
+            .fill(ColourSpec::Auto)
             .fill_opacity(RADAR_FILL_OPACITY);
         series
     }

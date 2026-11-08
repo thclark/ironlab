@@ -1,5 +1,5 @@
-use ironlab_scene::maths::colormap::{
-    CIVIDIS, COOLWARM, GRAY, INFERNO, Lut, MAGMA, PLASMA, VIRIDIS, normalise, sample,
+use ironlab_scene::maths::colourmap::{
+    CIVIDIS, COOLWARM, GREY, INFERNO, Lut, MAGMA, PLASMA, VIRIDIS, normalise, sample,
 };
 
 use crate::assert_close;
@@ -38,8 +38,8 @@ fn tables_match_published_endpoints() {
     assert_eq!(PLASMA[255], [240, 249, 33]);
     assert_eq!(COOLWARM[0], [59, 76, 192]);
     assert_eq!(COOLWARM[255], [180, 4, 38]);
-    assert_eq!(GRAY[0], [0, 0, 0]);
-    assert_eq!(GRAY[255], [255, 255, 255]);
+    assert_eq!(GREY[0], [0, 0, 0]);
+    assert_eq!(GREY[255], [255, 255, 255]);
 }
 
 // Why: the perceptually uniform sequential maps exist so that lightness increases with value;
@@ -53,7 +53,7 @@ fn sequential_maps_increase_monotonically_in_lightness() {
         ("magma", &MAGMA),
         ("inferno", &INFERNO),
         ("plasma", &PLASMA),
-        ("gray", &GRAY),
+        ("grey", &GREY),
     ];
     for (name, lut) in maps {
         let l: Vec<f64> = lut.iter().map(|c| lightness(*c)).collect();
@@ -106,11 +106,11 @@ fn sample_clamps_out_of_range_values() {
 // the two middle entries pin the documented floor(t·256) indexing.
 #[test]
 fn sample_indexes_equal_bins() {
-    assert_eq!(sample(&GRAY, 0.0), Some(GRAY[0]));
-    assert_eq!(sample(&GRAY, 1.0), Some(GRAY[255]));
-    assert_eq!(sample(&GRAY, 0.5), Some(GRAY[128]));
-    assert_eq!(sample(&GRAY, 0.499), Some(GRAY[127]));
-    assert_eq!(sample(&GRAY, 1.0 / 256.0), Some(GRAY[1]));
+    assert_eq!(sample(&GREY, 0.0), Some(GREY[0]));
+    assert_eq!(sample(&GREY, 1.0), Some(GREY[255]));
+    assert_eq!(sample(&GREY, 0.5), Some(GREY[128]));
+    assert_eq!(sample(&GREY, 0.499), Some(GREY[127]));
+    assert_eq!(sample(&GREY, 1.0 / 256.0), Some(GREY[1]));
 }
 
 // Why: normalisation maps colour limits onto [0, 1] and must keep NaN as NaN so that sample()

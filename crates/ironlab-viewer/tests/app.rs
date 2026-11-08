@@ -78,7 +78,7 @@ fn panned_2d_state() -> FigureState {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -1004,31 +1004,31 @@ const BAR_SCALE: NodeId = NodeId(10);
 /// by [`locate_bar`] rather than assumed.
 fn figure_with_centred_colourbar() -> ironlab_ir::Figure {
     use ironlab_ir::{
-        ColorScale, ColorScaleKind, ColorbarOrientation, ContinuousColorScale, Panel,
-        PanelColorbar, PanelContent, PanelLocation, TickLabels,
+        ColourScale, ColourScaleKind, ColourbarOrientation, ContinuousColourScale, Panel,
+        PanelColourbar, PanelContent, PanelLocation, TickLabels,
     };
     ironlab_ir::Figure {
         id: NodeId(1),
         font_size_pt: 60.0,
-        color_scales: vec![ColorScale {
+        colour_scales: vec![ColourScale {
             id: BAR_SCALE,
-            kind: ColorScaleKind::Continuous(ContinuousColorScale {
+            kind: ColourScaleKind::Continuous(ContinuousColourScale {
                 limits: manual(0.0, 10.0),
                 tick_labels: TickLabels::Hidden,
-                ..ContinuousColorScale::default()
+                ..ContinuousColourScale::default()
             }),
-            ..ColorScale::default()
+            ..ColourScale::default()
         }],
         panels: vec![Panel {
             id: NodeId(20),
             cell: ironlab_ir::Cell::default(),
-            align: PanelLocation::Center,
+            align: PanelLocation::Centre,
             title: None,
             title_align: ironlab_ir::TitleAlign::Left,
-            content: PanelContent::Colorbar(PanelColorbar {
+            content: PanelContent::Colourbar(PanelColourbar {
                 scale: BAR_SCALE,
-                orientation: ColorbarOrientation::Vertical,
-                ..PanelColorbar::default()
+                orientation: ColourbarOrientation::Vertical,
+                ..PanelColourbar::default()
             }),
         }],
         ..ironlab_ir::Figure::new()
@@ -1052,7 +1052,7 @@ fn locate_bar(harness: &mut Harness<'static, ViewerApp>) -> egui::Pos2 {
 fn bar_limits(state: &FigureState) -> ironlab_ir::Limits {
     state
         .figure()
-        .color_scale(BAR_SCALE)
+        .colour_scale(BAR_SCALE)
         .and_then(|scale| scale.kind.limits())
         .expect("the scale has limits")
 }

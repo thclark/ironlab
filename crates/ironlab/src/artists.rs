@@ -5,14 +5,14 @@
 //! several properties can be set in one expression.
 
 use ironlab_ir::{
-    Artist, Bar, BarOffset, BarWidth, CellEdges, CellGap, Cells, Color, ColorSpec, Contour, Coords,
-    DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId, Orientation, PerBar,
+    Artist, Bar, BarOffset, BarWidth, CellEdges, CellGap, Cells, Colour, ColourSpec, Contour,
+    Coords, DashStyle, Figure, Image, ImagePlane, Levels, MarkerShape, NodeId, Orientation, PerBar,
     PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, Surface, Text,
 };
 
 use crate::axes::AxesMut;
-use crate::color::IntoColorSpec;
-use crate::color_scale;
+use crate::colour::IntoColourSpec;
+use crate::colour_scale;
 use crate::data::DataSource;
 
 /// Defines the accessors of an artist handle's artist.
@@ -87,10 +87,10 @@ macro_rules! artist_handle {
             /// the given identifier, in place of the default scale of its axes.
             ///
             /// The identifier is that of a scale created with
-            /// [`Figure::color_scale`](crate::Figure::color_scale),
+            /// [`Figure::colour_scale`](crate::Figure::colour_scale),
             /// [`Figure::indexed_scale`](crate::Figure::indexed_scale),
             /// [`Figure::categorical_scale`](crate::Figure::categorical_scale) or
-            /// [`AxesMut::color_scale`](crate::AxesMut::color_scale); a scale of any kind
+            /// [`AxesMut::colour_scale`](crate::AxesMut::colour_scale); a scale of any kind
             /// is accepted. Artists in several axes that name one scale share its limits
             /// and colours. When the plotting call that returned this handle created the
             /// default scale of the axes, and nothing else names that scale any more, it
@@ -105,13 +105,13 @@ macro_rules! artist_handle {
             /// let z = Matrix::from_fn(x.len(), x.len(), |row, col| x[col] * x[row]);
             ///
             /// let mut fig = Figure::new();
-            /// let heat = fig.color_scale().colormap(Colormap::Inferno).id();
-            /// fig.axes(0, 0).surface(&x, &x, &z).color_scale(heat);
-            /// assert_eq!(fig.ir().color_scales.len(), 1);
+            /// let heat = fig.colour_scale().colourmap(Colourmap::Inferno).id();
+            /// fig.axes(0, 0).surface(&x, &x, &z).colour_scale(heat);
+            /// assert_eq!(fig.ir().colour_scales.len(), 1);
             /// ```
-            pub fn color_scale(&mut self, scale: NodeId) -> &mut Self {
+            pub fn colour_scale(&mut self, scale: NodeId) -> &mut Self {
                 self.created_scale =
-                    color_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
+                    colour_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
                 self
             }
         }
@@ -211,12 +211,12 @@ macro_rules! image_handle {
 /// fig.axes(0, 0)
 ///     .plot([0.0, 1.0, 2.0], [0.0, 1.0, 4.0])
 ///     .label("$x^2$")
-///     .color(Color::rgb(0.0, 0.45, 0.7))
+///     .colour(Colour::rgb(0.0, 0.45, 0.7))
 ///     .line_width(1.5)
 ///     .dash(Dash::DashDot)
 ///     .marker(Marker::Square)
 ///     .marker_size(5.0)
-///     .marker_face(Color::WHITE);
+///     .marker_face(Colour::WHITE);
 /// ```
 ///
 /// A series coloured and sized by data:
@@ -230,7 +230,7 @@ macro_rules! image_handle {
 /// fig.axes(0, 0)
 ///     .scatter(x, y)
 ///     .size_data([3.0, 6.0, 9.0])
-///     .color_data(y)
+///     .colour_data(y)
 ///     .marker(Marker::Diamond)
 ///     .filled();
 /// assert!(fig.validate().is_valid());
@@ -282,13 +282,13 @@ impl SeriesMut<'_> {
     /// Sets the colour of the line, which is the colour of the series: markers whose
     /// face or edge colour is automatic follow it.
     ///
-    /// A fixed colour set after [`color_data`](Self::color_data) keeps the colour data
+    /// A fixed colour set after [`colour_data`](Self::colour_data) keeps the colour data
     /// and its scale, so that a series can have a line of one colour and markers
     /// coloured by data, given by
-    /// [`marker_face`](Self::marker_face)`(ColorSpec::Colormapped)` or
-    /// [`marker_edge`](Self::marker_edge)`(ColorSpec::Colormapped)`.
-    pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().line.color = color.into_color_spec();
+    /// [`marker_face`](Self::marker_face)`(ColourSpec::Colourmapped)` or
+    /// [`marker_edge`](Self::marker_edge)`(ColourSpec::Colourmapped)`.
+    pub fn colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().line.colour = colour.into_colour_spec();
         self
     }
 
@@ -323,15 +323,15 @@ impl SeriesMut<'_> {
 
     /// Sets the colour of the marker interiors, which are unfilled by default; an
     /// automatic face takes the colour of the series.
-    pub fn marker_face(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().marker.face = color.into_color_spec();
+    pub fn marker_face(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().marker.face = colour.into_colour_spec();
         self
     }
 
     /// Sets the colour of the marker outlines, which follow the colour of the series by
     /// default.
-    pub fn marker_edge(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().marker.edge = color.into_color_spec();
+    pub fn marker_edge(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().marker.edge = colour.into_colour_spec();
         self
     }
 
@@ -339,7 +339,7 @@ impl SeriesMut<'_> {
     /// `scatter(..., 'filled')`), which is the colour of each point's colour data when
     /// the series has some.
     pub fn filled(&mut self) -> &mut Self {
-        self.artist().marker.face = ironlab_ir::ColorSpec::Auto;
+        self.artist().marker.face = ironlab_ir::ColourSpec::Auto;
         self
     }
 
@@ -367,14 +367,14 @@ impl SeriesMut<'_> {
     /// points. With one value per segment, each segment takes the colour of its value;
     /// this form needs a line, and markers coloured by data need values per point, so
     /// [`Figure::validate`](crate::Figure::validate) refuses it on a series that draws no
-    /// line or whose marker face or edge is `Colormapped`.
+    /// line or whose marker face or edge is `Colourmapped`.
     ///
-    /// The line colour becomes `Colormapped`, so the line and the markers that follow its
-    /// colour are coloured by the data; [`color`](Self::color) called afterwards gives the
+    /// The line colour becomes `Colourmapped`, so the line and the markers that follow its
+    /// colour are coloured by the data; [`colour`](Self::colour) called afterwards gives the
     /// line a fixed colour and keeps the data. A series that names no colour scale yet
     /// takes the default scale of its axes (see
-    /// [`AxesMut::color_scale`](crate::AxesMut::color_scale)), which is created if the
-    /// axes has none; [`color_scale`](Self::color_scale) gives it another. Data that this
+    /// [`AxesMut::colour_scale`](crate::AxesMut::colour_scale)), which is created if the
+    /// axes has none; [`colour_scale`](Self::colour_scale) gives it another. Data that this
     /// call replaces is released from the figure when nothing else uses it and it has no
     /// name.
     ///
@@ -389,25 +389,25 @@ impl SeriesMut<'_> {
     ///
     /// let mut fig = Figure::new();
     /// let mut ax = fig.axes(0, 0);
-    /// ax.plot(&x, &y).color_data(&speed).line_width(2.0);
-    /// ax.color_scale().colormap(Colormap::Plasma).title("Speed (m/s)");
+    /// ax.plot(&x, &y).colour_data(&speed).line_width(2.0);
+    /// ax.colour_scale().colourmap(Colourmap::Plasma).title("Speed (m/s)");
     /// assert!(fig.validate().is_valid());
     /// ```
-    pub fn color_data(&mut self, values: impl Into<DataSource>) -> &mut Self {
+    pub fn colour_data(&mut self, values: impl Into<DataSource>) -> &mut Self {
         let data = values.into().store(self.fig);
         let series = self.artist();
-        series.line.color = ironlab_ir::ColorSpec::Colormapped;
-        if let Some(previous) = series.color_data.replace(data) {
+        series.line.colour = ironlab_ir::ColourSpec::Colourmapped;
+        if let Some(previous) = series.colour_data.replace(data) {
             release_data(self.fig, previous);
         }
-        if self.get().color_scale.is_none() {
+        if self.get().colour_scale.is_none() {
             let axes = self
                 .fig
                 .artist(self.id)
                 .map(|(axes, _)| axes.id)
                 .expect("a series handle always refers to an artist of its figure");
-            let (scale, created) = color_scale::default_or_new(self.fig, axes);
-            self.artist().color_scale = Some(scale);
+            let (scale, created) = colour_scale::default_or_new(self.fig, axes);
+            self.artist().colour_scale = Some(scale);
             if created {
                 self.created_scale = Some(scale);
             }
@@ -464,8 +464,8 @@ impl SeriesMut<'_> {
     /// drawn beneath the line and the markers. A fill needs a [`base`](Self::base), without
     /// which [`Figure::validate`](crate::Figure::validate) reports an error, and is drawn
     /// only in two-dimensional axes, Cartesian or polar.
-    pub fn fill(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().fill = color.into_color_spec();
+    pub fn fill(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().fill = colour.into_colour_spec();
         self
     }
 
@@ -521,7 +521,7 @@ impl ContourMut<'_> {
     /// Levels that are not are reported by
     /// [`Figure::validate`](crate::Figure::validate). A filled contour whose levels
     /// should match the bands of its colour scale takes them from a discrete scale
-    /// instead (see [`ColorScaleMut::discrete`](crate::ColorScaleMut::discrete)).
+    /// instead (see [`ColourScaleMut::discrete`](crate::ColourScaleMut::discrete)).
     pub fn level_values(&mut self, levels: impl AsRef<[f64]>) -> &mut Self {
         self.artist().levels = Some(Levels::Explicit {
             values: levels.as_ref().to_vec(),
@@ -537,8 +537,8 @@ impl ContourMut<'_> {
 
     /// Sets the colour of the isolines, which are coloured through the colour scale by
     /// level by default.
-    pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().line.color = color.into_color_spec();
+    pub fn colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().line.colour = colour.into_colour_spec();
         self
     }
 
@@ -600,8 +600,8 @@ impl QuiverMut<'_> {
     }
 
     /// Sets the colour of the arrows.
-    pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().line.color = color.into_color_spec();
+    pub fn colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().line.colour = colour.into_colour_spec();
         self
     }
 
@@ -631,7 +631,7 @@ impl QuiverMut<'_> {
 /// let mut fig = Figure::new();
 /// fig.axes(0, 0)
 ///     .surf(&x, &y, &z)
-///     .edge_color(None)
+///     .edge_colour(None)
 ///     .label("$xy$");
 /// ```
 #[derive(Debug)]
@@ -663,14 +663,14 @@ impl SurfaceMut<'_> {
     }
 
     /// Sets the colour of the faces; `None` leaves them unfilled.
-    pub fn face_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().face = color.into_color_spec();
+    pub fn face_colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().face = colour.into_colour_spec();
         self
     }
 
     /// Sets the colour of the face edges; `None` hides them.
-    pub fn edge_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().edge = color.into_color_spec();
+    pub fn edge_colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().edge = colour.into_colour_spec();
         self
     }
 
@@ -682,7 +682,7 @@ impl SurfaceMut<'_> {
 
     /// Colours the surface by the given values instead of by its field `z` (MATLAB's
     /// `surf(x, y, z, c)`); the matrix must have the same shape as the field.
-    pub fn color_data(&mut self, c: impl Into<DataSource>) -> &mut Self {
+    pub fn colour_data(&mut self, c: impl Into<DataSource>) -> &mut Self {
         let data = c.into().store(self.fig);
         if let Some(previous) = self.artist().c.replace(data) {
             release_data(self.fig, previous);
@@ -744,8 +744,8 @@ impl SurfaceMut<'_> {
 /// length of its value, so that a negative value extends the other way. Its setters choose
 /// the width of the bars, their offset from their positions, their base, the margin that
 /// the automatic limits leave beyond their ends, and the colours of the faces and the
-/// outlines, which can be given per bar with [`colors`](Self::colors) or by data with
-/// [`color_data`](Self::color_data). Grouped and stacked bars are series whose widths,
+/// outlines, which can be given per bar with [`colours`](Self::colours) or by data with
+/// [`colour_data`](Self::colour_data). Grouped and stacked bars are series whose widths,
 /// offsets and bases the [`bars`](crate::AxesMut::bars) helper writes.
 ///
 /// Floating bars, each running from its own base for its length:
@@ -847,15 +847,15 @@ impl BarMut<'_> {
 
     /// Sets the colour of the bars; `None` leaves them unfilled, and an automatic colour
     /// is the next colour of the colour order.
-    pub fn face_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().face = color.into_color_spec();
+    pub fn face_colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().face = colour.into_colour_spec();
         self
     }
 
     /// Sets the colour of the outlines of the bars, which are black by default; `None`
     /// hides them, and an automatic colour is the colour of the series.
-    pub fn edge_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().edge.color = color.into_color_spec();
+    pub fn edge_colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().edge.colour = colour.into_colour_spec();
         self
     }
 
@@ -886,21 +886,21 @@ impl BarMut<'_> {
     }
 
     /// Colours the bars by data mapped through a colour scale, one value per bar, as
-    /// [`SeriesMut::color_data`] colours markers.
+    /// [`SeriesMut::colour_data`] colours markers.
     ///
-    /// The face becomes `Colormapped`. Bars that name no colour scale yet take the
+    /// The face becomes `Colourmapped`. Bars that name no colour scale yet take the
     /// default scale of their axes (see
-    /// [`AxesMut::color_scale`](crate::AxesMut::color_scale)), which is created if the
-    /// axes has none; [`color_scale`](Self::color_scale) gives them another. Data that
+    /// [`AxesMut::colour_scale`](crate::AxesMut::colour_scale)), which is created if the
+    /// axes has none; [`colour_scale`](Self::colour_scale) gives them another. Data that
     /// this call replaces is released from the figure when nothing else uses it and it
     /// has no name.
-    pub fn color_data(&mut self, values: impl Into<DataSource>) -> &mut Self {
+    pub fn colour_data(&mut self, values: impl Into<DataSource>) -> &mut Self {
         let data = values.into().store(self.fig);
-        self.replace_color_data(data);
-        if self.get().color_scale.is_none() {
+        self.replace_colour_data(data);
+        if self.get().colour_scale.is_none() {
             let axes = self.axes_id();
-            let (scale, created) = color_scale::default_or_new(self.fig, axes);
-            self.artist().color_scale = Some(scale);
+            let (scale, created) = colour_scale::default_or_new(self.fig, axes);
+            self.artist().colour_scale = Some(scale);
             if created {
                 self.created_scale = Some(scale);
             }
@@ -914,24 +914,24 @@ impl BarMut<'_> {
     /// The colours are stored as the model colours individual bars: an indexed colour
     /// scale whose entries are the distinct colours, in the order they first appear, and,
     /// as colour data, the index of each bar's colour in it. The face becomes
-    /// `Colormapped`. Colours given again replace the scale and the data this call
+    /// `Colourmapped`. Colours given again replace the scale and the data this call
     /// created, and a colour scale that the bars named before is replaced as
-    /// [`color_scale`](Self::color_scale) replaces it.
+    /// [`colour_scale`](Self::colour_scale) replaces it.
     ///
     /// ```
     /// use ironlab::prelude::*;
     ///
-    /// let grey = Color::rgb(0.6, 0.6, 0.6);
-    /// let red = Color::rgb(0.8, 0.1, 0.1);
+    /// let grey = Colour::rgb(0.6, 0.6, 0.6);
+    /// let red = Colour::rgb(0.8, 0.1, 0.1);
     /// let mut fig = Figure::new();
     /// fig.axes(0, 0)
     ///     .bar([0.0, 1.0, 2.0, 3.0], [3.0, 1.0, 4.0, 2.0])
-    ///     .colors([grey, grey, red, grey]);
+    ///     .colours([grey, grey, red, grey]);
     /// assert!(fig.validate().is_valid());
     /// ```
-    pub fn colors(&mut self, colors: impl IntoIterator<Item = Color>) -> &mut Self {
-        let mut palette: Vec<Color> = Vec::new();
-        let indices: Vec<f64> = colors
+    pub fn colours(&mut self, colours: impl IntoIterator<Item = Colour>) -> &mut Self {
+        let mut palette: Vec<Colour> = Vec::new();
+        let indices: Vec<f64> = colours
             .into_iter()
             .map(|colour| {
                 let index = palette
@@ -945,10 +945,11 @@ impl BarMut<'_> {
             })
             .collect();
         let data = DataSource::from(indices).store(self.fig);
-        self.replace_color_data(data);
-        let scale = color_scale::ColorScaleMut::add(self.fig, color_scale::indexed(palette)).id();
+        self.replace_colour_data(data);
+        let scale =
+            colour_scale::ColourScaleMut::add(self.fig, colour_scale::indexed(palette)).id();
         self.created_scale =
-            color_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
+            colour_scale::replace_scale(self.fig, self.id, scale, self.created_scale);
         self.created_scale = Some(scale);
         self
     }
@@ -961,11 +962,11 @@ impl BarMut<'_> {
             .expect("a bar handle always refers to an artist of its figure")
     }
 
-    /// Stores colour data and makes the face colormapped, releasing the data it replaces.
-    fn replace_color_data(&mut self, data: NodeId) {
+    /// Stores colour data and makes the face colourmapped, releasing the data it replaces.
+    fn replace_colour_data(&mut self, data: NodeId) {
         let bar = self.artist();
-        bar.face = ColorSpec::Colormapped;
-        if let Some(previous) = bar.color_data.replace(data) {
+        bar.face = ColourSpec::Colourmapped;
+        if let Some(previous) = bar.colour_data.replace(data) {
             release_data(self.fig, previous);
         }
     }
@@ -1334,7 +1335,7 @@ impl<'a> BarsMut<'a> {
 ///     .stairs(edges, counts)
 ///     .label("Counts")
 ///     .base(0.0)
-///     .fill(Color::rgb(0.6, 0.75, 0.9));
+///     .fill(Colour::rgb(0.6, 0.75, 0.9));
 /// assert!(fig.validate().is_valid());
 /// ```
 #[derive(Debug)]
@@ -1372,8 +1373,8 @@ impl StairsMut<'_> {
 
     /// Sets the colour of the outline, which is the next colour of the colour order by
     /// default.
-    pub fn color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().line.color = color.into_color_spec();
+    pub fn colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().line.colour = colour.into_colour_spec();
         self
     }
 
@@ -1393,8 +1394,8 @@ impl StairsMut<'_> {
     /// Fills the area between the outline and the base with the given colour; an
     /// automatic colour is the colour of the outline. A fill needs a [`base`](Self::base),
     /// without which [`Figure::validate`](crate::Figure::validate) reports an error.
-    pub fn fill(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().fill = color.into_color_spec();
+    pub fn fill(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().fill = colour.into_colour_spec();
         self
     }
 
@@ -1424,7 +1425,7 @@ impl StairsMut<'_> {
 /// use ironlab::prelude::*;
 ///
 /// let pixels = Pixels::rgb_from_fn(16, 16, |row, col| {
-///     Color::rgb(row as f32 / 15.0, col as f32 / 15.0, 0.0)
+///     Colour::rgb(row as f32 / 15.0, col as f32 / 15.0, 0.0)
 /// });
 /// let mut fig = Figure::new();
 /// fig.axes(0, 0)
@@ -1450,15 +1451,15 @@ image_handle!(ImageMut);
 /// let field = Matrix::from_fn(20, 30, |row, col| (row as f64 - 10.0) * (col as f64 - 15.0));
 /// let mut fig = Figure::new();
 /// let signed = fig
-///     .color_scale()
-///     .colormap(Colormap::Coolwarm)
+///     .colour_scale()
+///     .colourmap(Colourmap::Coolwarm)
 ///     .limits(-100.0, 100.0)
-///     .below(Color::BLACK)
-///     .above(Color::WHITE)
+///     .below(Colour::BLACK)
+///     .above(Colour::WHITE)
 ///     .id();
 /// fig.axes(0, 0)
 ///     .scalar_image(&field)
-///     .color_scale(signed)
+///     .colour_scale(signed)
 ///     .plane(ImagePlane::Xz { y: Some(0.0) })
 ///     .label("product");
 /// assert!(fig.validate().is_valid());
@@ -1523,7 +1524,7 @@ impl ScalarImageMut<'_> {
 ///     .cells(&counts)
 ///     .column_edges([0.0, 1.0, 3.0, 7.0])
 ///     .row_edges([0.0, 0.5, 2.0])
-///     .edge_color(Color::WHITE)
+///     .edge_colour(Colour::WHITE)
 ///     .label("Counts");
 /// assert!(fig.validate().is_valid());
 /// ```
@@ -1602,10 +1603,10 @@ impl CellsMut<'_> {
     }
 
     /// Sets the colour of the outlines of the cells, which have none by default; `None`
-    /// hides them, and an automatic or colormapped colour gives each outline the colour of
+    /// hides them, and an automatic or colourmapped colour gives each outline the colour of
     /// its cell.
-    pub fn edge_color(&mut self, color: impl IntoColorSpec) -> &mut Self {
-        self.artist().edge.color = color.into_color_spec();
+    pub fn edge_colour(&mut self, colour: impl IntoColourSpec) -> &mut Self {
+        self.artist().edge.colour = colour.into_colour_spec();
         self
     }
 
@@ -1705,13 +1706,13 @@ pub(crate) fn data_ids(artist: &Artist) -> Vec<NodeId> {
             y,
             z,
             size_data,
-            color_data,
+            colour_data,
             ..
         }) => [*x, *y]
             .into_iter()
             .chain(*z)
             .chain(*size_data)
-            .chain(*color_data)
+            .chain(*colour_data)
             .collect(),
         Artist::Contour(Contour { grid, z, .. }) => {
             grid_ids(grid).into_iter().chain([*z]).collect()
@@ -1750,7 +1751,7 @@ pub(crate) fn data_ids(artist: &Artist) -> Vec<NodeId> {
                 .into_iter()
                 .chain(base)
                 .chain(widths)
-                .chain(bar.color_data)
+                .chain(bar.colour_data)
                 .chain(bar.binning.as_ref().map(|binning| binning.edges))
                 .collect()
         }

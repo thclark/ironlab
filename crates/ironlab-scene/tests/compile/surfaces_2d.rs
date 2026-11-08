@@ -3,9 +3,9 @@
 //! A 2D axes shows a surface from directly above, so the grid alone places the faces and the field only colours them.
 //! The marking of the faces as dense content, which a 2D axes shares with a 3D one, is pinned in `dense`.
 
-use ironlab_ir::{Artist, ColorSpec, Grid, Limits, NodeId, Scale, Surface, TickLabels};
+use ironlab_ir::{Artist, ColourSpec, Grid, Limits, NodeId, Scale, Surface, TickLabels};
 use ironlab_scene::Scene;
-use ironlab_scene::maths::colormap::VIRIDIS;
+use ironlab_scene::maths::colourmap::VIRIDIS;
 
 use crate::common::{Fx, compile_figure, nearest_lut_index, rgb8};
 use crate::probe::{Leaf, assert_close, axes_hit, axis_maps, from_source, inside, leaves};
@@ -23,7 +23,7 @@ fn field(x: f64, y: f64) -> f64 {
 }
 
 /// A face as the data it was drawn from: the corners of its quadrilateral mapped back through the axis maps of the
-/// axes, sorted, and the index of the colormap entry nearest to its fill, when it is filled.
+/// axes, sorted, and the index of the colourmap entry nearest to its fill, when it is filled.
 #[derive(Debug)]
 struct Face {
     corners: Vec<[f64; 2]>,
@@ -60,7 +60,7 @@ fn faces(scene: &Scene, ax: NodeId, surface: NodeId) -> Vec<Face> {
                 entry: leaf
                     .path()
                     .and_then(|p| p.fill)
-                    .map(|fill| nearest_lut_index(&VIRIDIS, fill.color)),
+                    .map(|fill| nearest_lut_index(&VIRIDIS, fill.colour)),
             }
         })
         .collect()
@@ -90,8 +90,8 @@ fn assert_corners(actual: &[[f64; 2]], expected: Vec<[f64; 2]>, tol: f64) {
     }
 }
 
-/// The colormap entry a value takes between the colour limits `[cmin, cmax]`: the limits map linearly onto the 256
-/// entries of the colormap. The arithmetic is written out here, rather than taken from the compiler's own
+/// The colourmap entry a value takes between the colour limits `[cmin, cmax]`: the limits map linearly onto the 256
+/// entries of the colourmap. The arithmetic is written out here, rather than taken from the compiler's own
 /// normalisation, so that the expected colour does not depend on the code under test.
 fn entry(value: f64, cmin: f64, cmax: f64) -> usize {
     let t = (value - cmin) / (cmax - cmin);
@@ -136,7 +136,7 @@ fn assert_faces_on_nodes(faces: &[Face], x: &[f64], y: &[f64]) {
     }
 }
 
-/// Asserts that the face of every cell of the rectilinear grid `x × y` is filled with the colormap entry of the mean
+/// Asserts that the face of every cell of the rectilinear grid `x × y` is filled with the colourmap entry of the mean
 /// of `value` over the four nodes of that cell, between the colour limits `[cmin, cmax]`, and returns the entries.
 /// One entry of slack absorbs the rounding of the fill to 8-bit colour.
 #[track_caller]
@@ -157,7 +157,7 @@ fn assert_faces_take_mean_colour(
             let expected = entry(mean, cmin, cmax);
             assert!(
                 actual.abs_diff(expected) <= 1,
-                "cell ({i}, {j}) with mean {mean} has colormap entry {actual}, expected {expected}"
+                "cell ({i}, {j}) with mean {mean} has colourmap entry {actual}, expected {expected}"
             );
             entries.push(actual);
         }
@@ -205,9 +205,9 @@ fn the_field_influences_neither_the_limits_nor_the_geometry_of_a_2d_axes() {
     assert_eq!(vertices, moved, "the vertices do not follow the field");
 }
 
-// Why: the colour of a cell is what a pseudocolour plot shows. A flat face takes the colormap sample of the mean of
+// Why: the colour of a cell is what a pseudocolour plot shows. A flat face takes the colourmap sample of the mean of
 // its four corner values, so that it represents the whole cell rather than one corner, scaled by automatic colour
-// limits equal to the range of the field, so that the plot uses the whole colormap without the user setting limits.
+// limits equal to the range of the field, so that the plot uses the whole colourmap without the user setting limits.
 #[test]
 fn faces_in_2d_axes_take_the_colour_of_their_mean_field_value() {
     let (fx, ax, surface) = fixture(|_| {});
@@ -216,7 +216,7 @@ fn faces_in_2d_axes_take_the_colour_of_their_mean_field_value() {
     let limits = range(Y.iter().flat_map(|&y| X.iter().map(move |&x| field(x, y))));
     let entries = assert_faces_take_mean_colour(&faces, &X, &Y, field, limits);
     let (lo, hi) = (entries.iter().min().unwrap(), entries.iter().max().unwrap());
-    assert!(hi - lo > 100, "the faces span the colormap: {entries:?}");
+    assert!(hi - lo > 100, "the faces span the colourmap: {entries:?}");
 }
 
 // Why: separate colour data lets a user lay one quantity out on the grid of another. When it is given it replaces the
@@ -328,12 +328,12 @@ fn a_single_row_of_nodes_has_no_cells_and_is_skipped_with_a_warning() {
         y: fx.vector(&[10.0]),
     };
     let surface = fx.node();
-    let color_scale = Some(fx.axes_scale(ax));
+    let colour_scale = Some(fx.axes_scale(ax));
     fx.ax(ax).artists.push(Artist::Surface(Surface {
         id: surface,
         grid,
         z,
-        color_scale,
+        colour_scale,
         ..Surface::default()
     }));
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
@@ -362,12 +362,12 @@ fn an_empty_field_is_left_out_with_a_warning_naming_each_artist() {
         let x = fx.vector(&X[..nx]);
         let y = fx.vector(&Y[..ny]);
         let surface = fx.node();
-        let color_scale = Some(fx.axes_scale(ax));
+        let colour_scale = Some(fx.axes_scale(ax));
         fx.ax(ax).artists.push(Artist::Surface(Surface {
             id: surface,
             grid: Grid::Rectilinear { x, y },
             z,
-            color_scale,
+            colour_scale,
             ..Surface::default()
         }));
         let contour = fx.node();
@@ -375,7 +375,7 @@ fn an_empty_field_is_left_out_with_a_warning_naming_each_artist() {
             id: contour,
             grid: Grid::Rectilinear { x, y },
             z,
-            color_scale,
+            colour_scale,
             ..ironlab_ir::Contour::default()
         }));
         let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
@@ -425,12 +425,12 @@ fn a_curvilinear_grid_places_every_node_at_its_own_position() {
     };
     let z = fx.matrix(ny, nx, (0..ny * nx).map(|k| k as f64).collect());
     let surface = fx.node();
-    let color_scale = Some(fx.axes_scale(ax));
+    let colour_scale = Some(fx.axes_scale(ax));
     fx.ax(ax).artists.push(Artist::Surface(Surface {
         id: surface,
         grid,
         z,
-        color_scale,
+        colour_scale,
         ..Surface::default()
     }));
     let scene = compile_figure(&fx.build());
@@ -646,11 +646,11 @@ fn faces_are_painted_in_artist_order_and_clipped_to_the_plot_rectangle() {
 
 // Why: the faces of a fine grid are smaller than the edges drawn round them, so a pseudocolour plot of dense data is
 // drawn without edges (MATLAB's `shading flat`). Switching the edges off must remove every stroke and keep every
-// fill, and a fixed face colour with colormapped edges (the `mesh` look, seen from above) must do the reverse of the
+// fill, and a fixed face colour with colourmapped edges (the `mesh` look, seen from above) must do the reverse of the
 // default: one fill colour throughout and edges that take the colours of their cells.
 #[test]
 fn face_and_edge_colours_are_honoured_in_2d_axes() {
-    let (fx, _, flat) = fixture(|s| s.edge = ColorSpec::None);
+    let (fx, _, flat) = fixture(|s| s.edge = ColourSpec::None);
     let scene = compile_figure(&fx.build());
     let drawn = from_source(&leaves(&scene), flat);
     assert_eq!(drawn.len(), 6);
@@ -659,10 +659,10 @@ fn face_and_edge_colours_are_honoured_in_2d_axes() {
         assert!(path.fill.is_some() && path.stroke.is_none(), "{path:?}");
     }
 
-    let grey = ironlab_ir::Color::rgb(0.5, 0.5, 0.5);
+    let grey = ironlab_ir::Colour::rgb(0.5, 0.5, 0.5);
     let (fx, _, wire) = fixture(|s| {
-        s.face = ColorSpec::Rgba { color: grey };
-        s.edge = ColorSpec::Colormapped;
+        s.face = ColourSpec::Rgba { colour: grey };
+        s.edge = ColourSpec::Colourmapped;
         s.edge_width_pt = 2.0;
     });
     let scene = compile_figure(&fx.build());
@@ -671,10 +671,10 @@ fn face_and_edge_colours_are_honoured_in_2d_axes() {
     let mut edge_colours = Vec::new();
     for leaf in &drawn {
         let path = leaf.path().expect("a face is a path");
-        assert_eq!(rgb8(path.fill.expect("filled").color), [128, 128, 128]);
+        assert_eq!(rgb8(path.fill.expect("filled").colour), [128, 128, 128]);
         let stroke = path.stroke.as_ref().expect("stroked");
         assert_eq!(stroke.width, 2.0);
-        edge_colours.push(nearest_lut_index(&VIRIDIS, stroke.color));
+        edge_colours.push(nearest_lut_index(&VIRIDIS, stroke.colour));
     }
     edge_colours.sort_unstable();
     edge_colours.dedup();

@@ -356,7 +356,7 @@ impl Gallery {
                     .show(ui, two);
                     Row::new(
                         text(Role::Body, "Correlation peak in 3D"),
-                        Detail::Beneath("image, colormap, depth"),
+                        Detail::Beneath("image, colourmap, depth"),
                     )
                     .state(RowState {
                         striped: true,

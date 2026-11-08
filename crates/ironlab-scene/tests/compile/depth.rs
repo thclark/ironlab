@@ -8,7 +8,7 @@
 //! image's pixel space, the group above it carrying the placement.
 
 use ironlab_ir::{
-    Artist, ColorSpec, ContourPlacement, ImagePlane, Levels, Limits, MarkerShape, NodeId,
+    Artist, ColourSpec, ContourPlacement, ImagePlane, Levels, Limits, MarkerShape, NodeId,
     QuiverScale, Surface, View3d,
 };
 use ironlab_scene::Scene;
@@ -902,8 +902,8 @@ fn a_face_with_fill_and_edge_is_a_fill_leaf_then_an_edge_ring_on_its_plane_pushe
             "the edge is a filled ring, not a stroke"
         );
         assert_ne!(
-            fill_path.fill.unwrap().color,
-            ring_path.fill.unwrap().color,
+            fill_path.fill.unwrap().colour,
+            ring_path.fill.unwrap().colour,
             "the ring has the edge colour and the fill the face colour"
         );
 
@@ -1023,8 +1023,8 @@ fn a_face_with_only_a_fill_or_only_an_edge_is_one_leaf_pushed_back_by_the_bias()
     let grid = linspace(-0.6, 0.6, 3);
     let height = |x: f64, y: f64| 0.5 * (x + y);
     let cases: [(SurfaceEdit, &str); 2] = [
-        (|s| s.face = ColorSpec::None, "edge only"),
-        (|s| s.edge = ColorSpec::None, "fill only"),
+        (|s| s.face = ColourSpec::None, "edge only"),
+        (|s| s.edge = ColourSpec::None, "fill only"),
     ];
     for (edit, what) in cases {
         let (scene, ax, surf) = surface_scene(&grid, height, edit);
@@ -1471,8 +1471,8 @@ fn a_scatter_coloured_by_data_gives_each_remaining_marker_the_depth_of_its_own_p
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
     let scatter = fx.scatter(ax, &x, &y, Some(&z), |s, fx| {
-        s.color_data = Some(fx.vector(&values));
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(fx.vector(&values));
+        s.line.colour = ColourSpec::Colourmapped;
     });
     manual_unit_limits(&mut fx, ax);
     let scene = compile_figure(&fx.build());

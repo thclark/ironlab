@@ -152,7 +152,7 @@ fn entry_holds_a_sample_in_the_artist_colour_and_a_label_attributed_to_the_axes(
     let samples: Vec<[u8; 3]> = in_entry
         .iter()
         .filter_map(|l| l.path().and_then(|p| p.stroke.as_ref()))
-        .map(|s| rgb8(s.color))
+        .map(|s| rgb8(s.colour))
         .collect();
     assert!(
         !samples.is_empty(),
@@ -245,14 +245,14 @@ fn hidden_artist_is_not_drawn_but_keeps_a_greyed_legend_entry() {
     let greyed = leaves_in(&leaves, hidden_rect);
     assert!(!greyed.is_empty(), "the hidden artist's entry is drawn");
     for leaf in &greyed {
-        for c in leaf.colors() {
+        for c in leaf.colours() {
             assert!(c.a < 1.0, "hidden entry item is greyed: {c:?}");
         }
     }
 
     let normal = leaves_in(&leaves, e[1].rect);
     assert!(
-        normal.iter().flat_map(|l| l.colors()).any(|c| c.a == 1.0),
+        normal.iter().flat_map(|l| l.colours()).any(|c| c.a == 1.0),
         "a visible artist's entry is drawn at full opacity"
     );
 }

@@ -4,7 +4,7 @@ use crate::fields::*;
 
 pub const TITLE: &str = "Mapped image";
 pub const DESCRIPTION: &str = "The Julia field drawn as a scalar image through a continuous colour scale with the \
-     magma colormap, beneath black isolines of the same field. The values inside a disc are set to NaN, and a colour \
+     magma colourmap, beneath black isolines of the same field. The values inside a disc are set to NaN, and a colour \
      scale draws nothing for a value that is not finite by default, so the axes background shows through the disc.";
 
 /// The centre of the disc within which the field is undefined.
@@ -42,9 +42,9 @@ pub fn figure() -> Figure {
         .pixel_rows(DOMAIN_MIN, DOMAIN_MAX);
     ax.contour(&x, &y, &z)
         .levels(12)
-        .color(Color::BLACK)
+        .colour(Colour::BLACK)
         .line_width(0.5);
-    ax.color_scale().colormap(Colormap::Magma);
+    ax.colour_scale().colourmap(Colourmap::Magma);
     ax.xlabel("$x$").ylabel("$y$");
     fig
 }

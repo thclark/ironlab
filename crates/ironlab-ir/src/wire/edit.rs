@@ -112,7 +112,7 @@ proto_file! {
             /// A data array.
             DataArray(DataArray) data_array = 5;
             /// A colour scale.
-            ColorScale(ColorScale) color_scale = 6;
+            ColourScale(ColourScale) colour_scale = 6;
         }
         /// The number and name of the legend panel, which a panel holding a legend
         /// replaced.
@@ -146,7 +146,7 @@ proto_file! {
             /// A bundled font set.
             FontSetId(ValueFontSetId) font_set_id_value = 12;
             /// A colour.
-            Color(ValueColor) color_value = 13;
+            Colour(ValueColour) colour_value = 13;
             /// The tile layout of a figure.
             TileLayout(ValueTileLayout) tile_layout_value = 14;
             /// The axis links of a figure.
@@ -165,14 +165,14 @@ proto_file! {
             Scale(ValueScale) scale_value = 21;
             /// A range of data values.
             Limits(ValueLimits) limits_value = 22;
-            /// A colormap name.
-            ColormapName(ValueColormapName) colormap_name_value = 23;
+            /// A colourmap name.
+            ColourmapName(ValueColourmapName) colourmap_name_value = 23;
             /// A legend.
             Legend(ValueLegend) legend_value = 24;
             /// The placement of a legend.
             LegendLocation(ValueLegendLocation) legend_location_value = 25;
             /// How a colour is chosen.
-            ColorSpec(ValueColorSpec) color_spec_value = 26;
+            ColourSpec(ValueColourSpec) colour_spec_value = 26;
             /// The style of a stroked line.
             LineStyle(ValueLineStyle) line_style_value = 27;
             /// A dash pattern.
@@ -233,33 +233,33 @@ proto_file! {
             /// The legend content of a panel.
             PanelLegend(ValuePanelLegend) panel_legend_value = 57;
             /// A category of values that a colour scale cannot place.
-            ColorScaleOutOfRange(ValueColorScaleOutOfRange) color_scale_out_of_range_value = 58;
+            ColourScaleOutOfRange(ValueColourScaleOutOfRange) colour_scale_out_of_range_value = 58;
             /// The kind of a colour scale.
-            ColorScaleKind(ValueColorScaleKind) color_scale_kind_value = 59;
+            ColourScaleKind(ValueColourScaleKind) colour_scale_kind_value = 59;
             /// A continuous colour scale.
-            ContinuousColorScale(ValueContinuousColorScale) continuous_color_scale_value = 60;
+            ContinuousColourScale(ValueContinuousColourScale) continuous_colour_scale_value = 60;
             /// A discrete colour scale.
-            DiscreteColorScale(ValueDiscreteColorScale) discrete_color_scale_value = 61;
+            DiscreteColourScale(ValueDiscreteColourScale) discrete_colour_scale_value = 61;
             /// An indexed colour scale.
-            IndexedColorScale(ValueIndexedColorScale) indexed_color_scale_value = 62;
+            IndexedColourScale(ValueIndexedColourScale) indexed_colour_scale_value = 62;
             /// A categorical colour scale.
-            CategoricalColorScale(ValueCategoricalColorScale) categorical_color_scale_value = 63;
+            CategoricalColourScale(ValueCategoricalColourScale) categorical_colour_scale_value = 63;
             /// The palette of a continuous or discrete colour scale.
-            Colormap(ValueColormap) colormap_value = 64;
+            Colourmap(ValueColourmap) colourmap_value = 64;
             /// The space in which a colour scale places values.
-            ColorScaleNorm(ValueColorScaleNorm) color_scale_norm_value = 65;
+            ColourScaleNorm(ValueColourScaleNorm) colour_scale_norm_value = 65;
             /// The band edges of a discrete colour scale.
-            ColorScaleLevels(ValueColorScaleLevels) color_scale_levels_value = 66;
+            ColourScaleLevels(ValueColourScaleLevels) colour_scale_levels_value = 66;
             /// The colourbar content of a panel.
-            PanelColorbar(ValuePanelColorbar) panel_colorbar_value = 67;
+            PanelColourbar(ValuePanelColourbar) panel_colourbar_value = 67;
             /// The direction in which a panel colourbar runs.
-            ColorbarOrientation(ValueColorbarOrientation) colorbar_orientation_value = 68;
+            ColourbarOrientation(ValueColourbarOrientation) colourbar_orientation_value = 68;
             /// The colourbar inside an axes.
-            InsideColorbar(ValueInsideColorbar) inside_colorbar_value = 69;
+            InsideColourbar(ValueInsideColourbar) inside_colourbar_value = 69;
             /// The edge along which an inside colourbar lies.
-            InsideColorbarSide(ValueInsideColorbarSide) inside_colorbar_side_value = 70;
+            InsideColourbarSide(ValueInsideColourbarSide) inside_colourbar_side_value = 70;
             /// Where the title of a colour scale is drawn beside a colourbar.
-            ColorbarTitlePlacement(ValueColorbarTitlePlacement) colorbar_title_placement_value = 71;
+            ColourbarTitlePlacement(ValueColourbarTitlePlacement) colourbar_title_placement_value = 71;
             /// The direction in which bars and stairs extend.
             Orientation(ValueOrientation) orientation_value = 72;
             /// The steps of stairs.
@@ -306,7 +306,7 @@ proto_file! {
         reserved 7, data_id_value;
         /// The numbers and names of the size and colour of a scatter, which a series
         /// replaced with references to its size and colour data.
-        reserved 31, 32, scatter_size_value, scatter_color_value;
+        reserved 31, 32, scatter_size_value, scatter_colour_value;
         /// The numbers and names of the base, slot, group and layout of bars, which the
         /// per-bar number, the width and the offset replaced when grouping became a helper
         /// of the facade.
@@ -396,9 +396,9 @@ proto_file! {
     }
 
     /// A colour value.
-    message ValueColor {
+    message ValueColour {
         /// The colour; it must be present.
-        message Color value = 1;
+        message Colour value = 1;
     }
 
     /// A tile layout value.
@@ -485,10 +485,10 @@ proto_file! {
         message Limits value = 1;
     }
 
-    /// A colormap name value.
-    message ValueColormapName {
-        /// The colormap name; it must be specified.
-        enum ColormapName value = 1;
+    /// A colourmap name value.
+    message ValueColourmapName {
+        /// The colourmap name; it must be specified.
+        enum ColourmapName value = 1;
     }
 
     /// A legend value.
@@ -588,9 +588,9 @@ proto_file! {
     }
 
     /// A colour specification value.
-    message ValueColorSpec {
+    message ValueColourSpec {
         /// The colour specification; it must be present.
-        message ColorSpec value = 1;
+        message ColourSpec value = 1;
     }
 
     /// A line style value.
@@ -672,87 +672,87 @@ proto_file! {
     }
 
     /// An out-of-range category of a colour scale.
-    message ValueColorScaleOutOfRange {
+    message ValueColourScaleOutOfRange {
         /// The category; it must be present.
-        message ColorScaleOutOfRange value = 1;
+        message ColourScaleOutOfRange value = 1;
     }
 
     /// A colour scale kind value.
-    message ValueColorScaleKind {
+    message ValueColourScaleKind {
         /// The kind; it must be present.
-        message ColorScaleKind value = 1;
+        message ColourScaleKind value = 1;
     }
 
     /// A continuous colour scale value.
-    message ValueContinuousColorScale {
+    message ValueContinuousColourScale {
         /// The scale; it must be present.
-        message ContinuousColorScale value = 1;
+        message ContinuousColourScale value = 1;
     }
 
     /// A discrete colour scale value.
-    message ValueDiscreteColorScale {
+    message ValueDiscreteColourScale {
         /// The scale; it must be present.
-        message DiscreteColorScale value = 1;
+        message DiscreteColourScale value = 1;
     }
 
     /// An indexed colour scale value.
-    message ValueIndexedColorScale {
+    message ValueIndexedColourScale {
         /// The scale; it must be present.
-        message IndexedColorScale value = 1;
+        message IndexedColourScale value = 1;
     }
 
     /// A categorical colour scale value.
-    message ValueCategoricalColorScale {
+    message ValueCategoricalColourScale {
         /// The scale; it must be present.
-        message CategoricalColorScale value = 1;
+        message CategoricalColourScale value = 1;
     }
 
-    /// A colormap value.
-    message ValueColormap {
-        /// The colormap; it must be present.
-        message Colormap value = 1;
+    /// A colourmap value.
+    message ValueColourmap {
+        /// The colourmap; it must be present.
+        message Colourmap value = 1;
     }
 
     /// A colour scale norm value.
-    message ValueColorScaleNorm {
+    message ValueColourScaleNorm {
         /// The norm; it must be specified.
-        enum ColorScaleNorm value = 1;
+        enum ColourScaleNorm value = 1;
     }
 
     /// A colour scale band edges value.
-    message ValueColorScaleLevels {
+    message ValueColourScaleLevels {
         /// The band edges; it must be present.
-        message ColorScaleLevels value = 1;
+        message ColourScaleLevels value = 1;
     }
 
     /// A panel colourbar value.
-    message ValuePanelColorbar {
+    message ValuePanelColourbar {
         /// The colourbar; it must be present.
-        message PanelColorbar value = 1;
+        message PanelColourbar value = 1;
     }
 
     /// A colourbar orientation value.
-    message ValueColorbarOrientation {
+    message ValueColourbarOrientation {
         /// The orientation; it must be specified.
-        enum ColorbarOrientation value = 1;
+        enum ColourbarOrientation value = 1;
     }
 
     /// An inside colourbar value.
-    message ValueInsideColorbar {
+    message ValueInsideColourbar {
         /// The colourbar; it must be present.
-        message InsideColorbar value = 1;
+        message InsideColourbar value = 1;
     }
 
     /// An inside colourbar side value.
-    message ValueInsideColorbarSide {
+    message ValueInsideColourbarSide {
         /// The side; it must be specified.
-        enum InsideColorbarSide value = 1;
+        enum InsideColourbarSide value = 1;
     }
 
     /// A colourbar title placement value.
-    message ValueColorbarTitlePlacement {
+    message ValueColourbarTitlePlacement {
         /// The placement; it must be specified.
-        enum ColorbarTitlePlacement value = 1;
+        enum ColourbarTitlePlacement value = 1;
     }
 
     /// An orientation of bars or stairs.

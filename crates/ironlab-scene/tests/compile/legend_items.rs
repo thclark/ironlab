@@ -2,7 +2,7 @@
 //! items that stand for no artist and items on a row of their own.
 
 use ironlab_ir::{
-    Color, ColorSpec, DashStyle, InsideLegend, Legend, LegendEntries, LegendEntryColumns,
+    Colour, ColourSpec, DashStyle, InsideLegend, Legend, LegendEntries, LegendEntryColumns,
     LegendEntryLayout, LegendEntryOrder, LegendItem, LegendSample, LineStyle, MarkerShape,
     MarkerStyle, NodeId, PanelContent, TrackSize, View3d,
 };
@@ -16,9 +16,9 @@ use crate::probe::{
     panel_entries, panel_rect, text_bbox,
 };
 
-const GREY: Color = Color::rgb(0.5, 0.5, 0.5);
-const AMBER: Color = Color::rgb(0.9, 0.6, 0.0);
-const RED: Color = Color::rgb(0.8, 0.1, 0.1);
+const GREY: Colour = Colour::rgb(0.5, 0.5, 0.5);
+const AMBER: Colour = Colour::rgb(0.9, 0.6, 0.0);
+const RED: Colour = Colour::rgb(0.8, 0.1, 0.1);
 
 /// Positions closer than this, in points, are taken to be the same row or column of entries.
 const SAME: f64 = 0.5;
@@ -218,12 +218,12 @@ fn an_artist_item_stands_for_the_matching_artists_of_every_axes_that_names_the_p
     let top = fx.axes2d(0, 0);
     let bottom = fx.axes2d(1, 0);
     let panel = fx.panel(cell(2, 0, 1, 1));
-    let red = |l: &mut ironlab_ir::Series| l.line.color = ColorSpec::Rgba { color: RED };
+    let red = |l: &mut ironlab_ir::Series| l.line.colour = ColourSpec::Rgba { colour: RED };
     let base_top = fx.named_line(top, "Base", red);
     let base_bottom = fx.named_line(bottom, "Base", red);
     // The same name in a different look is another series, which the item does not stand for.
     fx.named_line(bottom, "Base", |l| {
-        l.line.color = ColorSpec::Rgba { color: AMBER }
+        l.line.colour = ColourSpec::Rgba { colour: AMBER }
     });
     fx.legend_in(top, panel);
     fx.legend_in(bottom, panel);
@@ -415,20 +415,20 @@ fn custom_items_draw_their_labels_beside_their_samples() {
         square.iter().all(|leaf| leaf.markers().is_some()),
         "a dash of none draws no line beside the marker: {square:?}"
     );
-    let colours: Vec<_> = square.iter().flat_map(Leaf::colors).collect();
+    let colours: Vec<_> = square.iter().flat_map(Leaf::colours).collect();
     assert!(!colours.is_empty());
     for colour in colours {
         assert_eq!(rgb8(colour), [128, 128, 128], "the marker is grey");
     }
 
-    // The look of a swatch (an outlined square with a margin) is pinned in `legend_color_keys.rs`; here it is enough
+    // The look of a swatch (an outlined square with a margin) is pinned in `legend_colour_keys.rs`; here it is enough
     // that the sample beside the label is filled with the swatch's colour.
     let swatch = sample_beside(&scene, panel, "Upper surface");
     assert!(
         swatch
             .iter()
             .filter_map(|leaf| leaf.path()?.fill)
-            .any(|fill| rgb8(fill.color) == [230, 153, 0]),
+            .any(|fill| rgb8(fill.colour) == [230, 153, 0]),
         "the patch is filled with the colour of the swatch: {swatch:?}"
     );
 }
@@ -465,7 +465,7 @@ fn a_hidden_artists_item_is_greyed_and_a_custom_item_is_not() {
     let alphas = |text: &str| -> Vec<f32> {
         sample_beside(&scene, panel, text)
             .iter()
-            .flat_map(Leaf::colors)
+            .flat_map(Leaf::colours)
             .map(|c| c.a)
             .collect()
     };
@@ -503,11 +503,11 @@ fn an_automatic_colour_in_a_custom_line_sample_is_the_ink_of_its_label() {
     let ink = glyph_runs(&leaves)
         .into_iter()
         .find(|(_, run)| run.text == "Ink")
-        .map(|(leaf, _)| leaf.colors()[0])
+        .map(|(leaf, _)| leaf.colours()[0])
         .expect("the label is drawn");
     let sample = sample_beside(&scene, panel, "Ink");
     assert!(!sample.is_empty());
-    for colour in sample.iter().flat_map(Leaf::colors) {
+    for colour in sample.iter().flat_map(Leaf::colours) {
         assert_eq!(rgb8(colour), rgb8(ink));
     }
 }
@@ -520,7 +520,7 @@ fn vertical_and_horizontal_tick_markers_are_drawn_in_samples() {
     let (mut fx, ax, _, panel) = axes_over_panel(&["Unused"]);
     let ticked = fx.named_line(ax, "Ticked", |l| {
         l.marker.shape = MarkerShape::HLine;
-        l.line.color = ColorSpec::Rgba { color: RED };
+        l.line.colour = ColourSpec::Rgba { colour: RED };
     });
     explicit(
         &mut fx,
@@ -558,7 +558,7 @@ fn a_custom_line_sample_without_a_marker_draws_its_line_as_styled() {
         vec![LegendItem::custom(
             LegendSample::Line {
                 line: LineStyle {
-                    color: ColorSpec::Rgba { color: RED },
+                    colour: ColourSpec::Rgba { colour: RED },
                     width_pt: 1.0,
                     dash: DashStyle::Dashed,
                 },
@@ -580,7 +580,7 @@ fn a_custom_line_sample_without_a_marker_draws_its_line_as_styled() {
         .and_then(|p| p.stroke.clone())
         .expect("the line is stroked");
     assert!(!stroke.dash.is_empty(), "the line is dashed");
-    assert_eq!(rgb8(stroke.color), [204, 26, 26], "the line is red");
+    assert_eq!(rgb8(stroke.colour), [204, 26, 26], "the line is red");
 }
 
 // ---------------------------------------------------------------------------------------------------------------

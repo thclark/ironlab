@@ -30,7 +30,7 @@ pub fn figure() -> Figure {
         let magnitude = re.hypot(im).ln_1p();
         let lightness = magnitude / (1.0 + magnitude);
         let fade = (TRANSPARENT_RADIUS - x.hypot(y)) / (TRANSPARENT_RADIUS - OPAQUE_RADIUS);
-        Color {
+        Colour {
             a: fade.clamp(0.0, 1.0) as f32,
             ..hsl_to_rgb(hue, 1.0, lightness)
         }

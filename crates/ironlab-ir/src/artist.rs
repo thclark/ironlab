@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::NodeId;
 use crate::link::Dimension;
-use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
+use crate::style::{Colour, ColourSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::Text;
 
 /// A drawable node of an axes.
@@ -71,7 +71,7 @@ pub struct Series {
     #[schemars(default)]
     pub z: Option<NodeId>,
     /// The style of the line through the points. Its colour is the colour of the series,
-    /// which an automatic marker face or edge follows; a colormapped colour takes the
+    /// which an automatic marker face or edge follows; a colourmapped colour takes the
     /// colours of the colour data.
     pub line: LineStyle,
     /// The style of the markers at the points.
@@ -83,16 +83,16 @@ pub struct Series {
     pub size_data: Option<NodeId>,
     /// The values that colour the series through its colour scale, or `None` for a
     /// series of fixed colours. With one value per point, each marker takes the colour of
-    /// its point and each segment of a colormapped line is a gradient between the colours
+    /// its point and each segment of a colourmapped line is a gradient between the colours
     /// of its two points. With one value per segment (one fewer than the points), each
     /// segment of the line takes the colour of its value and the markers take their own
     /// colours; this form is valid only when the series draws a line.
     #[schemars(default)]
-    pub color_data: Option<NodeId>,
+    pub colour_data: Option<NodeId>,
     /// The colour scale through which the colour data is mapped. A series with colour
     /// data must name one; a series without colour data maps nothing.
     #[schemars(default)]
-    pub color_scale: Option<NodeId>,
+    pub colour_scale: Option<NodeId>,
     /// How the x values are placed: as data along the x axis, or as fractions of the
     /// plot area's width. Anything other than `data` is allowed only in 2D axes.
     pub x_coords: Coords,
@@ -116,13 +116,13 @@ pub struct Series {
     /// The colour of the area between the line through the points and the base, or none
     /// (the default) for no fill. A fill other than none needs a base, and is invalid in
     /// three-dimensional axes. An automatic fill takes the colour of the series; a
-    /// colormapped fill is invalid, because the colour data colours points and segments
+    /// colourmapped fill is invalid, because the colour data colours points and segments
     /// and not the area beneath them.
     ///
     /// The property is omitted from JSON when it is none, and is none when JSON omits it.
     #[serde(default = "no_fill", skip_serializing_if = "is_no_fill")]
     #[schemars(!skip_serializing_if)]
-    pub fill: ColorSpec,
+    pub fill: ColourSpec,
     /// The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the
     /// alpha of its colour.
     ///
@@ -133,13 +133,13 @@ pub struct Series {
 }
 
 /// The default fill of a series, for serde: none.
-fn no_fill() -> ColorSpec {
-    ColorSpec::None
+fn no_fill() -> ColourSpec {
+    ColourSpec::None
 }
 
 /// Whether a fill is none, so that serde leaves it out of JSON.
-fn is_no_fill(fill: &ColorSpec) -> bool {
-    *fill == ColorSpec::None
+fn is_no_fill(fill: &ColourSpec) -> bool {
+    *fill == ColourSpec::None
 }
 
 impl Default for Series {
@@ -156,13 +156,13 @@ impl Default for Series {
             line: LineStyle::default(),
             marker: MarkerStyle::default(),
             size_data: None,
-            color_data: None,
-            color_scale: None,
+            colour_data: None,
+            colour_scale: None,
             x_coords: Coords::Data,
             y_coords: Coords::Data,
             clip: true,
             base: None,
-            fill: ColorSpec::None,
+            fill: ColourSpec::None,
             fill_opacity: 1.0,
         }
     }
@@ -172,7 +172,7 @@ impl Series {
     /// Returns whether the series draws a line through its points: its dash is not
     /// `none` and its line colour is not `none`.
     pub fn draws_line(&self) -> bool {
-        self.line.dash != DashStyle::None && self.line.color != ColorSpec::None
+        self.line.dash != DashStyle::None && self.line.colour != ColourSpec::None
     }
 
     /// Returns whether the series draws markers at its points: their shape is not
@@ -184,7 +184,7 @@ impl Series {
     /// Returns the base down to which the series is filled, when it draws a fill: its
     /// fill is not `none` and it has a base.
     pub fn fill_base(&self) -> Option<f64> {
-        self.base.filter(|_| self.fill != ColorSpec::None)
+        self.base.filter(|_| self.fill != ColourSpec::None)
     }
 }
 
@@ -235,13 +235,13 @@ pub struct Contour {
     pub fill: bool,
     /// Where the contours are placed in 3D axes.
     pub placement: ContourPlacement,
-    /// The style of the isolines; a colormapped colour takes the colour of each
+    /// The style of the isolines; a colourmapped colour takes the colour of each
     /// isoline's level through the colour scale.
     pub line: LineStyle,
     /// The colour scale through which levels and bands are coloured. A contour whose
-    /// bands are filled, or whose isolines are colormapped or automatic, must name one.
+    /// bands are filled, or whose isolines are colourmapped or automatic, must name one.
     #[schemars(default)]
-    pub color_scale: Option<NodeId>,
+    pub colour_scale: Option<NodeId>,
     /// The opacity of the isolines, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of their colour.
     ///
@@ -270,10 +270,10 @@ impl Default for Contour {
             fill: false,
             placement: ContourPlacement::default(),
             line: LineStyle {
-                color: ColorSpec::Colormapped,
+                colour: ColourSpec::Colourmapped,
                 ..LineStyle::default()
             },
-            color_scale: None,
+            colour_scale: None,
             line_opacity: 1.0,
             fill_opacity: 1.0,
         }
@@ -459,15 +459,15 @@ pub struct Surface {
     #[schemars(default)]
     pub c: Option<NodeId>,
     /// The colour of the faces.
-    pub face: ColorSpec,
+    pub face: ColourSpec,
     /// The colour of the face edges.
-    pub edge: ColorSpec,
+    pub edge: ColourSpec,
     /// The width of the face edges in points.
     pub edge_width_pt: f64,
     /// The colour scale through which the colour data is mapped. A surface whose faces or
-    /// edges are colormapped or automatic must name one.
+    /// edges are colourmapped or automatic must name one.
     #[schemars(default)]
-    pub color_scale: Option<NodeId>,
+    pub colour_scale: Option<NodeId>,
     /// The alpha of the faces at every node, an array of 64-bit floating-point values
     /// with the same shape as `z`, or `None` for faces that are uniformly opaque before
     /// [`face_opacity`](Surface::face_opacity) applies. A face takes the mean of the
@@ -517,12 +517,12 @@ impl Default for Surface {
             grid: Grid::default(),
             z: NodeId::default(),
             c: None,
-            face: ColorSpec::Colormapped,
-            edge: ColorSpec::Rgba {
-                color: Color::BLACK,
+            face: ColourSpec::Colourmapped,
+            edge: ColourSpec::Rgba {
+                colour: Colour::BLACK,
             },
             edge_width_pt: 0.5,
-            color_scale: None,
+            colour_scale: None,
             face_alpha: None,
             edge_alpha: None,
             face_opacity: 1.0,
@@ -620,7 +620,7 @@ pub struct ScalarImage {
     /// The colour scale through which the numbers are mapped. A scalar image always maps
     /// its numbers, so a figure in which it names no scale is invalid.
     #[schemars(default)]
-    pub color_scale: Option<NodeId>,
+    pub colour_scale: Option<NodeId>,
     /// Where the pixels lie in the axes.
     pub placement: ImagePlacement,
     /// The alpha of every pixel, a two-dimensional array with the same shape as
@@ -652,7 +652,7 @@ impl Default for ScalarImage {
             label: None,
             visible: true,
             values: NodeId::default(),
-            color_scale: None,
+            colour_scale: None,
             placement: ImagePlacement::default(),
             alpha: None,
             opacity: 1.0,
@@ -819,7 +819,7 @@ impl Orientation {
 /// and Plotly, and a negative value extends the other way. A bar whose position or value
 /// is not finite is not drawn, and a non-finite position takes no part in the pitch. Bars
 /// colour individual bars as a series colours individual markers: with colour data of one
-/// value per bar, mapped through a colour scale of any kind, a colormapped face or edge
+/// value per bar, mapped through a colour scale of any kind, a colourmapped face or edge
 /// takes the colour of each bar's value.
 ///
 /// A bar series draws exactly the bars it describes and lays out nothing itself: grouped
@@ -851,21 +851,21 @@ pub struct Bar {
     /// How far the centre of each bar lies from its position along the category axis.
     pub offset: BarOffset,
     /// The colour of the bars: automatic for the next colour of the colour order, which
-    /// is the colour of the series, a fixed colour, none, or colormapped, which gives each
+    /// is the colour of the series, a fixed colour, none, or colourmapped, which gives each
     /// bar the colour of its value of the colour data through the colour scale. Without
-    /// colour data a colormapped face has no value to map and is drawn as an automatic one.
-    pub face: ColorSpec,
+    /// colour data a colourmapped face has no value to map and is drawn as an automatic one.
+    pub face: ColourSpec,
     /// The values that colour the bars through their colour scale, one per bar, or `None`
     /// for bars of fixed colours.
     #[schemars(default)]
-    pub color_data: Option<NodeId>,
+    pub colour_data: Option<NodeId>,
     /// The colour scale through which the colour data is mapped. Bars with colour data
     /// must name one; bars without colour data map nothing.
     #[schemars(default)]
-    pub color_scale: Option<NodeId>,
+    pub colour_scale: Option<NodeId>,
     /// The style of the outline of every bar. Its colour is none for no outline, a fixed
     /// colour, automatic for the colour of the series (as an automatic marker edge is), or
-    /// colormapped, which gives the outline of each bar the colour of its bar's value
+    /// colourmapped, which gives the outline of each bar the colour of its bar's value
     /// through the colour scale.
     pub edge: LineStyle,
     /// The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies the
@@ -915,12 +915,12 @@ impl Default for Bar {
             base: PerBar::default(),
             width: BarWidth::default(),
             offset: BarOffset::default(),
-            face: ColorSpec::Auto,
-            color_data: None,
-            color_scale: None,
+            face: ColourSpec::Auto,
+            colour_data: None,
+            colour_scale: None,
             edge: LineStyle {
-                color: ColorSpec::Rgba {
-                    color: Color::BLACK,
+                colour: ColourSpec::Rgba {
+                    colour: Colour::BLACK,
                 },
                 width_pt: 0.5,
                 dash: DashStyle::Solid,
@@ -940,7 +940,7 @@ pub(crate) const DEFAULT_BAR_MARGIN: f64 = 0.05;
 /// colour is given.
 fn no_edge() -> LineStyle {
     LineStyle {
-        color: ColorSpec::None,
+        colour: ColourSpec::None,
         width_pt: 0.5,
         dash: DashStyle::Solid,
     }
@@ -1030,7 +1030,7 @@ pub struct Binning {
     #[schemars(default)]
     pub range: Option<[f64; 2]>,
     /// How the counts of the bins were normalised into the values drawn.
-    pub normalization: HistNorm,
+    pub normalisation: HistNorm,
     /// The total the values were normalised by, finite and not negative: the number of
     /// samples counted into the bins, or, for one of several histograms normalised
     /// together, as the members of a stack are, the number counted into the bins of all
@@ -1067,7 +1067,7 @@ pub struct Binning2d {
     #[schemars(default)]
     pub y_range: Option<[f64; 2]>,
     /// How the counts of the bins were normalised into the values drawn.
-    pub normalization: HistNorm,
+    pub normalisation: HistNorm,
     /// The count below which a bin was left empty, or `None` when every bin was drawn: a
     /// number of samples, finite and not negative.
     #[schemars(default)]
@@ -1172,12 +1172,12 @@ pub struct Stairs {
     #[schemars(!skip_serializing_if)]
     pub base: Option<f64>,
     /// The style of the outline, whose automatic colour is the next colour of the colour
-    /// order. A colormapped colour is invalid, because stairs have no colour data and no
+    /// order. A colourmapped colour is invalid, because stairs have no colour data and no
     /// colour scale.
     pub line: LineStyle,
     /// The colour of the area between the outline and the base, or none for no fill. A
-    /// fill other than none needs a base; a colormapped fill is invalid.
-    pub fill: ColorSpec,
+    /// fill other than none needs a base; a colourmapped fill is invalid.
+    pub fill: ColourSpec,
     /// The opacity of the outline, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of its colour.
     ///
@@ -1214,7 +1214,7 @@ impl Default for Stairs {
             data: StairsData::default(),
             base: None,
             line: LineStyle::default(),
-            fill: ColorSpec::None,
+            fill: ColourSpec::None,
             line_opacity: 1.0,
             fill_opacity: 1.0,
             binning: None,
@@ -1325,12 +1325,12 @@ pub struct Cells {
     /// The fraction of each cell's extent left empty, along x and along y.
     pub gap: CellGap,
     /// The style of the outline of every cell; a colour of none draws no outline, and an
-    /// automatic or colormapped colour gives each outline the colour of its cell.
+    /// automatic or colourmapped colour gives each outline the colour of its cell.
     pub edge: LineStyle,
     /// The colour scale through which the values are mapped. Cells always map their
     /// values, so a figure in which they name no scale is invalid.
     #[schemars(default)]
-    pub color_scale: Option<NodeId>,
+    pub colour_scale: Option<NodeId>,
     /// The alpha of every cell, a two-dimensional array with the same shape as `values`,
     /// or `None` for cells that are uniformly opaque before
     /// [`face_opacity`](Cells::face_opacity) applies. The array may hold floating-point values from
@@ -1379,7 +1379,7 @@ impl Default for Cells {
             rows: CellEdges::Unit,
             gap: CellGap::default(),
             edge: no_edge(),
-            color_scale: None,
+            colour_scale: None,
             alpha: None,
             face_opacity: 1.0,
             edge_opacity: 1.0,

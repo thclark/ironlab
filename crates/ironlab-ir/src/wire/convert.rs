@@ -11,20 +11,20 @@ use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
     AngleUnits, Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, AxisSide, Bar, BarOffset,
-    BarWidth, BinRule, Binning, Binning2d, Bins, CategoricalColorScale, Cell, CellEdges, CellGap,
-    Cells, Color, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap,
-    ColormapName, ContinuousColorScale, Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS,
-    DashStyle, DataArray, Dimension, DiscreteColorScale, Edit, Embolden, Figure, FigureSize,
-    FontSetId, Grid, HistNorm, Image, ImagePlacement, ImagePlane, IndexedColorScale,
-    InsideColorbar, InsideColorbarSide, InsideLegend, Interpreter, Legend, LegendEntries,
-    LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
-    LegendLocation, LegendSample, Levels, Limits, LineStyle, MarkerShape, MarkerStyle, NdArray,
-    NdArrayElement, Node, NodeId, Orientation, OutOfRange, Panel, PanelColorbar, PanelContent,
-    PanelLegend, PanelLocation, Parameter, PerBar, PixelRange, PolarAngle, PolarView, Projection,
-    Provenance, Quiver, QuiverScale, ScalarImage, Scale, Series, SphericalView, Stairs, StairsData,
-    StepAt, Surface, Text, TickLabels, Ticks, TileLayout, TitleAlign, TrackSize, Transaction,
-    Value, Values, View3d,
+    BarWidth, BinRule, Binning, Binning2d, Bins, CategoricalColourScale, Cell, CellEdges, CellGap,
+    Cells, Colour, ColourCategory, ColourScale, ColourScaleKind, ColourScaleLevels,
+    ColourScaleNorm, ColourScaleOutOfRange, ColourSpec, ColourbarOrientation,
+    ColourbarTitlePlacement, Colourmap, ColourmapName, ContinuousColourScale, Contour,
+    ContourPlacement, Coords, DEFAULT_BAR_ROWS, DashStyle, DataArray, Dimension,
+    DiscreteColourScale, Edit, Embolden, Figure, FigureSize, FontSetId, Grid, HistNorm, Image,
+    ImagePlacement, ImagePlane, IndexedColourScale, InsideColourbar, InsideColourbarSide,
+    InsideLegend, Interpreter, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
+    LegendEntryOrder, LegendItem, LegendItemContent, LegendLocation, LegendSample, Levels, Limits,
+    LineStyle, MarkerShape, MarkerStyle, NdArray, NdArrayElement, Node, NodeId, Orientation,
+    OutOfRange, Panel, PanelColourbar, PanelContent, PanelLegend, PanelLocation, Parameter, PerBar,
+    PixelRange, PolarAngle, PolarView, Projection, Provenance, Quiver, QuiverScale, ScalarImage,
+    Scale, Series, SphericalView, Stairs, StairsData, StepAt, Surface, Text, TickLabels, Ticks,
+    TileLayout, TitleAlign, TrackSize, Transaction, Value, Values, View3d,
 };
 
 type Result<T> = std::result::Result<T, ProtobufError>;
@@ -102,21 +102,21 @@ wire_enum! {
     Embolden => Embolden { Regular, Medium, Semibold }
     Interpreter => Interpreter { Latex, None }
     Scale => Scale { Linear, Log }
-    ColormapName => ColormapName { Viridis, Cividis, Magma, Inferno, Plasma, Coolwarm, Gray }
-    ColorScaleNorm => ColorScaleNorm { Linear, Log }
+    ColourmapName => ColourmapName { Viridis, Cividis, Magma, Inferno, Plasma, Coolwarm, Grey }
+    ColourScaleNorm => ColourScaleNorm { Linear, Log }
     LegendLocation => LegendLocation {
-        NorthEast, NorthWest, SouthEast, SouthWest, North, South, East, West, Center, Best,
+        NorthEast, NorthWest, SouthEast, SouthWest, North, South, East, West, Centre, Best,
     }
     PanelLocation => PanelLocation {
-        Center, North, South, East, West, NorthEast, NorthWest, SouthEast, SouthWest,
+        Centre, North, South, East, West, NorthEast, NorthWest, SouthEast, SouthWest,
     }
     LegendEntryOrder => LegendEntryOrder { ColumnMajor, RowMajor }
-    ColorbarOrientation => ColorbarOrientation { Vertical, Horizontal }
-    ColorbarTitlePlacement => ColorbarTitlePlacement { Along, Above }
-    InsideColorbarSide => InsideColorbarSide { South, North, East, West }
+    ColourbarOrientation => ColourbarOrientation { Vertical, Horizontal }
+    ColourbarTitlePlacement => ColourbarTitlePlacement { Along, Above }
+    InsideColourbarSide => InsideColourbarSide { South, North, East, West }
     DashStyle => DashStyle { Solid, Dashed, Dotted, DashDot, None, DashDotDot, LongDash }
     AspectAdjust => AspectAdjust { Box, Limits }
-    TitleAlign => TitleAlign { Center, Left, Right }
+    TitleAlign => TitleAlign { Centre, Left, Right }
     PolarAngle => PolarAngle { Elevation, Inclination }
     AxisSide => AxisSide { Low, Centre, High }
     MarkerShape => MarkerShape {
@@ -147,10 +147,14 @@ impl From<&Figure> for w::Figure {
             font_set: figure.font_set.to_wire(),
             font_size_pt: Some(figure.font_size_pt),
             embolden: figure.embolden.to_wire(),
-            background: Some(encode_color(figure.background)),
+            background: Some(encode_colour(figure.background)),
             layout: Some(encode_tile_layout(&figure.layout)),
             data: figure.data.iter().map(DataArray::encode).collect(),
-            color_scales: figure.color_scales.iter().map(ColorScale::encode).collect(),
+            colour_scales: figure
+                .colour_scales
+                .iter()
+                .map(ColourScale::encode)
+                .collect(),
             axes: figure.axes.iter().map(Axes::encode).collect(),
             links: encode_links(&figure.links),
             provenance: Some(w::Provenance {
@@ -270,30 +274,30 @@ fn encode_text(text: &Text) -> w::Text {
     }
 }
 
-fn encode_color(color: Color) -> w::Color {
-    w::Color {
-        r: color.r,
-        g: color.g,
-        b: color.b,
-        a: color.a,
+fn encode_colour(colour: Colour) -> w::Colour {
+    w::Colour {
+        r: colour.r,
+        g: colour.g,
+        b: colour.b,
+        a: colour.a,
     }
 }
 
-fn encode_color_spec(spec: ColorSpec) -> w::ColorSpec {
+fn encode_colour_spec(spec: ColourSpec) -> w::ColourSpec {
     let kind = match spec {
-        ColorSpec::Auto => w::ColorSpecKind::Auto(w::ColorSpecAuto {}),
-        ColorSpec::Rgba { color } => w::ColorSpecKind::Rgba(w::ColorSpecRgba {
-            color: Some(encode_color(color)),
+        ColourSpec::Auto => w::ColourSpecKind::Auto(w::ColourSpecAuto {}),
+        ColourSpec::Rgba { colour } => w::ColourSpecKind::Rgba(w::ColourSpecRgba {
+            colour: Some(encode_colour(colour)),
         }),
-        ColorSpec::None => w::ColorSpecKind::None(w::ColorSpecNone {}),
-        ColorSpec::Colormapped => w::ColorSpecKind::Colormapped(w::ColorSpecColormapped {}),
+        ColourSpec::None => w::ColourSpecKind::None(w::ColourSpecNone {}),
+        ColourSpec::Colourmapped => w::ColourSpecKind::Colourmapped(w::ColourSpecColourmapped {}),
     };
-    w::ColorSpec { kind: Some(kind) }
+    w::ColourSpec { kind: Some(kind) }
 }
 
 fn encode_line_style(style: LineStyle) -> w::LineStyle {
     w::LineStyle {
-        color: Some(encode_color_spec(style.color)),
+        colour: Some(encode_colour_spec(style.colour)),
         width_pt: Some(style.width_pt),
         dash: style.dash.to_wire(),
     }
@@ -303,8 +307,8 @@ fn encode_marker_style(style: MarkerStyle) -> w::MarkerStyle {
     w::MarkerStyle {
         shape: style.shape.to_wire(),
         size_pt: Some(style.size_pt),
-        face: Some(encode_color_spec(style.face)),
-        edge: Some(encode_color_spec(style.edge)),
+        face: Some(encode_colour_spec(style.face)),
+        edge: Some(encode_colour_spec(style.edge)),
     }
 }
 
@@ -471,9 +475,9 @@ fn encode_panel_content(content: &PanelContent) -> w::PanelContent {
         PanelContent::Legend(legend) => w::PanelContentKind::Legend(w::PanelContentLegend {
             legend: Some(encode_panel_legend(legend)),
         }),
-        PanelContent::Colorbar(colorbar) => {
-            w::PanelContentKind::Colorbar(w::PanelContentColorbar {
-                colorbar: Some(encode_panel_colorbar(*colorbar)),
+        PanelContent::Colourbar(colourbar) => {
+            w::PanelContentKind::Colourbar(w::PanelContentColourbar {
+                colourbar: Some(encode_panel_colourbar(*colourbar)),
             })
         }
     };
@@ -513,8 +517,8 @@ fn encode_legend_item(item: &LegendItem) -> w::LegendItem {
                 sample: Some(encode_legend_sample(*sample)),
             })
         }
-        LegendItemContent::ColorScale { scale, rows } => {
-            w::LegendItemContentKind::ColorScale(w::LegendItemContentColorScale {
+        LegendItemContent::ColourScale { scale, rows } => {
+            w::LegendItemContentKind::ColourScale(w::LegendItemContentColourScale {
                 scale: Some(scale.0),
                 rows: Some(*rows),
             })
@@ -532,8 +536,8 @@ fn encode_legend_sample(sample: LegendSample) -> w::LegendSample {
             line: Some(encode_line_style(line)),
             marker: Some(encode_marker_style(marker)),
         }),
-        LegendSample::Swatch { color } => w::LegendSampleKind::Swatch(w::LegendSampleSwatch {
-            color: Some(encode_color(color)),
+        LegendSample::Swatch { colour } => w::LegendSampleKind::Swatch(w::LegendSampleSwatch {
+            colour: Some(encode_colour(colour)),
         }),
     };
     w::LegendSample { kind: Some(kind) }
@@ -574,26 +578,26 @@ impl Encode for Axes {
             title_align: self.title_align.to_wire(),
             aspect: Some(encode_aspect(self.aspect)),
             aspect_adjust: self.aspect_adjust.to_wire(),
-            colorbar: self.colorbar.map(encode_inside_colorbar),
+            colourbar: self.colourbar.map(encode_inside_colourbar),
         }
     }
 }
 
-fn encode_inside_colorbar(colorbar: InsideColorbar) -> w::InsideColorbar {
-    w::InsideColorbar {
-        scale: Some(colorbar.scale.0),
-        side: colorbar.side.to_wire(),
-        length: Some(colorbar.length),
-        title_placement: colorbar.title_placement.to_wire(),
+fn encode_inside_colourbar(colourbar: InsideColourbar) -> w::InsideColourbar {
+    w::InsideColourbar {
+        scale: Some(colourbar.scale.0),
+        side: colourbar.side.to_wire(),
+        length: Some(colourbar.length),
+        title_placement: colourbar.title_placement.to_wire(),
     }
 }
 
-fn encode_panel_colorbar(colorbar: PanelColorbar) -> w::PanelColorbar {
-    w::PanelColorbar {
-        scale: Some(colorbar.scale.0),
-        orientation: colorbar.orientation.to_wire(),
-        length: colorbar.length,
-        title_placement: colorbar.title_placement.to_wire(),
+fn encode_panel_colourbar(colourbar: PanelColourbar) -> w::PanelColourbar {
+    w::PanelColourbar {
+        scale: Some(colourbar.scale.0),
+        orientation: colourbar.orientation.to_wire(),
+        length: colourbar.length,
+        title_placement: colourbar.title_placement.to_wire(),
     }
 }
 
@@ -689,8 +693,8 @@ fn encode_out_of_range(policy: OutOfRange) -> w::OutOfRange {
         OutOfRange::Strict => w::OutOfRangeKind::Strict(w::OutOfRangeStrict {}),
         OutOfRange::Transparent => w::OutOfRangeKind::Transparent(w::OutOfRangeTransparent {}),
         OutOfRange::Clamp => w::OutOfRangeKind::Clamp(w::OutOfRangeClamp {}),
-        OutOfRange::Rgba { color } => w::OutOfRangeKind::Rgba(w::OutOfRangeRgba {
-            color: Some(encode_color(color)),
+        OutOfRange::Rgba { colour } => w::OutOfRangeKind::Rgba(w::OutOfRangeRgba {
+            colour: Some(encode_colour(colour)),
         }),
     };
     w::OutOfRange { kind: Some(kind) }
@@ -710,13 +714,13 @@ impl Encode for Series {
             line: Some(encode_line_style(self.line)),
             marker: Some(encode_marker_style(self.marker)),
             size_data: self.size_data.map(|id| id.0),
-            color_data: self.color_data.map(|id| id.0),
-            color_scale: self.color_scale.map(|id| id.0),
+            colour_data: self.colour_data.map(|id| id.0),
+            colour_scale: self.colour_scale.map(|id| id.0),
             x_coords: self.x_coords.to_wire(),
             y_coords: self.y_coords.to_wire(),
             clip: Some(self.clip),
             base: self.base,
-            fill: Some(encode_color_spec(self.fill)),
+            fill: Some(encode_colour_spec(self.fill)),
             fill_opacity: Some(self.fill_opacity),
         }
     }
@@ -738,7 +742,7 @@ impl Encode for Contour {
             line: Some(encode_line_style(self.line)),
             line_opacity: Some(self.line_opacity),
             fill_opacity: Some(self.fill_opacity),
-            color_scale: self.color_scale.map(|id| id.0),
+            colour_scale: self.colour_scale.map(|id| id.0),
         }
     }
 }
@@ -775,14 +779,14 @@ impl Encode for Surface {
             grid: Some(encode_grid(self.grid)),
             z: Some(self.z.0),
             c: self.c.map(|id| id.0),
-            face: Some(encode_color_spec(self.face)),
-            edge: Some(encode_color_spec(self.edge)),
+            face: Some(encode_colour_spec(self.face)),
+            edge: Some(encode_colour_spec(self.edge)),
             edge_width_pt: Some(self.edge_width_pt),
             face_alpha: self.face_alpha.map(|id| id.0),
             edge_alpha: self.edge_alpha.map(|id| id.0),
             face_opacity: Some(self.face_opacity),
             edge_opacity: Some(self.edge_opacity),
-            color_scale: self.color_scale.map(|id| id.0),
+            colour_scale: self.colour_scale.map(|id| id.0),
         }
     }
 }
@@ -811,7 +815,7 @@ impl Encode for ScalarImage {
             label: self.label.as_ref().map(encode_text),
             visible: Some(self.visible),
             values: Some(self.values.0),
-            color_scale: self.color_scale.map(|id| id.0),
+            colour_scale: self.colour_scale.map(|id| id.0),
             placement: Some(encode_image_placement(self.placement)),
             alpha: self.alpha.map(|id| id.0),
             opacity: Some(self.opacity),
@@ -833,9 +837,9 @@ impl Encode for Bar {
             base: Some(encode_per_bar(self.base)),
             width: Some(encode_bar_width(self.width)),
             offset: Some(encode_bar_offset(self.offset)),
-            face: Some(encode_color_spec(self.face)),
-            color_data: self.color_data.map(|id| id.0),
-            color_scale: self.color_scale.map(|id| id.0),
+            face: Some(encode_colour_spec(self.face)),
+            colour_data: self.colour_data.map(|id| id.0),
+            colour_scale: self.colour_scale.map(|id| id.0),
             edge: Some(encode_line_style(self.edge)),
             face_opacity: Some(self.face_opacity),
             edge_opacity: Some(self.edge_opacity),
@@ -907,7 +911,7 @@ fn encode_binning(binning: &Binning) -> w::Binning {
     w::Binning {
         bins: Some(encode_bins(&binning.bins)),
         range: encode_bin_range(binning.range),
-        normalization: binning.normalization.to_wire(),
+        normalisation: binning.normalisation.to_wire(),
         total: Some(binning.total),
         excluded_non_finite: Some(binning.excluded_non_finite),
         excluded_out_of_range: Some(binning.excluded_out_of_range),
@@ -921,7 +925,7 @@ fn encode_binning_2d(binning: &Binning2d) -> w::Binning2d {
         y_bins: Some(encode_bins(&binning.y_bins)),
         x_range: encode_bin_range(binning.x_range),
         y_range: encode_bin_range(binning.y_range),
-        normalization: binning.normalization.to_wire(),
+        normalisation: binning.normalisation.to_wire(),
         min_count: binning.min_count,
         total: Some(binning.total),
         excluded_non_finite: Some(binning.excluded_non_finite),
@@ -943,7 +947,7 @@ impl Encode for Stairs {
             data: Some(encode_stairs_data(self.data)),
             base: self.base,
             line: Some(encode_line_style(self.line)),
-            fill: Some(encode_color_spec(self.fill)),
+            fill: Some(encode_colour_spec(self.fill)),
             line_opacity: Some(self.line_opacity),
             fill_opacity: Some(self.fill_opacity),
             binning: self.binning.as_ref().map(encode_binning),
@@ -981,7 +985,7 @@ impl Encode for Cells {
             rows: Some(encode_cell_edges(self.rows)),
             gap: Some(encode_cell_gap(self.gap)),
             edge: Some(encode_line_style(self.edge)),
-            color_scale: self.color_scale.map(|id| id.0),
+            colour_scale: self.colour_scale.map(|id| id.0),
             alpha: self.alpha.map(|id| id.0),
             face_opacity: Some(self.face_opacity),
             edge_opacity: Some(self.edge_opacity),
@@ -1007,132 +1011,135 @@ fn encode_cell_gap(gap: CellGap) -> w::CellGap {
     }
 }
 
-impl Encode for ColorScale {
-    type Message = w::ColorScale;
+impl Encode for ColourScale {
+    type Message = w::ColourScale;
 
-    fn encode(&self) -> w::ColorScale {
-        w::ColorScale {
+    fn encode(&self) -> w::ColourScale {
+        w::ColourScale {
             id: Some(self.id.0),
             title: self.title.as_ref().map(encode_text),
-            kind: Some(encode_color_scale_kind(&self.kind)),
-            non_finite: Some(encode_color_scale_out_of_range(&self.non_finite)),
+            kind: Some(encode_colour_scale_kind(&self.kind)),
+            non_finite: Some(encode_colour_scale_out_of_range(&self.non_finite)),
         }
     }
 }
 
-fn encode_color_scale_out_of_range(category: &ColorScaleOutOfRange) -> w::ColorScaleOutOfRange {
-    w::ColorScaleOutOfRange {
+fn encode_colour_scale_out_of_range(category: &ColourScaleOutOfRange) -> w::ColourScaleOutOfRange {
+    w::ColourScaleOutOfRange {
         policy: Some(encode_out_of_range(category.policy)),
         show_key: Some(category.show_key),
         label: category.label.as_ref().map(encode_text),
     }
 }
 
-fn encode_color_scale_kind(kind: &ColorScaleKind) -> w::ColorScaleKind {
+fn encode_colour_scale_kind(kind: &ColourScaleKind) -> w::ColourScaleKind {
     let kind = match kind {
-        ColorScaleKind::Continuous(scale) => {
-            w::ColorScaleKindKind::Continuous(w::ColorScaleKindContinuous {
-                continuous: Some(encode_continuous_color_scale(scale)),
+        ColourScaleKind::Continuous(scale) => {
+            w::ColourScaleKindKind::Continuous(w::ColourScaleKindContinuous {
+                continuous: Some(encode_continuous_colour_scale(scale)),
             })
         }
-        ColorScaleKind::Discrete(scale) => {
-            w::ColorScaleKindKind::Discrete(w::ColorScaleKindDiscrete {
-                discrete: Some(encode_discrete_color_scale(scale)),
+        ColourScaleKind::Discrete(scale) => {
+            w::ColourScaleKindKind::Discrete(w::ColourScaleKindDiscrete {
+                discrete: Some(encode_discrete_colour_scale(scale)),
             })
         }
-        ColorScaleKind::Indexed(scale) => {
-            w::ColorScaleKindKind::Indexed(w::ColorScaleKindIndexed {
-                indexed: Some(encode_indexed_color_scale(scale)),
+        ColourScaleKind::Indexed(scale) => {
+            w::ColourScaleKindKind::Indexed(w::ColourScaleKindIndexed {
+                indexed: Some(encode_indexed_colour_scale(scale)),
             })
         }
-        ColorScaleKind::Categorical(scale) => {
-            w::ColorScaleKindKind::Categorical(w::ColorScaleKindCategorical {
-                categorical: Some(encode_categorical_color_scale(scale)),
+        ColourScaleKind::Categorical(scale) => {
+            w::ColourScaleKindKind::Categorical(w::ColourScaleKindCategorical {
+                categorical: Some(encode_categorical_colour_scale(scale)),
             })
         }
     };
-    w::ColorScaleKind { kind: Some(kind) }
+    w::ColourScaleKind { kind: Some(kind) }
 }
 
-fn encode_continuous_color_scale(scale: &ContinuousColorScale) -> w::ContinuousColorScale {
-    w::ContinuousColorScale {
-        colormap: Some(encode_colormap(&scale.colormap)),
+fn encode_continuous_colour_scale(scale: &ContinuousColourScale) -> w::ContinuousColourScale {
+    w::ContinuousColourScale {
+        colourmap: Some(encode_colourmap(&scale.colourmap)),
         limits: Some(encode_limits(scale.limits)),
         norm: scale.norm.to_wire(),
-        below: Some(encode_color_scale_out_of_range(&scale.below)),
-        above: Some(encode_color_scale_out_of_range(&scale.above)),
+        below: Some(encode_colour_scale_out_of_range(&scale.below)),
+        above: Some(encode_colour_scale_out_of_range(&scale.above)),
         ticks: Some(encode_ticks(&scale.ticks)),
         tick_labels: Some(encode_tick_labels(&scale.tick_labels)),
     }
 }
 
-fn encode_discrete_color_scale(scale: &DiscreteColorScale) -> w::DiscreteColorScale {
-    w::DiscreteColorScale {
-        colormap: Some(encode_colormap(&scale.colormap)),
-        levels: Some(encode_color_scale_levels(&scale.levels)),
+fn encode_discrete_colour_scale(scale: &DiscreteColourScale) -> w::DiscreteColourScale {
+    w::DiscreteColourScale {
+        colourmap: Some(encode_colourmap(&scale.colourmap)),
+        levels: Some(encode_colour_scale_levels(&scale.levels)),
         norm: scale.norm.to_wire(),
-        below: Some(encode_color_scale_out_of_range(&scale.below)),
-        above: Some(encode_color_scale_out_of_range(&scale.above)),
+        below: Some(encode_colour_scale_out_of_range(&scale.below)),
+        above: Some(encode_colour_scale_out_of_range(&scale.above)),
         ticks: Some(encode_ticks(&scale.ticks)),
         tick_labels: Some(encode_tick_labels(&scale.tick_labels)),
     }
 }
 
-fn encode_indexed_color_scale(scale: &IndexedColorScale) -> w::IndexedColorScale {
-    w::IndexedColorScale {
-        colors: scale
-            .colors
+fn encode_indexed_colour_scale(scale: &IndexedColourScale) -> w::IndexedColourScale {
+    w::IndexedColourScale {
+        colours: scale
+            .colours
             .iter()
-            .map(|&color| encode_color(color))
+            .map(|&colour| encode_colour(colour))
             .collect(),
-        outside: Some(encode_color_scale_out_of_range(&scale.outside)),
+        outside: Some(encode_colour_scale_out_of_range(&scale.outside)),
         ticks: Some(encode_ticks(&scale.ticks)),
         tick_labels: Some(encode_tick_labels(&scale.tick_labels)),
     }
 }
 
-fn encode_categorical_color_scale(scale: &CategoricalColorScale) -> w::CategoricalColorScale {
-    w::CategoricalColorScale {
+fn encode_categorical_colour_scale(scale: &CategoricalColourScale) -> w::CategoricalColourScale {
+    w::CategoricalColourScale {
         categories: scale
             .categories
             .iter()
-            .map(|category| w::ColorCategory {
-                color: Some(encode_color(category.color)),
+            .map(|category| w::ColourCategory {
+                colour: Some(encode_colour(category.colour)),
                 label: Some(encode_text(&category.label)),
             })
             .collect(),
-        outside: Some(encode_color_scale_out_of_range(&scale.outside)),
+        outside: Some(encode_colour_scale_out_of_range(&scale.outside)),
     }
 }
 
-fn encode_colormap(colormap: &Colormap) -> w::Colormap {
-    let kind = match colormap {
-        Colormap::Named { name, reverse } => w::ColormapKind::Named(w::ColormapNamed {
+fn encode_colourmap(colourmap: &Colourmap) -> w::Colourmap {
+    let kind = match colourmap {
+        Colourmap::Named { name, reverse } => w::ColourmapKind::Named(w::ColourmapNamed {
             name: name.to_wire(),
             reverse: Some(*reverse),
         }),
-        Colormap::Listed { colors } => w::ColormapKind::Listed(w::ColormapListed {
-            colors: colors.iter().map(|&color| encode_color(color)).collect(),
+        Colourmap::Listed { colours } => w::ColourmapKind::Listed(w::ColourmapListed {
+            colours: colours
+                .iter()
+                .map(|&colour| encode_colour(colour))
+                .collect(),
         }),
     };
-    w::Colormap { kind: Some(kind) }
+    w::Colourmap { kind: Some(kind) }
 }
 
-fn encode_color_scale_levels(levels: &ColorScaleLevels) -> w::ColorScaleLevels {
+fn encode_colour_scale_levels(levels: &ColourScaleLevels) -> w::ColourScaleLevels {
     let kind = match levels {
-        ColorScaleLevels::Auto { count, limits } => {
-            w::ColorScaleLevelsKind::Auto(w::ColorScaleLevelsAuto {
+        ColourScaleLevels::Auto { count, limits } => {
+            w::ColourScaleLevelsKind::Auto(w::ColourScaleLevelsAuto {
                 count: Some(*count),
                 limits: Some(encode_limits(*limits)),
             })
         }
-        ColorScaleLevels::Explicit { values } => {
-            w::ColorScaleLevelsKind::Explicit(w::ColorScaleLevelsExplicit {
+        ColourScaleLevels::Explicit { values } => {
+            w::ColourScaleLevelsKind::Explicit(w::ColourScaleLevelsExplicit {
                 values: values.clone(),
             })
         }
     };
-    w::ColorScaleLevels { kind: Some(kind) }
+    w::ColourScaleLevels { kind: Some(kind) }
 }
 
 // ---------------------------------------------------------------------------------
@@ -1199,11 +1206,11 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         .enumerate()
         .map(|(i, data)| DataArray::decode(data, &format!("data[{i}]")))
         .collect::<Result<Vec<_>>>()?;
-    let color_scales = wire
-        .color_scales
+    let colour_scales = wire
+        .colour_scales
         .into_iter()
         .enumerate()
-        .map(|(i, scale)| ColorScale::decode(scale, &format!("color_scales[{i}]")))
+        .map(|(i, scale)| ColourScale::decode(scale, &format!("colour_scales[{i}]")))
         .collect::<Result<Vec<_>>>()?;
     let axes = wire
         .axes
@@ -1234,14 +1241,14 @@ fn decode_figure(wire: w::Figure) -> Result<Figure> {
         font_set: decode_enum(wire.font_set, Some(default.font_set), "", "font_set")?,
         font_size_pt: wire.font_size_pt.unwrap_or(default.font_size_pt),
         embolden: decode_enum(wire.embolden, Some(default.embolden), "", "embolden")?,
-        background: wire.background.map_or(default.background, decode_color),
+        background: wire.background.map_or(default.background, decode_colour),
         layout: wire
             .layout
             .map(|layout| decode_tile_layout(layout, "layout"))
             .transpose()?
             .unwrap_or(default.layout),
         data,
-        color_scales,
+        colour_scales,
         axes,
         panels,
         links,
@@ -1456,28 +1463,28 @@ fn decode_panel_content(wire: Option<w::PanelContent>, at: &str) -> Result<Panel
                 None => PanelLegend::default(),
             })
         }
-        w::PanelContentKind::Colorbar(content) => {
-            let at = join(at, "colorbar");
-            let colorbar = required(content.colorbar, &at, "colorbar")?;
-            PanelContent::Colorbar(decode_panel_colorbar(colorbar, &join(&at, "colorbar"))?)
+        w::PanelContentKind::Colourbar(content) => {
+            let at = join(at, "colourbar");
+            let colourbar = required(content.colourbar, &at, "colourbar")?;
+            PanelContent::Colourbar(decode_panel_colourbar(colourbar, &join(&at, "colourbar"))?)
         }
     })
 }
 
 /// Decodes the colourbar content of a panel, which must name its scale.
-fn decode_panel_colorbar(wire: w::PanelColorbar, at: &str) -> Result<PanelColorbar> {
-    Ok(PanelColorbar {
+fn decode_panel_colourbar(wire: w::PanelColourbar, at: &str) -> Result<PanelColourbar> {
+    Ok(PanelColourbar {
         scale: reference(wire.scale, at, "scale")?,
         orientation: decode_enum(
             wire.orientation,
-            Some(ColorbarOrientation::default()),
+            Some(ColourbarOrientation::default()),
             at,
             "orientation",
         )?,
         length: wire.length,
         title_placement: decode_enum(
             wire.title_placement,
-            Some(ColorbarTitlePlacement::default()),
+            Some(ColourbarTitlePlacement::default()),
             at,
             "title_placement",
         )?,
@@ -1485,9 +1492,9 @@ fn decode_panel_colorbar(wire: w::PanelColorbar, at: &str) -> Result<PanelColorb
 }
 
 /// Decodes the colourbar inside an axes, which must name its scale.
-fn decode_inside_colorbar(wire: w::InsideColorbar, at: &str) -> Result<InsideColorbar> {
-    let default = InsideColorbar::default();
-    Ok(InsideColorbar {
+fn decode_inside_colourbar(wire: w::InsideColourbar, at: &str) -> Result<InsideColourbar> {
+    let default = InsideColourbar::default();
+    Ok(InsideColourbar {
         scale: reference(wire.scale, at, "scale")?,
         side: decode_enum(wire.side, Some(default.side), at, "side")?,
         length: wire.length.unwrap_or(default.length),
@@ -1547,10 +1554,10 @@ fn decode_legend_item(wire: w::LegendItem, at: &str) -> Result<LegendItem> {
                     sample: decode_legend_sample(custom.sample, &at)?,
                 }
             }
-            w::LegendItemContentKind::ColorScale(scale) => LegendItemContent::ColorScale {
+            w::LegendItemContentKind::ColourScale(scale) => LegendItemContent::ColourScale {
                 scale: NodeId(required(
                     scale.scale,
-                    &join(at, "content.color_scale"),
+                    &join(at, "content.colour_scale"),
                     "scale",
                 )?),
                 rows: scale.rows.unwrap_or(DEFAULT_BAR_ROWS),
@@ -1579,7 +1586,7 @@ fn decode_legend_sample(wire: Option<w::LegendSample>, at: &str) -> Result<Legen
             }
         }
         w::LegendSampleKind::Swatch(swatch) => LegendSample::Swatch {
-            color: swatch.color.map(decode_color).unwrap_or_default(),
+            colour: swatch.colour.map(decode_colour).unwrap_or_default(),
         },
     })
 }
@@ -1629,19 +1636,19 @@ fn decode_label(wire: Option<w::Text>, at: &str) -> Result<Option<Text>> {
     wire.map(|t| decode_text(t, &join(at, "label"))).transpose()
 }
 
-fn decode_color(wire: w::Color) -> Color {
-    Color::rgba(wire.r, wire.g, wire.b, wire.a)
+fn decode_colour(wire: w::Colour) -> Colour {
+    Colour::rgba(wire.r, wire.g, wire.b, wire.a)
 }
 
-fn decode_color_spec(wire: Option<w::ColorSpec>, default: ColorSpec) -> ColorSpec {
+fn decode_colour_spec(wire: Option<w::ColourSpec>, default: ColourSpec) -> ColourSpec {
     match wire.and_then(|spec| spec.kind) {
         None => default,
-        Some(w::ColorSpecKind::Auto(_)) => ColorSpec::Auto,
-        Some(w::ColorSpecKind::Rgba(rgba)) => ColorSpec::Rgba {
-            color: rgba.color.map(decode_color).unwrap_or_default(),
+        Some(w::ColourSpecKind::Auto(_)) => ColourSpec::Auto,
+        Some(w::ColourSpecKind::Rgba(rgba)) => ColourSpec::Rgba {
+            colour: rgba.colour.map(decode_colour).unwrap_or_default(),
         },
-        Some(w::ColorSpecKind::None(_)) => ColorSpec::None,
-        Some(w::ColorSpecKind::Colormapped(_)) => ColorSpec::Colormapped,
+        Some(w::ColourSpecKind::None(_)) => ColourSpec::None,
+        Some(w::ColourSpecKind::Colourmapped(_)) => ColourSpec::Colourmapped,
     }
 }
 
@@ -1652,7 +1659,7 @@ fn decode_line_style(
 ) -> Result<LineStyle> {
     let wire = wire.unwrap_or_default();
     Ok(LineStyle {
-        color: decode_color_spec(wire.color, default.color),
+        colour: decode_colour_spec(wire.colour, default.colour),
         width_pt: wire.width_pt.unwrap_or(default.width_pt),
         dash: decode_enum(wire.dash, Some(default.dash), at, "dash")?,
     })
@@ -1667,8 +1674,8 @@ fn decode_marker_style(
     Ok(MarkerStyle {
         shape: decode_enum(wire.shape, Some(default.shape), at, "shape")?,
         size_pt: wire.size_pt.unwrap_or(default.size_pt),
-        face: decode_color_spec(wire.face, default.face),
-        edge: decode_color_spec(wire.edge, default.edge),
+        face: decode_colour_spec(wire.face, default.face),
+        edge: decode_colour_spec(wire.edge, default.edge),
     })
 }
 
@@ -1864,9 +1871,9 @@ impl Decode for Axes {
             x: decode_axis(wire.x, &join(at, "x"))?,
             y: decode_axis(wire.y, &join(at, "y"))?,
             z: decode_axis(wire.z, &join(at, "z"))?,
-            colorbar: wire
-                .colorbar
-                .map(|colorbar| decode_inside_colorbar(colorbar, &join(at, "colorbar")))
+            colourbar: wire
+                .colourbar
+                .map(|colourbar| decode_inside_colourbar(colourbar, &join(at, "colourbar")))
                 .transpose()?,
             box_: wire.r#box.unwrap_or(default.box_),
             legend,
@@ -1890,13 +1897,13 @@ impl Decode for Series {
             line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
             marker: decode_marker_style(wire.marker, default.marker, &join(at, "marker"))?,
             size_data: wire.size_data.map(NodeId),
-            color_data: wire.color_data.map(NodeId),
-            color_scale: wire.color_scale.map(NodeId),
+            colour_data: wire.colour_data.map(NodeId),
+            colour_scale: wire.colour_scale.map(NodeId),
             x_coords: decode_enum(wire.x_coords, Some(default.x_coords), at, "x_coords")?,
             y_coords: decode_enum(wire.y_coords, Some(default.y_coords), at, "y_coords")?,
             clip: wire.clip.unwrap_or(default.clip),
             base: wire.base,
-            fill: decode_color_spec(wire.fill, default.fill),
+            fill: decode_colour_spec(wire.fill, default.fill),
             fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
         })
     }
@@ -1982,7 +1989,7 @@ impl Decode for Contour {
             fill: wire.fill.unwrap_or(default.fill),
             placement,
             line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
-            color_scale: wire.color_scale.map(NodeId),
+            colour_scale: wire.colour_scale.map(NodeId),
             line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
             fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
         })
@@ -2024,10 +2031,10 @@ impl Decode for Surface {
             grid: decode_grid(wire.grid, &join(at, "grid"))?,
             z: reference(wire.z, at, "z")?,
             c: wire.c.map(NodeId),
-            face: decode_color_spec(wire.face, default.face),
-            edge: decode_color_spec(wire.edge, default.edge),
+            face: decode_colour_spec(wire.face, default.face),
+            edge: decode_colour_spec(wire.edge, default.edge),
             edge_width_pt: wire.edge_width_pt.unwrap_or(default.edge_width_pt),
-            color_scale: wire.color_scale.map(NodeId),
+            colour_scale: wire.colour_scale.map(NodeId),
             face_alpha: wire.face_alpha.map(NodeId),
             edge_alpha: wire.edge_alpha.map(NodeId),
             face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
@@ -2084,7 +2091,7 @@ fn decode_out_of_range(wire: Option<w::OutOfRange>, default: OutOfRange) -> OutO
         Some(w::OutOfRangeKind::Transparent(_)) => OutOfRange::Transparent,
         Some(w::OutOfRangeKind::Clamp(_)) => OutOfRange::Clamp,
         Some(w::OutOfRangeKind::Rgba(rgba)) => OutOfRange::Rgba {
-            color: rgba.color.map(decode_color).unwrap_or_default(),
+            colour: rgba.colour.map(decode_colour).unwrap_or_default(),
         },
     }
 }
@@ -2115,7 +2122,7 @@ impl Decode for ScalarImage {
             label: decode_label(wire.label, at)?,
             visible: wire.visible.unwrap_or(default.visible),
             values: reference(wire.values, at, "values")?,
-            color_scale: wire.color_scale.map(NodeId),
+            colour_scale: wire.colour_scale.map(NodeId),
             placement: decode_image_placement(wire.placement, &join(at, "placement"))?,
             alpha: wire.alpha.map(NodeId),
             opacity: wire.opacity.unwrap_or(default.opacity),
@@ -2143,9 +2150,9 @@ impl Decode for Bar {
             base: decode_per_bar(wire.base, default.base, &join(at, "base"))?,
             width: decode_bar_width(wire.width, default.width, &join(at, "width"))?,
             offset: decode_bar_offset(wire.offset, default.offset, &join(at, "offset"))?,
-            face: decode_color_spec(wire.face, default.face),
-            color_data: wire.color_data.map(NodeId),
-            color_scale: wire.color_scale.map(NodeId),
+            face: decode_colour_spec(wire.face, default.face),
+            colour_data: wire.colour_data.map(NodeId),
+            colour_scale: wire.colour_scale.map(NodeId),
             edge: decode_line_style(wire.edge, default.edge, &join(at, "edge"))?,
             face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
             edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
@@ -2250,7 +2257,7 @@ fn decode_binning(wire: w::Binning, at: &str) -> Result<Binning> {
         bins: decode_bins(wire.bins, &join(at, "bins"))?,
         edges: reference(wire.edges, at, "edges")?,
         range: decode_bin_range(wire.range, &join(at, "range"))?,
-        normalization: decode_enum(wire.normalization, None, at, "normalization")?,
+        normalisation: decode_enum(wire.normalisation, None, at, "normalisation")?,
         total: required(wire.total, at, "total")?,
         excluded_non_finite: wire.excluded_non_finite.unwrap_or(0),
         excluded_out_of_range: wire.excluded_out_of_range.unwrap_or(0),
@@ -2266,7 +2273,7 @@ fn decode_binning_2d(wire: w::Binning2d, at: &str) -> Result<Binning2d> {
         y_edges: reference(wire.y_edges, at, "y_edges")?,
         x_range: decode_bin_range(wire.x_range, &join(at, "x_range"))?,
         y_range: decode_bin_range(wire.y_range, &join(at, "y_range"))?,
-        normalization: decode_enum(wire.normalization, None, at, "normalization")?,
+        normalisation: decode_enum(wire.normalisation, None, at, "normalisation")?,
         min_count: wire.min_count,
         total: required(wire.total, at, "total")?,
         excluded_non_finite: wire.excluded_non_finite.unwrap_or(0),
@@ -2292,7 +2299,7 @@ impl Decode for Stairs {
             data: decode_stairs_data(wire.data, &join(at, "data"))?,
             base: wire.base,
             line: decode_line_style(wire.line, default.line, &join(at, "line"))?,
-            fill: decode_color_spec(wire.fill, default.fill),
+            fill: decode_colour_spec(wire.fill, default.fill),
             line_opacity: wire.line_opacity.unwrap_or(default.line_opacity),
             fill_opacity: wire.fill_opacity.unwrap_or(default.fill_opacity),
             binning: wire
@@ -2342,7 +2349,7 @@ impl Decode for Cells {
             rows: decode_cell_edges(wire.rows, default.rows, &join(at, "rows"))?,
             gap: decode_cell_gap(wire.gap, default.gap),
             edge: decode_line_style(wire.edge, default.edge, &join(at, "edge"))?,
-            color_scale: wire.color_scale.map(NodeId),
+            colour_scale: wire.colour_scale.map(NodeId),
             alpha: wire.alpha.map(NodeId),
             face_opacity: wire.face_opacity.unwrap_or(default.face_opacity),
             edge_opacity: wire.edge_opacity.unwrap_or(default.edge_opacity),
@@ -2379,19 +2386,19 @@ fn decode_cell_gap(wire: Option<w::CellGap>, default: CellGap) -> CellGap {
     }
 }
 
-impl Decode for ColorScale {
-    type Message = w::ColorScale;
+impl Decode for ColourScale {
+    type Message = w::ColourScale;
 
-    fn decode(wire: w::ColorScale, at: &str) -> Result<Self> {
-        let default = ColorScale::default();
-        Ok(ColorScale {
+    fn decode(wire: w::ColourScale, at: &str) -> Result<Self> {
+        let default = ColourScale::default();
+        Ok(ColourScale {
             id: node_id(wire.id, at)?,
             title: wire
                 .title
                 .map(|title| decode_text(title, &join(at, "title")))
                 .transpose()?,
-            kind: decode_color_scale_kind(wire.kind, &join(at, "kind"))?,
-            non_finite: decode_color_scale_out_of_range(
+            kind: decode_colour_scale_kind(wire.kind, &join(at, "kind"))?,
+            non_finite: decode_colour_scale_out_of_range(
                 wire.non_finite,
                 default.non_finite.policy,
                 &join(at, "non_finite"),
@@ -2403,14 +2410,14 @@ impl Decode for ColorScale {
 /// Decodes an out-of-range category of a colour scale, whose policy takes
 /// `default_policy`, the default of the category, when it is absent; `at` is the path of
 /// the category itself.
-fn decode_color_scale_out_of_range(
-    wire: Option<w::ColorScaleOutOfRange>,
+fn decode_colour_scale_out_of_range(
+    wire: Option<w::ColourScaleOutOfRange>,
     default_policy: OutOfRange,
     at: &str,
-) -> Result<ColorScaleOutOfRange> {
+) -> Result<ColourScaleOutOfRange> {
     let wire = wire.unwrap_or_default();
-    let default = ColorScaleOutOfRange::new(default_policy);
-    Ok(ColorScaleOutOfRange {
+    let default = ColourScaleOutOfRange::new(default_policy);
+    Ok(ColourScaleOutOfRange {
         policy: decode_out_of_range(wire.policy, default.policy),
         show_key: wire.show_key.unwrap_or(default.show_key),
         label: wire
@@ -2422,33 +2429,33 @@ fn decode_color_scale_out_of_range(
 
 /// Decodes the kind of a colour scale, taking an absent or unset kind, and an absent
 /// scale of a kind, as the defaults; `at` is the path of the kind itself.
-fn decode_color_scale_kind(wire: Option<w::ColorScaleKind>, at: &str) -> Result<ColorScaleKind> {
+fn decode_colour_scale_kind(wire: Option<w::ColourScaleKind>, at: &str) -> Result<ColourScaleKind> {
     Ok(match wire.and_then(|kind| kind.kind) {
-        None => ColorScaleKind::default(),
-        Some(w::ColorScaleKindKind::Continuous(kind)) => {
+        None => ColourScaleKind::default(),
+        Some(w::ColourScaleKindKind::Continuous(kind)) => {
             let at = join(at, "continuous");
-            ColorScaleKind::Continuous(decode_continuous_color_scale(
+            ColourScaleKind::Continuous(decode_continuous_colour_scale(
                 kind.continuous.unwrap_or_default(),
                 &join(&at, "continuous"),
             )?)
         }
-        Some(w::ColorScaleKindKind::Discrete(kind)) => {
+        Some(w::ColourScaleKindKind::Discrete(kind)) => {
             let at = join(at, "discrete");
-            ColorScaleKind::Discrete(decode_discrete_color_scale(
+            ColourScaleKind::Discrete(decode_discrete_colour_scale(
                 kind.discrete.unwrap_or_default(),
                 &join(&at, "discrete"),
             )?)
         }
-        Some(w::ColorScaleKindKind::Indexed(kind)) => {
+        Some(w::ColourScaleKindKind::Indexed(kind)) => {
             let at = join(at, "indexed");
-            ColorScaleKind::Indexed(decode_indexed_color_scale(
+            ColourScaleKind::Indexed(decode_indexed_colour_scale(
                 kind.indexed.unwrap_or_default(),
                 &join(&at, "indexed"),
             )?)
         }
-        Some(w::ColorScaleKindKind::Categorical(kind)) => {
+        Some(w::ColourScaleKindKind::Categorical(kind)) => {
             let at = join(at, "categorical");
-            ColorScaleKind::Categorical(decode_categorical_color_scale(
+            ColourScaleKind::Categorical(decode_categorical_colour_scale(
                 kind.categorical.unwrap_or_default(),
                 &join(&at, "categorical"),
             )?)
@@ -2456,21 +2463,21 @@ fn decode_color_scale_kind(wire: Option<w::ColorScaleKind>, at: &str) -> Result<
     })
 }
 
-fn decode_continuous_color_scale(
-    wire: w::ContinuousColorScale,
+fn decode_continuous_colour_scale(
+    wire: w::ContinuousColourScale,
     at: &str,
-) -> Result<ContinuousColorScale> {
-    let default = ContinuousColorScale::default();
-    Ok(ContinuousColorScale {
-        colormap: decode_colormap(wire.colormap, &join(at, "colormap"))?,
+) -> Result<ContinuousColourScale> {
+    let default = ContinuousColourScale::default();
+    Ok(ContinuousColourScale {
+        colourmap: decode_colourmap(wire.colourmap, &join(at, "colourmap"))?,
         limits: decode_limits(wire.limits, default.limits, &join(at, "limits"))?,
         norm: decode_enum(wire.norm, Some(default.norm), at, "norm")?,
-        below: decode_color_scale_out_of_range(
+        below: decode_colour_scale_out_of_range(
             wire.below,
             default.below.policy,
             &join(at, "below"),
         )?,
-        above: decode_color_scale_out_of_range(
+        above: decode_colour_scale_out_of_range(
             wire.above,
             default.above.policy,
             &join(at, "above"),
@@ -2480,21 +2487,21 @@ fn decode_continuous_color_scale(
     })
 }
 
-fn decode_discrete_color_scale(
-    wire: w::DiscreteColorScale,
+fn decode_discrete_colour_scale(
+    wire: w::DiscreteColourScale,
     at: &str,
-) -> Result<DiscreteColorScale> {
-    let default = DiscreteColorScale::default();
-    Ok(DiscreteColorScale {
-        colormap: decode_colormap(wire.colormap, &join(at, "colormap"))?,
-        levels: decode_color_scale_levels(wire.levels, &join(at, "levels"))?,
+) -> Result<DiscreteColourScale> {
+    let default = DiscreteColourScale::default();
+    Ok(DiscreteColourScale {
+        colourmap: decode_colourmap(wire.colourmap, &join(at, "colourmap"))?,
+        levels: decode_colour_scale_levels(wire.levels, &join(at, "levels"))?,
         norm: decode_enum(wire.norm, Some(default.norm), at, "norm")?,
-        below: decode_color_scale_out_of_range(
+        below: decode_colour_scale_out_of_range(
             wire.below,
             default.below.policy,
             &join(at, "below"),
         )?,
-        above: decode_color_scale_out_of_range(
+        above: decode_colour_scale_out_of_range(
             wire.above,
             default.above.policy,
             &join(at, "above"),
@@ -2504,11 +2511,14 @@ fn decode_discrete_color_scale(
     })
 }
 
-fn decode_indexed_color_scale(wire: w::IndexedColorScale, at: &str) -> Result<IndexedColorScale> {
-    let default = IndexedColorScale::default();
-    Ok(IndexedColorScale {
-        colors: wire.colors.into_iter().map(decode_color).collect(),
-        outside: decode_color_scale_out_of_range(
+fn decode_indexed_colour_scale(
+    wire: w::IndexedColourScale,
+    at: &str,
+) -> Result<IndexedColourScale> {
+    let default = IndexedColourScale::default();
+    Ok(IndexedColourScale {
+        colours: wire.colours.into_iter().map(decode_colour).collect(),
+        outside: decode_colour_scale_out_of_range(
             wire.outside,
             default.outside.policy,
             &join(at, "outside"),
@@ -2519,20 +2529,20 @@ fn decode_indexed_color_scale(wire: w::IndexedColorScale, at: &str) -> Result<In
 }
 
 /// Decodes a categorical colour scale, whose every category must have a label.
-fn decode_categorical_color_scale(
-    wire: w::CategoricalColorScale,
+fn decode_categorical_colour_scale(
+    wire: w::CategoricalColourScale,
     at: &str,
-) -> Result<CategoricalColorScale> {
-    let default = CategoricalColorScale::default();
-    Ok(CategoricalColorScale {
+) -> Result<CategoricalColourScale> {
+    let default = CategoricalColourScale::default();
+    Ok(CategoricalColourScale {
         categories: wire
             .categories
             .into_iter()
             .enumerate()
             .map(|(i, category)| {
                 let at = join(at, &format!("categories[{i}]"));
-                Ok(ColorCategory {
-                    color: category.color.map(decode_color).unwrap_or_default(),
+                Ok(ColourCategory {
+                    colour: category.colour.map(decode_colour).unwrap_or_default(),
                     label: decode_text(
                         required(category.label, &at, "label")?,
                         &join(&at, "label"),
@@ -2540,7 +2550,7 @@ fn decode_categorical_color_scale(
                 })
             })
             .collect::<Result<Vec<_>>>()?,
-        outside: decode_color_scale_out_of_range(
+        outside: decode_colour_scale_out_of_range(
             wire.outside,
             default.outside.policy,
             &join(at, "outside"),
@@ -2548,22 +2558,22 @@ fn decode_categorical_color_scale(
     })
 }
 
-/// Decodes a colormap, taking an absent or unset colormap as viridis and an unspecified
-/// name as viridis; `at` is the path of the colormap itself.
-fn decode_colormap(wire: Option<w::Colormap>, at: &str) -> Result<Colormap> {
-    Ok(match wire.and_then(|colormap| colormap.kind) {
-        None => Colormap::default(),
-        Some(w::ColormapKind::Named(named)) => Colormap::Named {
+/// Decodes a colourmap, taking an absent or unset colourmap as viridis and an unspecified
+/// name as viridis; `at` is the path of the colourmap itself.
+fn decode_colourmap(wire: Option<w::Colourmap>, at: &str) -> Result<Colourmap> {
+    Ok(match wire.and_then(|colourmap| colourmap.kind) {
+        None => Colourmap::default(),
+        Some(w::ColourmapKind::Named(named)) => Colourmap::Named {
             name: decode_enum(
                 named.name,
-                Some(ColormapName::default()),
+                Some(ColourmapName::default()),
                 &join(at, "named"),
                 "name",
             )?,
             reverse: named.reverse.unwrap_or_default(),
         },
-        Some(w::ColormapKind::Listed(listed)) => Colormap::Listed {
-            colors: listed.colors.into_iter().map(decode_color).collect(),
+        Some(w::ColourmapKind::Listed(listed)) => Colourmap::Listed {
+            colours: listed.colours.into_iter().map(decode_colour).collect(),
         },
     })
 }
@@ -2571,22 +2581,22 @@ fn decode_colormap(wire: Option<w::Colormap>, at: &str) -> Result<Colormap> {
 /// Decodes the band edges of a discrete colour scale, taking absent or unset edges as the
 /// default and the absent count or limits of automatic edges as theirs; `at` is the path
 /// of the edges themselves.
-fn decode_color_scale_levels(
-    wire: Option<w::ColorScaleLevels>,
+fn decode_colour_scale_levels(
+    wire: Option<w::ColourScaleLevels>,
     at: &str,
-) -> Result<ColorScaleLevels> {
+) -> Result<ColourScaleLevels> {
     Ok(match wire.and_then(|levels| levels.kind) {
-        None => ColorScaleLevels::default(),
-        Some(w::ColorScaleLevelsKind::Auto(auto)) => {
-            let ColorScaleLevels::Auto { count, limits } = ColorScaleLevels::default() else {
+        None => ColourScaleLevels::default(),
+        Some(w::ColourScaleLevelsKind::Auto(auto)) => {
+            let ColourScaleLevels::Auto { count, limits } = ColourScaleLevels::default() else {
                 unreachable!("the default band edges are automatic");
             };
-            ColorScaleLevels::Auto {
+            ColourScaleLevels::Auto {
                 count: auto.count.unwrap_or(count),
                 limits: decode_limits(auto.limits, limits, &join(at, "automatic.limits"))?,
             }
         }
-        Some(w::ColorScaleLevelsKind::Explicit(explicit)) => ColorScaleLevels::Explicit {
+        Some(w::ColourScaleLevelsKind::Explicit(explicit)) => ColourScaleLevels::Explicit {
             values: explicit.values,
         },
     })
@@ -2676,8 +2686,8 @@ fn encode_value(value: &Value) -> w::Value {
         }),
         Value::FontSetId(v) => w::ValueKind::FontSetId(w::ValueFontSetId { value: v.to_wire() }),
         Value::Embolden(v) => w::ValueKind::Embolden(w::ValueEmbolden { value: v.to_wire() }),
-        Value::Color(v) => w::ValueKind::Color(w::ValueColor {
-            value: Some(encode_color(*v)),
+        Value::Colour(v) => w::ValueKind::Colour(w::ValueColour {
+            value: Some(encode_colour(*v)),
         }),
         Value::TileLayout(v) => w::ValueKind::TileLayout(w::ValueTileLayout {
             value: Some(encode_tile_layout(v)),
@@ -2718,8 +2728,8 @@ fn encode_value(value: &Value) -> w::Value {
         Value::Limits(v) => w::ValueKind::Limits(w::ValueLimits {
             value: Some(encode_limits(*v)),
         }),
-        Value::ColormapName(v) => {
-            w::ValueKind::ColormapName(w::ValueColormapName { value: v.to_wire() })
+        Value::ColourmapName(v) => {
+            w::ValueKind::ColourmapName(w::ValueColourmapName { value: v.to_wire() })
         }
         Value::Legend(v) => w::ValueKind::Legend(w::ValueLegend {
             value: Some(encode_legend(v)),
@@ -2763,8 +2773,8 @@ fn encode_value(value: &Value) -> w::Value {
         Value::TickLabels(v) => w::ValueKind::TickLabels(w::ValueTickLabels {
             value: Some(encode_tick_labels(v)),
         }),
-        Value::ColorSpec(v) => w::ValueKind::ColorSpec(w::ValueColorSpec {
-            value: Some(encode_color_spec(*v)),
+        Value::ColourSpec(v) => w::ValueKind::ColourSpec(w::ValueColourSpec {
+            value: Some(encode_colour_spec(*v)),
         }),
         Value::LineStyle(v) => w::ValueKind::LineStyle(w::ValueLineStyle {
             value: Some(encode_line_style(*v)),
@@ -2801,55 +2811,57 @@ fn encode_value(value: &Value) -> w::Value {
         Value::OutOfRange(v) => w::ValueKind::OutOfRange(w::ValueOutOfRange {
             value: Some(encode_out_of_range(*v)),
         }),
-        Value::ColorScaleOutOfRange(v) => {
-            w::ValueKind::ColorScaleOutOfRange(w::ValueColorScaleOutOfRange {
-                value: Some(encode_color_scale_out_of_range(v)),
+        Value::ColourScaleOutOfRange(v) => {
+            w::ValueKind::ColourScaleOutOfRange(w::ValueColourScaleOutOfRange {
+                value: Some(encode_colour_scale_out_of_range(v)),
             })
         }
-        Value::ColorScaleKind(v) => w::ValueKind::ColorScaleKind(w::ValueColorScaleKind {
-            value: Some(encode_color_scale_kind(v)),
+        Value::ColourScaleKind(v) => w::ValueKind::ColourScaleKind(w::ValueColourScaleKind {
+            value: Some(encode_colour_scale_kind(v)),
         }),
-        Value::ContinuousColorScale(v) => {
-            w::ValueKind::ContinuousColorScale(w::ValueContinuousColorScale {
-                value: Some(encode_continuous_color_scale(v)),
+        Value::ContinuousColourScale(v) => {
+            w::ValueKind::ContinuousColourScale(w::ValueContinuousColourScale {
+                value: Some(encode_continuous_colour_scale(v)),
             })
         }
-        Value::DiscreteColorScale(v) => {
-            w::ValueKind::DiscreteColorScale(w::ValueDiscreteColorScale {
-                value: Some(encode_discrete_color_scale(v)),
+        Value::DiscreteColourScale(v) => {
+            w::ValueKind::DiscreteColourScale(w::ValueDiscreteColourScale {
+                value: Some(encode_discrete_colour_scale(v)),
             })
         }
-        Value::IndexedColorScale(v) => w::ValueKind::IndexedColorScale(w::ValueIndexedColorScale {
-            value: Some(encode_indexed_color_scale(v)),
-        }),
-        Value::CategoricalColorScale(v) => {
-            w::ValueKind::CategoricalColorScale(w::ValueCategoricalColorScale {
-                value: Some(encode_categorical_color_scale(v)),
+        Value::IndexedColourScale(v) => {
+            w::ValueKind::IndexedColourScale(w::ValueIndexedColourScale {
+                value: Some(encode_indexed_colour_scale(v)),
             })
         }
-        Value::Colormap(v) => w::ValueKind::Colormap(w::ValueColormap {
-            value: Some(encode_colormap(v)),
-        }),
-        Value::ColorScaleNorm(v) => {
-            w::ValueKind::ColorScaleNorm(w::ValueColorScaleNorm { value: v.to_wire() })
+        Value::CategoricalColourScale(v) => {
+            w::ValueKind::CategoricalColourScale(w::ValueCategoricalColourScale {
+                value: Some(encode_categorical_colour_scale(v)),
+            })
         }
-        Value::ColorScaleLevels(v) => w::ValueKind::ColorScaleLevels(w::ValueColorScaleLevels {
-            value: Some(encode_color_scale_levels(v)),
+        Value::Colourmap(v) => w::ValueKind::Colourmap(w::ValueColourmap {
+            value: Some(encode_colourmap(v)),
         }),
-        Value::PanelColorbar(v) => w::ValueKind::PanelColorbar(w::ValuePanelColorbar {
-            value: Some(encode_panel_colorbar(*v)),
-        }),
-        Value::ColorbarOrientation(v) => {
-            w::ValueKind::ColorbarOrientation(w::ValueColorbarOrientation { value: v.to_wire() })
+        Value::ColourScaleNorm(v) => {
+            w::ValueKind::ColourScaleNorm(w::ValueColourScaleNorm { value: v.to_wire() })
         }
-        Value::InsideColorbar(v) => w::ValueKind::InsideColorbar(w::ValueInsideColorbar {
-            value: Some(encode_inside_colorbar(*v)),
+        Value::ColourScaleLevels(v) => w::ValueKind::ColourScaleLevels(w::ValueColourScaleLevels {
+            value: Some(encode_colour_scale_levels(v)),
         }),
-        Value::InsideColorbarSide(v) => {
-            w::ValueKind::InsideColorbarSide(w::ValueInsideColorbarSide { value: v.to_wire() })
+        Value::PanelColourbar(v) => w::ValueKind::PanelColourbar(w::ValuePanelColourbar {
+            value: Some(encode_panel_colourbar(*v)),
+        }),
+        Value::ColourbarOrientation(v) => {
+            w::ValueKind::ColourbarOrientation(w::ValueColourbarOrientation { value: v.to_wire() })
         }
-        Value::ColorbarTitlePlacement(v) => {
-            w::ValueKind::ColorbarTitlePlacement(w::ValueColorbarTitlePlacement {
+        Value::InsideColourbar(v) => w::ValueKind::InsideColourbar(w::ValueInsideColourbar {
+            value: Some(encode_inside_colourbar(*v)),
+        }),
+        Value::InsideColourbarSide(v) => {
+            w::ValueKind::InsideColourbarSide(w::ValueInsideColourbarSide { value: v.to_wire() })
+        }
+        Value::ColourbarTitlePlacement(v) => {
+            w::ValueKind::ColourbarTitlePlacement(w::ValueColourbarTitlePlacement {
                 value: v.to_wire(),
             })
         }
@@ -3042,9 +3054,9 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             &join(at, "embolden_value"),
             "value",
         )?),
-        w::ValueKind::Color(v) => {
-            let (color, _) = value_message(v.value, at, "color_value")?;
-            Value::Color(decode_color(color))
+        w::ValueKind::Colour(v) => {
+            let (colour, _) = value_message(v.value, at, "colour_value")?;
+            Value::Colour(decode_colour(colour))
         }
         w::ValueKind::TileLayout(v) => {
             let (layout, _) = value_message(v.value, at, "tile_layout_value")?;
@@ -3120,10 +3132,10 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             let (limits, at) = value_message(v.value, at, "limits_value")?;
             Value::Limits(decode_limits(Some(limits), Limits::default(), &at)?)
         }
-        w::ValueKind::ColormapName(v) => Value::ColormapName(decode_enum(
+        w::ValueKind::ColourmapName(v) => Value::ColourmapName(decode_enum(
             v.value,
             None,
-            &join(at, "colormap_name_value"),
+            &join(at, "colourmap_name_value"),
             "value",
         )?),
         w::ValueKind::Legend(v) => {
@@ -3200,9 +3212,9 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             let (labels, at) = value_message(v.value, at, "tick_labels_value")?;
             Value::TickLabels(decode_tick_labels(Some(labels), &at)?)
         }
-        w::ValueKind::ColorSpec(v) => {
-            let (spec, _) = value_message(v.value, at, "color_spec_value")?;
-            Value::ColorSpec(decode_color_spec(Some(spec), ColorSpec::default()))
+        w::ValueKind::ColourSpec(v) => {
+            let (spec, _) = value_message(v.value, at, "colour_spec_value")?;
+            Value::ColourSpec(decode_colour_spec(Some(spec), ColourSpec::default()))
         }
         w::ValueKind::LineStyle(v) => {
             let (style, at) = value_message(v.value, at, "line_style_value")?;
@@ -3268,72 +3280,72 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
         }
         // A category has no context from which to take its default policy, so an absent
         // policy within it is transparent, the default of the policy type.
-        w::ValueKind::ColorScaleOutOfRange(v) => {
-            let (category, at) = value_message(v.value, at, "color_scale_out_of_range_value")?;
-            Value::ColorScaleOutOfRange(decode_color_scale_out_of_range(
+        w::ValueKind::ColourScaleOutOfRange(v) => {
+            let (category, at) = value_message(v.value, at, "colour_scale_out_of_range_value")?;
+            Value::ColourScaleOutOfRange(decode_colour_scale_out_of_range(
                 Some(category),
                 OutOfRange::default(),
                 &at,
             )?)
         }
-        w::ValueKind::ColorScaleKind(v) => {
-            let (kind, at) = value_message(v.value, at, "color_scale_kind_value")?;
-            Value::ColorScaleKind(decode_color_scale_kind(Some(kind), &at)?)
+        w::ValueKind::ColourScaleKind(v) => {
+            let (kind, at) = value_message(v.value, at, "colour_scale_kind_value")?;
+            Value::ColourScaleKind(decode_colour_scale_kind(Some(kind), &at)?)
         }
-        w::ValueKind::ContinuousColorScale(v) => {
-            let (scale, at) = value_message(v.value, at, "continuous_color_scale_value")?;
-            Value::ContinuousColorScale(decode_continuous_color_scale(scale, &at)?)
+        w::ValueKind::ContinuousColourScale(v) => {
+            let (scale, at) = value_message(v.value, at, "continuous_colour_scale_value")?;
+            Value::ContinuousColourScale(decode_continuous_colour_scale(scale, &at)?)
         }
-        w::ValueKind::DiscreteColorScale(v) => {
-            let (scale, at) = value_message(v.value, at, "discrete_color_scale_value")?;
-            Value::DiscreteColorScale(decode_discrete_color_scale(scale, &at)?)
+        w::ValueKind::DiscreteColourScale(v) => {
+            let (scale, at) = value_message(v.value, at, "discrete_colour_scale_value")?;
+            Value::DiscreteColourScale(decode_discrete_colour_scale(scale, &at)?)
         }
-        w::ValueKind::IndexedColorScale(v) => {
-            let (scale, at) = value_message(v.value, at, "indexed_color_scale_value")?;
-            Value::IndexedColorScale(decode_indexed_color_scale(scale, &at)?)
+        w::ValueKind::IndexedColourScale(v) => {
+            let (scale, at) = value_message(v.value, at, "indexed_colour_scale_value")?;
+            Value::IndexedColourScale(decode_indexed_colour_scale(scale, &at)?)
         }
-        w::ValueKind::CategoricalColorScale(v) => {
-            let (scale, at) = value_message(v.value, at, "categorical_color_scale_value")?;
-            Value::CategoricalColorScale(decode_categorical_color_scale(scale, &at)?)
+        w::ValueKind::CategoricalColourScale(v) => {
+            let (scale, at) = value_message(v.value, at, "categorical_colour_scale_value")?;
+            Value::CategoricalColourScale(decode_categorical_colour_scale(scale, &at)?)
         }
-        w::ValueKind::Colormap(v) => {
-            let (colormap, at) = value_message(v.value, at, "colormap_value")?;
-            Value::Colormap(decode_colormap(Some(colormap), &at)?)
+        w::ValueKind::Colourmap(v) => {
+            let (colourmap, at) = value_message(v.value, at, "colourmap_value")?;
+            Value::Colourmap(decode_colourmap(Some(colourmap), &at)?)
         }
-        w::ValueKind::ColorScaleNorm(v) => Value::ColorScaleNorm(decode_enum(
+        w::ValueKind::ColourScaleNorm(v) => Value::ColourScaleNorm(decode_enum(
             v.value,
             None,
-            &join(at, "color_scale_norm_value"),
+            &join(at, "colour_scale_norm_value"),
             "value",
         )?),
-        w::ValueKind::ColorScaleLevels(v) => {
-            let (levels, at) = value_message(v.value, at, "color_scale_levels_value")?;
-            Value::ColorScaleLevels(decode_color_scale_levels(Some(levels), &at)?)
+        w::ValueKind::ColourScaleLevels(v) => {
+            let (levels, at) = value_message(v.value, at, "colour_scale_levels_value")?;
+            Value::ColourScaleLevels(decode_colour_scale_levels(Some(levels), &at)?)
         }
-        w::ValueKind::PanelColorbar(v) => {
-            let (colorbar, at) = value_message(v.value, at, "panel_colorbar_value")?;
-            Value::PanelColorbar(decode_panel_colorbar(colorbar, &at)?)
+        w::ValueKind::PanelColourbar(v) => {
+            let (colourbar, at) = value_message(v.value, at, "panel_colourbar_value")?;
+            Value::PanelColourbar(decode_panel_colourbar(colourbar, &at)?)
         }
-        w::ValueKind::ColorbarOrientation(v) => Value::ColorbarOrientation(decode_enum(
+        w::ValueKind::ColourbarOrientation(v) => Value::ColourbarOrientation(decode_enum(
             v.value,
             None,
-            &join(at, "colorbar_orientation_value"),
+            &join(at, "colourbar_orientation_value"),
             "value",
         )?),
-        w::ValueKind::InsideColorbar(v) => {
-            let (colorbar, at) = value_message(v.value, at, "inside_colorbar_value")?;
-            Value::InsideColorbar(decode_inside_colorbar(colorbar, &at)?)
+        w::ValueKind::InsideColourbar(v) => {
+            let (colourbar, at) = value_message(v.value, at, "inside_colourbar_value")?;
+            Value::InsideColourbar(decode_inside_colourbar(colourbar, &at)?)
         }
-        w::ValueKind::InsideColorbarSide(v) => Value::InsideColorbarSide(decode_enum(
+        w::ValueKind::InsideColourbarSide(v) => Value::InsideColourbarSide(decode_enum(
             v.value,
             None,
-            &join(at, "inside_colorbar_side_value"),
+            &join(at, "inside_colourbar_side_value"),
             "value",
         )?),
-        w::ValueKind::ColorbarTitlePlacement(v) => Value::ColorbarTitlePlacement(decode_enum(
+        w::ValueKind::ColourbarTitlePlacement(v) => Value::ColourbarTitlePlacement(decode_enum(
             v.value,
             None,
-            &join(at, "colorbar_title_placement_value"),
+            &join(at, "colourbar_title_placement_value"),
             "value",
         )?),
         w::ValueKind::Orientation(v) => Value::Orientation(decode_enum(

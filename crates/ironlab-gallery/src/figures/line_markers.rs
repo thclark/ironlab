@@ -39,7 +39,7 @@ pub fn figure() -> Figure {
         .line_width(1.0);
     ax.plot(&t, &envelope)
         .label(r"$e^{-t/4}$")
-        .color(Color::rgb(0.4, 0.4, 0.4))
+        .colour(Colour::rgb(0.4, 0.4, 0.4))
         .dash(Dash::Dotted);
     ax.xlabel(r"Time $t$ (s)")
         .ylabel(r"Displacement $x(t)$ (m)")

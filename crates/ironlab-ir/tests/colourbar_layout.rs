@@ -3,8 +3,8 @@
 //! and the title of a panel. These tests own the model of those choices: the defaults, the
 //! documented JSON forms, persistence in both formats, validation, and the properties that the
 //! edit registry offers. What each choice draws belongs to the scene tests
-//! (`crates/ironlab-scene/tests/compile/colorbar_layout.rs`) and how the facade sets it to the
-//! facade tests (`crates/ironlab/tests/colorbar_layout.rs`).
+//! (`crates/ironlab-scene/tests/compile/colourbar_layout.rs`) and how the facade sets it to the
+//! facade tests (`crates/ironlab/tests/colourbar_layout.rs`).
 //!
 //! The IR these tests assume:
 //!
@@ -15,7 +15,7 @@
 //! /// The field is named `title_placement`, not `title`, because a `title` is drawn text
 //! /// (ADR 0023) and this is where the scale's title is drawn.
 //! #[serde(rename_all = "snake_case")]
-//! pub enum ColorbarTitlePlacement {
+//! pub enum ColourbarTitlePlacement {
 //!     /// Beyond the tick labels, on their side of the bar, centred on its length: on a
 //!     /// standing bar rotated a quarter turn counter-clockwise, reading from bottom to top.
 //!     #[default]
@@ -28,15 +28,15 @@
 //!     Above,
 //! }
 //! #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
-//! pub struct PanelColorbar {
+//! pub struct PanelColourbar {
 //!     pub scale: NodeId,
-//!     pub orientation: ColorbarOrientation,
+//!     pub orientation: ColourbarOrientation,
 //!     /// The length of the bar, its keys included, as a fraction of the span of the drawn
 //!     /// plot boxes beside it, or `None` for the automatic length: the whole span for a
 //!     /// standing bar and half of it for a lying one. A fraction is a finite number greater
 //!     /// than 0 and at most 1. The bar is placed along the span by the panel's `align`.
 //!     pub length: Option<f64>,                       // new; JSON null when automatic
-//!     pub title_placement: ColorbarTitlePlacement,            // new
+//!     pub title_placement: ColourbarTitlePlacement,            // new
 //! }
 //! pub struct Panel {
 //!     pub id: NodeId,
@@ -51,11 +51,11 @@
 //! }
 //!
 //! // crates/ironlab-ir/src/axes.rs
-//! pub struct InsideColorbar {
+//! pub struct InsideColourbar {
 //!     pub scale: NodeId,
-//!     pub side: InsideColorbarSide,
+//!     pub side: InsideColourbarSide,
 //!     pub length: f64,
-//!     pub title_placement: ColorbarTitlePlacement,            // new; default Along
+//!     pub title_placement: ColourbarTitlePlacement,            // new; default Along
 //! }
 //!
 //! // crates/ironlab-ir/src/legend.rs
@@ -66,12 +66,12 @@
 //!     /// discrete or indexed scale runs; at least 1. It is ignored by a categorical scale,
 //!     /// which lists one entry per category, and by an item on a row of its own, whose bar
 //!     /// lies across the legend; it is validated whatever the kind or the row.
-//!     ColorScale { scale: NodeId, rows: u32 },       // was ColorScale(NodeId)
+//!     ColourScale { scale: NodeId, rows: u32 },       // was ColourScale(NodeId)
 //! }
-//! // JSON: {"type": "color_scale", "value": {"scale": <id>, "rows": 5}}, the form of the
+//! // JSON: {"type": "colour_scale", "value": {"scale": <id>, "rows": 5}}, the form of the
 //! // struct variant `Custom`.
 //! impl LegendItem {
-//!     pub fn color_scale(scale: NodeId) -> Self;     // rows 5, as before
+//!     pub fn colour_scale(scale: NodeId) -> Self;     // rows 5, as before
 //!     /// Returns the item with the bar of a colour-scale item `rows` entry rows long; an
 //!     /// item of any other content is returned unchanged.
 //!     pub fn with_rows(self, rows: u32) -> Self;     // new
@@ -79,20 +79,20 @@
 //! pub const DEFAULT_BAR_ROWS: u32 = 5;               // not required; tests use 5
 //!
 //! // crates/ironlab-ir/src/validate.rs
-//! IssueKind::InvalidColorbarLength  // now also: the length of a panel colourbar is not
+//! IssueKind::InvalidColourbarLength  // now also: the length of a panel colourbar is not
 //!                                   // `None` or a fraction; reported against the panel
 //! IssueKind::InvalidLegendRows      // new: a colour-scale item of a legend has `rows` of 0;
 //!                                   // reported against the legend's owner (the panel, or the
 //!                                   // axes of an inside legend), as InvalidLegendColumns is
 //!
-//! // crates/ironlab-ir/src/edit: Value and ValueType gain ColorbarTitlePlacement; choices offer
+//! // crates/ironlab-ir/src/edit: Value and ValueType gain ColourbarTitlePlacement; choices offer
 //! // Along and Above. Registry paths:
 //! //   Panel: "title" (Text, optional), "title_align" (TitleAlign),
-//! //          "content.colorbar.length" (Double, optional), "content.colorbar.title_placement"
-//! //          (ColorbarTitlePlacement)
-//! //   Axes:  "colorbar.title_placement" (ColorbarTitlePlacement)
+//! //          "content.colourbar.length" (Double, optional), "content.colourbar.title_placement"
+//! //          (ColourbarTitlePlacement)
+//! //   Axes:  "colourbar.title_placement" (ColourbarTitlePlacement)
 //!
-//! // crates/ironlab-ir/src/lib.rs re-exports ColorbarTitlePlacement at the crate root.
+//! // crates/ironlab-ir/src/lib.rs re-exports ColourbarTitlePlacement at the crate root.
 //! ```
 //!
 //! The rules these tests pin, beyond those stated above:
@@ -116,8 +116,8 @@ use common::{
 use ironlab_ir::*;
 use serde_json::{Value as JsonValue, json};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
 
 /// Returns whether a list of issues holds one of the given kind against the given node.
 fn has(issues: &[ValidationIssue], kind: IssueKind, node: NodeId) -> bool {
@@ -143,13 +143,13 @@ fn layout() -> Layout {
     let mut b = FigureBuilder::new();
     b.fig.layout = TileLayout::new(1, 3);
     let axes = b.axes2d(0, 0);
-    let speed = b.color_scale(continuous(named(ColormapName::Viridis), Limits::Auto));
-    let status = b.color_scale(categorical(vec![RED, GREEN], OutOfRange::Strict));
+    let speed = b.colour_scale(continuous(named(ColourmapName::Viridis), Limits::Auto));
+    let status = b.colour_scale(categorical(vec![RED, GREEN], OutOfRange::Strict));
     let data = b.matrix(2, 2, |j, i| (j * 2 + i) as f64);
     b.scalar_image(axes, data, Some(speed));
-    b.axes(axes).colorbar = Some(InsideColorbar {
+    b.axes(axes).colourbar = Some(InsideColourbar {
         scale: speed,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     let bar = b.node();
     b.fig.panels.push(Panel {
@@ -160,12 +160,12 @@ fn layout() -> Layout {
             row_span: 1,
             col_span: 1,
         },
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: TitleAlign::Left,
-        content: PanelContent::Colorbar(PanelColorbar {
+        content: PanelContent::Colourbar(PanelColourbar {
             scale: speed,
-            ..PanelColorbar::default()
+            ..PanelColourbar::default()
         }),
     });
     let key = b.node();
@@ -179,8 +179,8 @@ fn layout() -> Layout {
         },
     );
     panel_legend_mut(&mut panel).entries = LegendEntries::Explicit(vec![
-        LegendItem::color_scale(speed),
-        LegendItem::color_scale(status),
+        LegendItem::colour_scale(speed),
+        LegendItem::colour_scale(status),
     ]);
     b.fig.panels.push(panel);
     Layout {
@@ -195,7 +195,7 @@ fn layout() -> Layout {
 
 /// Returns the colourbar of the panel with the given identifier, found without the API under
 /// test.
-fn panel_colorbar_mut(fig: &mut Figure, id: NodeId) -> &mut PanelColorbar {
+fn panel_colourbar_mut(fig: &mut Figure, id: NodeId) -> &mut PanelColourbar {
     match &mut fig
         .panels
         .iter_mut()
@@ -203,7 +203,7 @@ fn panel_colorbar_mut(fig: &mut Figure, id: NodeId) -> &mut PanelColorbar {
         .expect("the fixture panel exists")
         .content
     {
-        PanelContent::Colorbar(colorbar) => colorbar,
+        PanelContent::Colourbar(colourbar) => colourbar,
         PanelContent::Legend(_) => panic!("panel {id} holds a legend"),
     }
 }
@@ -244,20 +244,20 @@ fn property(kind: NodeKind, at: &str) -> Property {
 #[test]
 fn the_layout_choices_have_the_settled_defaults() {
     assert_eq!(
-        ColorbarTitlePlacement::default(),
-        ColorbarTitlePlacement::Along
+        ColourbarTitlePlacement::default(),
+        ColourbarTitlePlacement::Along
     );
-    let panel = PanelColorbar::default();
+    let panel = PanelColourbar::default();
     assert_eq!(panel.length, None, "a panel bar's length is automatic");
-    assert_eq!(panel.title_placement, ColorbarTitlePlacement::Along);
+    assert_eq!(panel.title_placement, ColourbarTitlePlacement::Along);
     assert_eq!(
-        InsideColorbar::default().title_placement,
-        ColorbarTitlePlacement::Along
+        InsideColourbar::default().title_placement,
+        ColourbarTitlePlacement::Along
     );
-    let item = LegendItem::color_scale(NodeId(7));
+    let item = LegendItem::colour_scale(NodeId(7));
     assert_eq!(
         item.content,
-        LegendItemContent::ColorScale {
+        LegendItemContent::ColourScale {
             scale: NodeId(7),
             rows: 5,
         }
@@ -272,15 +272,15 @@ fn the_layout_choices_have_the_settled_defaults() {
 fn with_rows_sets_the_rows_of_a_scale_item_and_leaves_other_items_alone() {
     let scale = NodeId(7);
     assert_eq!(
-        LegendItem::color_scale(scale).with_rows(9),
+        LegendItem::colour_scale(scale).with_rows(9),
         LegendItem {
-            content: LegendItemContent::ColorScale { scale, rows: 9 },
+            content: LegendItemContent::ColourScale { scale, rows: 9 },
             full_row: false,
         }
     );
     let full = LegendItem {
         full_row: true,
-        ..LegendItem::color_scale(scale)
+        ..LegendItem::colour_scale(scale)
     }
     .with_rows(2);
     assert!(full.full_row, "the row of the item is kept");
@@ -301,7 +301,7 @@ fn the_json_forms_of_the_layout_choices_are_documented_snake_case() {
     assert_eq!(
         value["panels"][0]["content"],
         json!({
-            "type": "colorbar",
+            "type": "colourbar",
             "value": {
                 "scale": l.speed.0,
                 "orientation": "vertical",
@@ -313,23 +313,23 @@ fn the_json_forms_of_the_layout_choices_are_documented_snake_case() {
     assert!(value["panels"][0]["title"].is_null(), "an untitled panel");
     assert_eq!(value["panels"][0]["title_align"], json!("left"));
     assert_eq!(
-        value["axes"][0]["colorbar"],
+        value["axes"][0]["colourbar"],
         json!({ "scale": l.speed.0, "side": "south", "length": 0.8, "title_placement": "along" })
     );
     assert_eq!(
         value["panels"][1]["content"]["value"]["entries"]["value"][0],
         json!({
-            "content": { "type": "color_scale", "value": { "scale": l.speed.0, "rows": 5 } },
+            "content": { "type": "colour_scale", "value": { "scale": l.speed.0, "rows": 5 } },
             "full_row": false
         })
     );
     assert_eq!(
-        serde_json::to_value(ColorbarTitlePlacement::Above).unwrap(),
+        serde_json::to_value(ColourbarTitlePlacement::Above).unwrap(),
         json!("above")
     );
 
     let mut fig = l.fig.clone();
-    panel_colorbar_mut(&mut fig, l.bar).length = Some(0.5);
+    panel_colourbar_mut(&mut fig, l.bar).length = Some(0.5);
     let value: JsonValue = serde_json::from_str(&fig.to_json()).unwrap();
     assert_eq!(value["panels"][0]["content"]["value"]["length"], json!(0.5));
     // The documented forms are read back.
@@ -343,25 +343,28 @@ fn the_json_forms_of_the_layout_choices_are_documented_snake_case() {
 fn the_layout_choices_round_trip_through_json_and_protobuf() {
     let l = layout();
     let mut variants = Vec::new();
-    for placement in [ColorbarTitlePlacement::Along, ColorbarTitlePlacement::Above] {
+    for placement in [
+        ColourbarTitlePlacement::Along,
+        ColourbarTitlePlacement::Above,
+    ] {
         for length in [None, Some(1.0), Some(0.375)] {
             for (align, panel_title) in [
                 (TitleAlign::Left, None),
-                (TitleAlign::Center, Some(Text::plain("Speed"))),
+                (TitleAlign::Centre, Some(Text::plain("Speed"))),
                 (TitleAlign::Right, Some(Text::new(r"$\alpha$ (rad)"))),
             ] {
                 let mut fig = l.fig.clone();
-                let bar = panel_colorbar_mut(&mut fig, l.bar);
+                let bar = panel_colourbar_mut(&mut fig, l.bar);
                 bar.title_placement = placement;
                 bar.length = length;
-                bar.orientation = ColorbarOrientation::Horizontal;
-                fig.axes[0].colorbar.as_mut().unwrap().title_placement = placement;
+                bar.orientation = ColourbarOrientation::Horizontal;
+                fig.axes[0].colourbar.as_mut().unwrap().title_placement = placement;
                 for id in [l.bar, l.key] {
                     let panel = panel_mut(&mut fig, id);
                     panel.title = panel_title.clone();
                     panel.title_align = align;
                 }
-                items_mut(&mut fig, l.key)[0] = LegendItem::color_scale(l.speed).with_rows(12);
+                items_mut(&mut fig, l.key)[0] = LegendItem::colour_scale(l.speed).with_rows(12);
                 variants.push(fig);
             }
         }
@@ -390,11 +393,11 @@ fn the_kitchen_sink_figure_holds_every_layout_choice_and_round_trips() {
         fig.panels.iter().any(|p| p.title_align != TitleAlign::Left),
         "a panel title aligned otherwise than the default"
     );
-    let bars: Vec<PanelColorbar> = fig
+    let bars: Vec<PanelColourbar> = fig
         .panels
         .iter()
         .filter_map(|p| match &p.content {
-            PanelContent::Colorbar(c) => Some(*c),
+            PanelContent::Colourbar(c) => Some(*c),
             PanelContent::Legend(_) => None,
         })
         .collect();
@@ -403,23 +406,23 @@ fn the_kitchen_sink_figure_holds_every_layout_choice_and_round_trips() {
         bars.iter().any(|c| c.length.is_none()),
         "an automatic length"
     );
-    let placements: Vec<ColorbarTitlePlacement> = bars
+    let placements: Vec<ColourbarTitlePlacement> = bars
         .iter()
         .map(|c| c.title_placement)
         .chain(
             fig.axes
                 .iter()
-                .filter_map(|a| a.colorbar.map(|c| c.title_placement)),
+                .filter_map(|a| a.colourbar.map(|c| c.title_placement)),
         )
         .collect();
-    assert!(placements.contains(&ColorbarTitlePlacement::Along));
-    assert!(placements.contains(&ColorbarTitlePlacement::Above));
+    assert!(placements.contains(&ColourbarTitlePlacement::Along));
+    assert!(placements.contains(&ColourbarTitlePlacement::Above));
     let rows: Vec<u32> = fig
         .panels
         .iter()
         .filter_map(|p| match &p.content {
             PanelContent::Legend(legend) => Some(&legend.entries),
-            PanelContent::Colorbar(_) => None,
+            PanelContent::Colourbar(_) => None,
         })
         .filter_map(|e| match e {
             LegendEntries::Explicit(items) => Some(items),
@@ -427,7 +430,7 @@ fn the_kitchen_sink_figure_holds_every_layout_choice_and_round_trips() {
         })
         .flatten()
         .filter_map(|item| match item.content {
-            LegendItemContent::ColorScale { rows, .. } => Some(rows),
+            LegendItemContent::ColourScale { rows, .. } => Some(rows),
             _ => None,
         })
         .collect();
@@ -452,7 +455,7 @@ fn the_length_of_a_panel_colourbar_is_automatic_or_a_fraction_of_its_span() {
     let l = layout();
     for length in [None, Some(1.0), Some(0.5), Some(1e-3)] {
         let mut fig = l.fig.clone();
-        panel_colorbar_mut(&mut fig, l.bar).length = length;
+        panel_colourbar_mut(&mut fig, l.bar).length = length;
         let report = fig.validate();
         assert_eq!(report.errors, vec![], "{length:?}");
     }
@@ -466,10 +469,10 @@ fn the_length_of_a_panel_colourbar_is_automatic_or_a_fraction_of_its_span() {
         f64::NEG_INFINITY,
     ] {
         let mut fig = l.fig.clone();
-        panel_colorbar_mut(&mut fig, l.bar).length = Some(length);
+        panel_colourbar_mut(&mut fig, l.bar).length = Some(length);
         let report = fig.validate();
         assert!(
-            has(&report.errors, IssueKind::InvalidColorbarLength, l.bar),
+            has(&report.errors, IssueKind::InvalidColourbarLength, l.bar),
             "{length}: {report:?}"
         );
     }
@@ -482,11 +485,11 @@ fn the_length_of_a_panel_colourbar_is_automatic_or_a_fraction_of_its_span() {
 fn a_bar_item_of_no_rows_is_refused_against_its_legend() {
     let l = layout();
     let mut fig = l.fig.clone();
-    items_mut(&mut fig, l.key)[0] = LegendItem::color_scale(l.speed).with_rows(1);
+    items_mut(&mut fig, l.key)[0] = LegendItem::colour_scale(l.speed).with_rows(1);
     assert_eq!(fig.validate().errors, vec![], "one row is drawable");
 
     let mut fig = l.fig.clone();
-    items_mut(&mut fig, l.key)[0] = LegendItem::color_scale(l.speed).with_rows(0);
+    items_mut(&mut fig, l.key)[0] = LegendItem::colour_scale(l.speed).with_rows(0);
     let report = fig.validate();
     assert!(
         has(&report.errors, IssueKind::InvalidLegendRows, l.key),
@@ -495,7 +498,7 @@ fn a_bar_item_of_no_rows_is_refused_against_its_legend() {
 
     let mut fig = l.fig.clone();
     fig.axes[0].legend = Some(Legend::Inside(InsideLegend {
-        entries: LegendEntries::Explicit(vec![LegendItem::color_scale(l.speed).with_rows(0)]),
+        entries: LegendEntries::Explicit(vec![LegendItem::colour_scale(l.speed).with_rows(0)]),
         ..InsideLegend::default()
     }));
     let report = fig.validate();
@@ -514,13 +517,13 @@ fn no_rows_is_refused_whatever_the_kind_of_scale_or_the_row_of_the_item() {
     for (what, item) in [
         (
             "a categorical item",
-            LegendItem::color_scale(l.status).with_rows(0),
+            LegendItem::colour_scale(l.status).with_rows(0),
         ),
         (
             "an item on a row of its own",
             LegendItem {
                 full_row: true,
-                ..LegendItem::color_scale(l.speed)
+                ..LegendItem::colour_scale(l.speed)
             }
             .with_rows(0),
         ),
@@ -542,8 +545,8 @@ fn two_items_of_one_scale_with_different_rows_are_still_a_repeated_item() {
     let l = layout();
     let mut fig = l.fig.clone();
     *items_mut(&mut fig, l.key) = vec![
-        LegendItem::color_scale(l.speed),
-        LegendItem::color_scale(l.speed).with_rows(8),
+        LegendItem::colour_scale(l.speed),
+        LegendItem::colour_scale(l.speed).with_rows(8),
     ];
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");
@@ -605,16 +608,16 @@ fn the_registry_lists_the_layout_properties() {
     let align = property(NodeKind::Panel, "title_align");
     assert_eq!(align.value_type, ValueType::TitleAlign);
     assert!(!align.optional);
-    let length = property(NodeKind::Panel, "content.colorbar.length");
+    let length = property(NodeKind::Panel, "content.colourbar.length");
     assert_eq!(length.value_type, ValueType::Double);
     assert!(length.optional, "the automatic length is no fraction");
     assert_eq!(
-        property(NodeKind::Panel, "content.colorbar.title_placement").value_type,
-        ValueType::ColorbarTitlePlacement
+        property(NodeKind::Panel, "content.colourbar.title_placement").value_type,
+        ValueType::ColourbarTitlePlacement
     );
     assert_eq!(
-        property(NodeKind::Axes, "colorbar.title_placement").value_type,
-        ValueType::ColorbarTitlePlacement
+        property(NodeKind::Axes, "colourbar.title_placement").value_type,
+        ValueType::ColourbarTitlePlacement
     );
 }
 
@@ -628,17 +631,17 @@ fn the_layout_properties_are_set_by_path_and_undone() {
         &l.fig,
         &tx([
             set(l.key, "title", Value::Text(Text::plain("Legend"))),
-            set(l.key, "title_align", Value::TitleAlign(TitleAlign::Center)),
+            set(l.key, "title_align", Value::TitleAlign(TitleAlign::Centre)),
             set(
                 l.bar,
-                "content.colorbar.title_placement",
-                Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
+                "content.colourbar.title_placement",
+                Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Above),
             ),
-            set(l.bar, "content.colorbar.length", Value::Double(0.6)),
+            set(l.bar, "content.colourbar.length", Value::Double(0.6)),
             set(
                 l.axes,
-                "colorbar.title_placement",
-                Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
+                "colourbar.title_placement",
+                Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Above),
             ),
         ]),
     )
@@ -649,31 +652,31 @@ fn the_layout_properties_are_set_by_path_and_undone() {
     );
     assert_eq!(
         edited.get(l.key, &path("title_align")).unwrap(),
-        Value::TitleAlign(TitleAlign::Center)
+        Value::TitleAlign(TitleAlign::Centre)
     );
     assert_eq!(
-        edited.get(l.bar, &path("content.colorbar")).unwrap(),
-        Value::PanelColorbar(PanelColorbar {
+        edited.get(l.bar, &path("content.colourbar")).unwrap(),
+        Value::PanelColourbar(PanelColourbar {
             scale: l.speed,
-            orientation: ColorbarOrientation::Vertical,
+            orientation: ColourbarOrientation::Vertical,
             length: Some(0.6),
-            title_placement: ColorbarTitlePlacement::Above,
+            title_placement: ColourbarTitlePlacement::Above,
         })
     );
     assert_eq!(
-        edited.axes[0].colorbar.map(|c| c.title_placement),
-        Some(ColorbarTitlePlacement::Above)
+        edited.axes[0].colourbar.map(|c| c.title_placement),
+        Some(ColourbarTitlePlacement::Above)
     );
     assert_eq!(applied(&edited, &inverse).unwrap().0, l.fig);
 
     let (cleared, _) = applied(
         &edited,
-        &tx([set(l.bar, "content.colorbar.length", Value::Unset)]),
+        &tx([set(l.bar, "content.colourbar.length", Value::Unset)]),
     )
     .unwrap();
     assert_eq!(
         cleared
-            .get(l.bar, &path("content.colorbar.length"))
+            .get(l.bar, &path("content.colourbar.length"))
             .unwrap(),
         Value::Unset
     );
@@ -687,12 +690,12 @@ fn an_edit_setting_an_unusable_panel_bar_length_is_refused() {
     let mut edited = l.fig.clone();
     let result = edited.apply(&tx([set(
         l.bar,
-        "content.colorbar.length",
+        "content.colourbar.length",
         Value::Double(0.0),
     )]));
     assert!(
         matches!(&result, Err(EditError::Invalid(issues))
-            if has(issues, IssueKind::InvalidColorbarLength, l.bar)),
+            if has(issues, IssueKind::InvalidColourbarLength, l.bar)),
         "{result:?}"
     );
     assert_eq!(edited, l.fig);
@@ -702,13 +705,16 @@ fn an_edit_setting_an_unusable_panel_bar_length_is_refused() {
 // the panel's title alignment is the axes' enumeration, so it offers the same three.
 #[test]
 fn the_title_placement_offers_along_and_above() {
-    let offered = choices(ValueType::ColorbarTitlePlacement, None);
+    let offered = choices(ValueType::ColourbarTitlePlacement, None);
     assert_eq!(offered.len(), 2, "{offered:?}");
-    for placement in [ColorbarTitlePlacement::Along, ColorbarTitlePlacement::Above] {
+    for placement in [
+        ColourbarTitlePlacement::Along,
+        ColourbarTitlePlacement::Above,
+    ] {
         assert!(
             offered
                 .iter()
-                .any(|c| c.matches(&Value::ColorbarTitlePlacement(placement))),
+                .any(|c| c.matches(&Value::ColourbarTitlePlacement(placement))),
             "{placement:?}"
         );
     }

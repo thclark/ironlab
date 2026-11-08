@@ -68,12 +68,12 @@ impl TextBlock {
         &self,
         ctx: &mut Ctx,
         origin: Point,
-        color: Rgba,
+        colour: Rgba,
         owner: NodeId,
         out: &mut Vec<Item>,
     ) {
         ctx.check_on_page(owner, &self.source, self.bounds(origin));
-        self.draw(origin, color, owner, out);
+        self.draw(origin, colour, owner, out);
     }
 
     /// Emits the text turned a quarter turn to read upwards, with its baseline origin at `origin` in page space,
@@ -85,11 +85,11 @@ impl TextBlock {
         &self,
         ctx: &mut Ctx,
         origin: Point,
-        color: Rgba,
+        colour: Rgba,
         owner: NodeId,
         out: &mut Vec<Item>,
     ) {
-        self.draw_turned_on_page(ctx, origin, 90.0, color, owner, out);
+        self.draw_turned_on_page(ctx, origin, 90.0, colour, owner, out);
     }
 
     /// Emits the text turned `degrees` anticlockwise, as [`TextBlock::draw_turned`] does, recording a warning about
@@ -99,14 +99,14 @@ impl TextBlock {
         ctx: &mut Ctx,
         origin: Point,
         degrees: f64,
-        color: Rgba,
+        colour: Rgba,
         owner: NodeId,
         out: &mut Vec<Item>,
     ) {
         let b = self.turned_bounds(degrees);
         let bounds = Rect::new(origin.x + b.x, origin.y + b.y, b.width, b.height);
         ctx.check_on_page(owner, &self.source, bounds);
-        self.draw_turned(origin, degrees, color, owner, out);
+        self.draw_turned(origin, degrees, colour, owner, out);
     }
 
     /// Returns the page-space offset of the point `local`, given in the text's own frame (x along the baseline from
@@ -149,11 +149,11 @@ impl TextBlock {
     }
 
     /// Emits the text with its baseline origin at `origin`.
-    pub fn draw(&self, origin: Point, color: Rgba, source: NodeId, out: &mut Vec<Item>) {
+    pub fn draw(&self, origin: Point, colour: Rgba, source: NodeId, out: &mut Vec<Item>) {
         if !paths::finite(origin) {
             return;
         }
-        out.extend(self.items(origin, color, source));
+        out.extend(self.items(origin, colour, source));
     }
 
     /// Emits the text turned `degrees` anticlockwise about its baseline origin, which lies at `origin` in page space.
@@ -163,14 +163,14 @@ impl TextBlock {
         &self,
         origin: Point,
         degrees: f64,
-        color: Rgba,
+        colour: Rgba,
         source: NodeId,
         out: &mut Vec<Item>,
     ) {
         if !paths::finite(origin) || !degrees.is_finite() {
             return;
         }
-        let items = self.items(Point::new(0.0, 0.0), color, source);
+        let items = self.items(Point::new(0.0, 0.0), colour, source);
         if items.is_empty() {
             return;
         }
@@ -188,7 +188,7 @@ impl TextBlock {
     }
 
     /// Converts the layout into display items with the baseline origin at `origin`.
-    fn items(&self, origin: Point, color: Rgba, source: NodeId) -> Vec<Item> {
+    fn items(&self, origin: Point, colour: Rgba, source: NodeId) -> Vec<Item> {
         let mut out = Vec::new();
         for item in &self.layout.items {
             match item {
@@ -216,7 +216,7 @@ impl TextBlock {
                         kind: ItemKind::Glyphs(GlyphsItem {
                             font: run.font,
                             size_pt: run.size_pt,
-                            color,
+                            colour,
                             text: run.text.clone(),
                             glyphs,
                             stroke_em: run.stroke_em,
@@ -238,7 +238,7 @@ impl TextBlock {
                     out.extend(paths::item(
                         source,
                         b.finish(),
-                        Some(paths::fill(color)),
+                        Some(paths::fill(colour)),
                         None,
                     ));
                 }

@@ -31,7 +31,7 @@ pub fn figure() -> Figure {
     ax.scalar_image(&z)
         .pixel_columns(first_x, last_x)
         .pixel_rows(first_y, last_y);
-    ax.surf(&x, &y, &z).edge_color(None);
+    ax.surf(&x, &y, &z).edge_colour(None);
     ax.xlabel("$x$")
         .ylabel("$y$")
         .zlabel(r"$\ln(1 + |z_3|)$");

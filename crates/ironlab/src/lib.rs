@@ -7,8 +7,8 @@
 //! and their relatives (MATLAB's `imagesc` is [`scalar_image`](AxesMut::scalar_image),
 //! and MATLAB's `pcolor` is [`surface`](AxesMut::surface) in a two-dimensional axes).
 //! Colour-mapped plots map their numbers to colours through colour scales, which are
-//! nodes of the figure that plots name: see [`Figure::color_scale`] and
-//! [`AxesMut::color_scale`].
+//! nodes of the figure that plots name: see [`Figure::colour_scale`] and
+//! [`AxesMut::colour_scale`].
 //! Each plotting function returns a handle whose chained setters change the properties
 //! of the new plot, in the way that MATLAB name–value arguments do. The figure can then
 //! be shown in the interactive viewer, saved as a `.fig` file (or as JSON) or exported
@@ -59,9 +59,9 @@
 mod artists;
 mod axes;
 pub mod binning;
-mod color;
-mod color_scale;
-mod colorbar;
+mod colour;
+mod colour_scale;
+mod colourbar;
 mod data;
 mod error;
 mod figure;
@@ -79,9 +79,9 @@ pub use artists::{
 };
 pub use axes::{AxesMut, CategoryRows};
 pub use binning::{BinRule, Bins, HistNorm, HistStyle, HistogramSummary};
-pub use color::IntoColorSpec;
-pub use color_scale::{ColorScaleMut, ColormapSample};
-pub use colorbar::{InsideColorbarMut, PanelColorbarMut};
+pub use colour::IntoColourSpec;
+pub use colour_scale::{ColourScaleMut, ColourmapSample};
+pub use colourbar::{InsideColourbarMut, PanelColourbarMut};
 pub use data::{DataArrayMut, DataSource};
 pub use error::Error;
 pub use figure::Figure;
@@ -100,13 +100,13 @@ pub use ironlab_ir::MarkerShape as Marker;
 /// The dash pattern of a line.
 pub use ironlab_ir::DashStyle as Dash;
 
-/// The name of a bundled colormap, which a colour scale interpolates; it converts into
-/// an [`ir::Colormap`] that is not reversed.
-pub use ironlab_ir::ColormapName as Colormap;
+/// The name of a bundled colourmap, which a colour scale interpolates; it converts into
+/// an [`ir::Colourmap`] that is not reversed.
+pub use ironlab_ir::ColourmapName as Colourmap;
 
 /// Whether a continuous or discrete colour scale places values in linear or logarithmic
-/// space. See [`ColorScaleMut::norm`].
-pub use ironlab_ir::ColorScaleNorm;
+/// space. See [`ColourScaleMut::norm`].
+pub use ironlab_ir::ColourScaleNorm;
 
 /// How much heavier than designed a figure is drawn. See [`Figure::embolden`].
 pub use ironlab_ir::Embolden;
@@ -115,12 +115,12 @@ pub use ironlab_ir::Embolden;
 pub use ironlab_ir::ImagePlane;
 
 /// The out-of-range categories of a colour scale whose keys a colourbar may show. See
-/// [`ColorScaleMut::show_key`].
-pub use ironlab_ir::ColorScaleKey;
+/// [`ColourScaleMut::show_key`].
+pub use ironlab_ir::ColourScaleKey;
 
 /// What a colour scale draws for a value it cannot place: one below or above its range,
 /// one that names none of its entries, or one that is not finite. See
-/// [`ColorScaleMut::below`].
+/// [`ColourScaleMut::below`].
 pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{AngleUnits, PolarAngle, PolarView, SphericalView};
@@ -130,8 +130,8 @@ pub use ironlab_ir::{AngleUnits, PolarAngle, PolarView, SphericalView};
 pub use ironlab_ir::AxisSide;
 
 pub use ironlab_ir::{
-    Aspect, AspectAdjust, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Coords,
-    InsideColorbarSide, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
+    Aspect, AspectAdjust, Colour, ColourSpec, ColourbarOrientation, ColourbarTitlePlacement,
+    Coords, InsideColourbarSide, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
     LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
     LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Orientation, PanelLegend,
     PanelLocation, Parameter, Scale, StepAt, Text, TickLabels, Ticks, TitleAlign, TrackSize,
@@ -233,13 +233,13 @@ pub mod prelude {
     pub use crate::AxisSide;
     pub use crate::{AngleUnits, PolarAngle, PolarView, SphericalView, ThetaZero};
     pub use crate::{
-        Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Color,
-        ColorScaleKey, ColorScaleMut, ColorScaleNorm, ColorSpec, ColorbarOrientation,
-        ColorbarTitlePlacement, Colormap, ColormapSample, ContourMut, Coords, Dash, DataArrayMut,
-        DataSource, Dim, Embolden, Error, Figure, ImageMut, ImagePlane, ImageValues,
-        InsideColorbarMut, InsideColorbarSide, IntoColorSpec, LegendEntries, LegendEntryColumns,
+        Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Colour,
+        ColourScaleKey, ColourScaleMut, ColourScaleNorm, ColourSpec, ColourbarOrientation,
+        ColourbarTitlePlacement, Colourmap, ColourmapSample, ContourMut, Coords, Dash,
+        DataArrayMut, DataSource, Dim, Embolden, Error, Figure, ImageMut, ImagePlane, ImageValues,
+        InsideColourbarMut, InsideColourbarSide, IntoColourSpec, LegendEntries, LegendEntryColumns,
         LegendEntryOrder, LegendItem, LegendLocation, LegendSample, Marker, Matrix, NodeId,
-        Orientation, OutOfRange, PanelColorbarMut, PanelLegendMut, PanelLocation, PanelMut,
+        Orientation, OutOfRange, PanelColourbarMut, PanelLegendMut, PanelLocation, PanelMut,
         Parameter, PdfExport, Pixels, PngExport, QuiverMut, RasterOptions, RasterPolicy,
         ScalarImageMut, Scale, SeriesMut, StairsMut, StepAt, SurfaceMut, Text, TitleAlign,
         TrackSize, linspace, logspace, meshgrid,

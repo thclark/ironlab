@@ -218,7 +218,7 @@ pub enum FillRule {
 /// A fill applied to the interior of a path.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fill {
-    pub color: Rgba,
+    pub colour: Rgba,
     pub rule: FillRule,
 }
 
@@ -245,7 +245,7 @@ pub enum LineJoin {
 /// the distance into the dash pattern at which the stroke starts. Miter joins use a miter limit of 4.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stroke {
-    pub color: Rgba,
+    pub colour: Rgba,
     pub width: f64,
     pub dash: Vec<f64>,
     pub dash_offset: f64,
@@ -634,7 +634,7 @@ impl MarkersItem {
 pub struct GlyphsItem {
     pub font: FontId,
     pub size_pt: f64,
-    pub color: Rgba,
+    pub colour: Rgba,
     /// The text the glyphs represent, used by backends that preserve selectable text.
     pub text: String,
     pub glyphs: Vec<PlacedGlyph>,

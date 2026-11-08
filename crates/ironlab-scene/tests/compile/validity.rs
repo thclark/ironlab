@@ -1,7 +1,7 @@
 //! The validity guarantees of the display list, checked on a figure that exercises every artist.
 
 use ironlab_ir::{
-    ColorSpec, DashStyle, ImagePlane, Legend, Levels, Limits, MarkerShape, PolarView, Projection,
+    ColourSpec, DashStyle, ImagePlane, Legend, Levels, Limits, MarkerShape, PolarView, Projection,
     Scale, View3d,
 };
 use ironlab_scene::display::Item;
@@ -29,9 +29,9 @@ fn gallery_like() -> ironlab_ir::Figure {
     });
     fx.scatter(lines, &x, &x, None, |s, fx| {
         s.label = text("Scatter");
-        s.color_data = Some(fx.vector(&linspace(-1.0, 1.0, 25)));
-        s.line.color = ColorSpec::Colormapped;
-        s.marker.face = ColorSpec::Auto;
+        s.colour_data = Some(fx.vector(&linspace(-1.0, 1.0, 25)));
+        s.line.colour = ColourSpec::Colourmapped;
+        s.marker.face = ColourSpec::Auto;
     });
     let ax = fx.ax(lines);
     ax.legend = Some(Legend::default());
@@ -142,10 +142,10 @@ fn gallery_like() -> ironlab_ir::Figure {
         },
     );
     fx.surface(mesh, &g, &g, field, |s| {
-        s.face = ColorSpec::Rgba {
-            color: ironlab_ir::Color::WHITE,
+        s.face = ColourSpec::Rgba {
+            colour: ironlab_ir::Colour::WHITE,
         };
-        s.edge = ColorSpec::Colormapped;
+        s.edge = ColourSpec::Colourmapped;
     });
     fx.scatter(mesh, &q, &q, Some(&q), |_, _| {});
     fx.build()
@@ -191,13 +191,13 @@ fn check(items: &[Item], rotated: bool, in_depth: bool, problems: &mut Vec<Strin
                     }
                 }
                 if let Some(fill) = &path.fill
-                    && !valid_colour(fill.color)
+                    && !valid_colour(fill.colour)
                 {
-                    problems.push(format!("{at}: fill colour {:?}", fill.color));
+                    problems.push(format!("{at}: fill colour {:?}", fill.colour));
                 }
                 if let Some(stroke) = &path.stroke {
-                    if !valid_colour(stroke.color) {
-                        problems.push(format!("{at}: stroke colour {:?}", stroke.color));
+                    if !valid_colour(stroke.colour) {
+                        problems.push(format!("{at}: stroke colour {:?}", stroke.colour));
                     }
                     if !(stroke.width.is_finite() && stroke.width >= 0.0) {
                         problems.push(format!("{at}: stroke width {}", stroke.width));
@@ -226,8 +226,8 @@ fn check(items: &[Item], rotated: bool, in_depth: bool, problems: &mut Vec<Strin
                 if in_depth {
                     problems.push(format!("{at}: glyph run inside a depth group"));
                 }
-                if !valid_colour(run.color) {
-                    problems.push(format!("{at}: glyph colour {:?}", run.color));
+                if !valid_colour(run.colour) {
+                    problems.push(format!("{at}: glyph colour {:?}", run.colour));
                 }
                 if !(run.size_pt.is_finite() && run.size_pt > 0.0) {
                     problems.push(format!("{at}: glyph size {}", run.size_pt));

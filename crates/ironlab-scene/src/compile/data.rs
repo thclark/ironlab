@@ -14,7 +14,7 @@
 //! once they are all resolved.
 
 use ironlab_ir::{
-    Artist, Axes, BarWidth, CellEdges, Cells, ColorSpec, ContourPlacement, Coords as ArtistCoords,
+    Artist, Axes, BarWidth, CellEdges, Cells, ColourSpec, ContourPlacement, Coords as ArtistCoords,
     Dimension, Figure, Grid, ImagePlacement, ImagePlane, NdArray, NodeId, PerBar, PixelRange,
     QuiverScale, Scale, Series, Stairs, StairsData, StepAt, Values,
 };
@@ -400,7 +400,7 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
                 .map(|data| values_of_len(figure, data, points.len(), "size"))
                 .transpose()?;
             let colours = series
-                .color_data
+                .colour_data
                 .map(|data| series_colours(figure, series, data, points.len()))
                 .transpose()?;
             ArtistData::Series {
@@ -498,7 +498,10 @@ fn resolve<'a>(figure: &'a Figure, axes: &Axes, artist: &Artist) -> Result<Artis
                     BarWidth::Pitch(_) | BarWidth::Constant(_) => None,
                     BarWidth::Data(id) => Some(per_bar(id, "width")?),
                 },
-                colours: bar.color_data.map(|id| per_bar(id, "colour")).transpose()?,
+                colours: bar
+                    .colour_data
+                    .map(|id| per_bar(id, "colour"))
+                    .transpose()?,
                 bin_edges: bar
                     .binning
                     .as_ref()
@@ -681,7 +684,7 @@ fn stairs_geometry<'a>(figure: &'a Figure, stairs: &Stairs) -> Result<StairsGeom
 }
 
 /// Resolves the colour data of a series of `points` points, which holds one value per point, or one value per
-/// segment when the series draws a line and no marker face or edge of it is colormapped, as validation requires.
+/// segment when the series draws a line and no marker face or edge of it is colourmapped, as validation requires.
 fn series_colours<'a>(
     figure: &'a Figure,
     series: &Series,
@@ -706,10 +709,10 @@ fn series_colours<'a>(
         ));
     }
     let mapped_markers = series.draws_markers()
-        && [series.marker.face, series.marker.edge].contains(&ColorSpec::Colormapped);
+        && [series.marker.face, series.marker.edge].contains(&ColourSpec::Colourmapped);
     if mapped_markers {
         return Err(format!(
-            "its colour array {data} holds one value per segment, but a colormapped marker face or edge needs one \
+            "its colour array {data} holds one value per segment, but a colourmapped marker face or edge needs one \
              value per point"
         ));
     }
@@ -812,10 +815,10 @@ fn check_colour_mapping(
     data: &ArtistData,
     scales: &ColourScales,
 ) -> Result<(), String> {
-    let Some(mapping) = artist.color_mapping() else {
+    let Some(mapping) = artist.colour_mapping() else {
         return Ok(());
     };
-    let scale = scales.named(mapping.color_scale)?;
+    let scale = scales.named(mapping.colour_scale)?;
     let Some(array) = figure.data_array(mapping.values) else {
         return Ok(());
     };

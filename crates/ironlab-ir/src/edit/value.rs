@@ -11,13 +11,14 @@ use crate::artist::{
     QuiverScale, StairsData, StepAt,
 };
 use crate::axes::{
-    AngleUnits, Aspect, AspectAdjust, Axis, AxisSide, ColormapName, InsideColorbar,
-    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    AngleUnits, Aspect, AspectAdjust, Axis, AxisSide, ColourmapName, InsideColourbar,
+    InsideColourbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
     TickLabels, Ticks, TitleAlign, View3d,
 };
-use crate::color_scale::{
-    CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
-    Colormap, ContinuousColorScale, DiscreteColorScale, IndexedColorScale, OutOfRange,
+use crate::colour_scale::{
+    CategoricalColourScale, ColourScaleKind, ColourScaleLevels, ColourScaleNorm,
+    ColourScaleOutOfRange, Colourmap, ContinuousColourScale, DiscreteColourScale,
+    IndexedColourScale, OutOfRange,
 };
 use crate::figure::{Embolden, FigureSize, FontSetId, Parameter};
 use crate::ids::NodeId;
@@ -28,9 +29,9 @@ use crate::legend::{
 };
 use crate::link::AxisLink;
 use crate::panel::{
-    ColorbarOrientation, ColorbarTitlePlacement, PanelColorbar, PanelContent, PanelLocation,
+    ColourbarOrientation, ColourbarTitlePlacement, PanelColourbar, PanelContent, PanelLocation,
 };
-use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
+use crate::style::{Colour, ColourSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::{Interpreter, Text};
 
 /// The value of a property, as set by [`Edit::Set`](crate::Edit::Set) and returned by
@@ -86,7 +87,7 @@ pub enum Value {
     /// How much heavier than designed a figure is drawn.
     Embolden(Embolden),
     /// A colour.
-    Color(Color),
+    Colour(Colour),
     /// The tile layout of a figure.
     TileLayout(TileLayout),
     /// The axis links of a figure.
@@ -125,8 +126,8 @@ pub enum Value {
     AspectAdjust(AspectAdjust),
     /// How the title of an axes is aligned with its plot area.
     TitleAlign(TitleAlign),
-    /// A colormap name.
-    ColormapName(ColormapName),
+    /// A colourmap name.
+    ColourmapName(ColourmapName),
     /// The legend of an axes.
     Legend(Legend),
     /// A legend drawn inside the plot area of its axes.
@@ -146,7 +147,7 @@ pub enum Value {
     /// The order in which the entries of a legend fill its columns.
     LegendEntryOrder(LegendEntryOrder),
     /// How a colour is chosen.
-    ColorSpec(ColorSpec),
+    ColourSpec(ColourSpec),
     /// The style of a stroked line.
     LineStyle(LineStyle),
     /// A dash pattern.
@@ -176,33 +177,33 @@ pub enum Value {
     /// What is drawn for a value that a colour scale cannot place.
     OutOfRange(OutOfRange),
     /// A category of values that a colour scale cannot place, with its policy and key.
-    ColorScaleOutOfRange(ColorScaleOutOfRange),
+    ColourScaleOutOfRange(ColourScaleOutOfRange),
     /// The kind of a colour scale, with everything particular to that kind.
-    ColorScaleKind(ColorScaleKind),
+    ColourScaleKind(ColourScaleKind),
     /// A continuous colour scale.
-    ContinuousColorScale(ContinuousColorScale),
+    ContinuousColourScale(ContinuousColourScale),
     /// A discrete colour scale.
-    DiscreteColorScale(DiscreteColorScale),
+    DiscreteColourScale(DiscreteColourScale),
     /// An indexed colour scale.
-    IndexedColorScale(IndexedColorScale),
+    IndexedColourScale(IndexedColourScale),
     /// A categorical colour scale.
-    CategoricalColorScale(CategoricalColorScale),
+    CategoricalColourScale(CategoricalColourScale),
     /// The palette of a continuous or discrete colour scale.
-    Colormap(Colormap),
+    Colourmap(Colourmap),
     /// The space in which a colour scale places values.
-    ColorScaleNorm(ColorScaleNorm),
+    ColourScaleNorm(ColourScaleNorm),
     /// The band edges of a discrete colour scale.
-    ColorScaleLevels(ColorScaleLevels),
+    ColourScaleLevels(ColourScaleLevels),
     /// The colourbar content of a panel.
-    PanelColorbar(PanelColorbar),
+    PanelColourbar(PanelColourbar),
     /// The direction in which a panel colourbar runs.
-    ColorbarOrientation(ColorbarOrientation),
+    ColourbarOrientation(ColourbarOrientation),
     /// The colourbar inside an axes.
-    InsideColorbar(InsideColorbar),
+    InsideColourbar(InsideColourbar),
     /// The edge along which an inside colourbar lies.
-    InsideColorbarSide(InsideColorbarSide),
+    InsideColourbarSide(InsideColourbarSide),
     /// Where the title of a colour scale is drawn beside a colourbar.
-    ColorbarTitlePlacement(ColorbarTitlePlacement),
+    ColourbarTitlePlacement(ColourbarTitlePlacement),
     /// The direction in which bars or stairs extend.
     Orientation(Orientation),
     /// A number given once for every bar of a series or once per bar, such as its base.
@@ -265,8 +266,8 @@ pub enum ValueType {
     FontSetId,
     /// See [`Value::Embolden`].
     Embolden,
-    /// See [`Value::Color`].
-    Color,
+    /// See [`Value::Colour`].
+    Colour,
     /// See [`Value::TileLayout`].
     TileLayout,
     /// See [`Value::Links`].
@@ -305,8 +306,8 @@ pub enum ValueType {
     AspectAdjust,
     /// See [`Value::TitleAlign`].
     TitleAlign,
-    /// See [`Value::ColormapName`].
-    ColormapName,
+    /// See [`Value::ColourmapName`].
+    ColourmapName,
     /// See [`Value::Legend`].
     Legend,
     /// See [`Value::InsideLegend`].
@@ -325,8 +326,8 @@ pub enum ValueType {
     LegendEntryColumns,
     /// See [`Value::LegendEntryOrder`].
     LegendEntryOrder,
-    /// See [`Value::ColorSpec`].
-    ColorSpec,
+    /// See [`Value::ColourSpec`].
+    ColourSpec,
     /// See [`Value::LineStyle`].
     LineStyle,
     /// See [`Value::DashStyle`].
@@ -355,34 +356,34 @@ pub enum ValueType {
     ImagePlane,
     /// See [`Value::OutOfRange`].
     OutOfRange,
-    /// See [`Value::ColorScaleOutOfRange`].
-    ColorScaleOutOfRange,
-    /// See [`Value::ColorScaleKind`].
-    ColorScaleKind,
-    /// See [`Value::ContinuousColorScale`].
-    ContinuousColorScale,
-    /// See [`Value::DiscreteColorScale`].
-    DiscreteColorScale,
-    /// See [`Value::IndexedColorScale`].
-    IndexedColorScale,
-    /// See [`Value::CategoricalColorScale`].
-    CategoricalColorScale,
-    /// See [`Value::Colormap`].
-    Colormap,
-    /// See [`Value::ColorScaleNorm`].
-    ColorScaleNorm,
-    /// See [`Value::ColorScaleLevels`].
-    ColorScaleLevels,
-    /// See [`Value::PanelColorbar`].
-    PanelColorbar,
-    /// See [`Value::ColorbarOrientation`].
-    ColorbarOrientation,
-    /// See [`Value::InsideColorbar`].
-    InsideColorbar,
-    /// See [`Value::InsideColorbarSide`].
-    InsideColorbarSide,
-    /// See [`Value::ColorbarTitlePlacement`].
-    ColorbarTitlePlacement,
+    /// See [`Value::ColourScaleOutOfRange`].
+    ColourScaleOutOfRange,
+    /// See [`Value::ColourScaleKind`].
+    ColourScaleKind,
+    /// See [`Value::ContinuousColourScale`].
+    ContinuousColourScale,
+    /// See [`Value::DiscreteColourScale`].
+    DiscreteColourScale,
+    /// See [`Value::IndexedColourScale`].
+    IndexedColourScale,
+    /// See [`Value::CategoricalColourScale`].
+    CategoricalColourScale,
+    /// See [`Value::Colourmap`].
+    Colourmap,
+    /// See [`Value::ColourScaleNorm`].
+    ColourScaleNorm,
+    /// See [`Value::ColourScaleLevels`].
+    ColourScaleLevels,
+    /// See [`Value::PanelColourbar`].
+    PanelColourbar,
+    /// See [`Value::ColourbarOrientation`].
+    ColourbarOrientation,
+    /// See [`Value::InsideColourbar`].
+    InsideColourbar,
+    /// See [`Value::InsideColourbarSide`].
+    InsideColourbarSide,
+    /// See [`Value::ColourbarTitlePlacement`].
+    ColourbarTitlePlacement,
     /// See [`Value::Orientation`].
     Orientation,
     /// See [`Value::PerBar`].
@@ -435,7 +436,7 @@ impl Value {
             Value::FigureSize(_) => ValueType::FigureSize,
             Value::FontSetId(_) => ValueType::FontSetId,
             Value::Embolden(_) => ValueType::Embolden,
-            Value::Color(_) => ValueType::Color,
+            Value::Colour(_) => ValueType::Colour,
             Value::TileLayout(_) => ValueType::TileLayout,
             Value::Links(_) => ValueType::Links,
             Value::Parameters(_) => ValueType::Parameters,
@@ -455,7 +456,7 @@ impl Value {
             Value::Aspect(_) => ValueType::Aspect,
             Value::AspectAdjust(_) => ValueType::AspectAdjust,
             Value::TitleAlign(_) => ValueType::TitleAlign,
-            Value::ColormapName(_) => ValueType::ColormapName,
+            Value::ColourmapName(_) => ValueType::ColourmapName,
             Value::Legend(_) => ValueType::Legend,
             Value::InsideLegend(_) => ValueType::InsideLegend,
             Value::LegendLocation(_) => ValueType::LegendLocation,
@@ -465,7 +466,7 @@ impl Value {
             Value::LegendEntryLayout(_) => ValueType::LegendEntryLayout,
             Value::LegendEntryColumns(_) => ValueType::LegendEntryColumns,
             Value::LegendEntryOrder(_) => ValueType::LegendEntryOrder,
-            Value::ColorSpec(_) => ValueType::ColorSpec,
+            Value::ColourSpec(_) => ValueType::ColourSpec,
             Value::LineStyle(_) => ValueType::LineStyle,
             Value::DashStyle(_) => ValueType::DashStyle,
             Value::MarkerStyle(_) => ValueType::MarkerStyle,
@@ -480,20 +481,20 @@ impl Value {
             Value::PixelRange(_) => ValueType::PixelRange,
             Value::ImagePlane(_) => ValueType::ImagePlane,
             Value::OutOfRange(_) => ValueType::OutOfRange,
-            Value::ColorScaleOutOfRange(_) => ValueType::ColorScaleOutOfRange,
-            Value::ColorScaleKind(_) => ValueType::ColorScaleKind,
-            Value::ContinuousColorScale(_) => ValueType::ContinuousColorScale,
-            Value::DiscreteColorScale(_) => ValueType::DiscreteColorScale,
-            Value::IndexedColorScale(_) => ValueType::IndexedColorScale,
-            Value::CategoricalColorScale(_) => ValueType::CategoricalColorScale,
-            Value::Colormap(_) => ValueType::Colormap,
-            Value::ColorScaleNorm(_) => ValueType::ColorScaleNorm,
-            Value::ColorScaleLevels(_) => ValueType::ColorScaleLevels,
-            Value::PanelColorbar(_) => ValueType::PanelColorbar,
-            Value::ColorbarOrientation(_) => ValueType::ColorbarOrientation,
-            Value::InsideColorbar(_) => ValueType::InsideColorbar,
-            Value::InsideColorbarSide(_) => ValueType::InsideColorbarSide,
-            Value::ColorbarTitlePlacement(_) => ValueType::ColorbarTitlePlacement,
+            Value::ColourScaleOutOfRange(_) => ValueType::ColourScaleOutOfRange,
+            Value::ColourScaleKind(_) => ValueType::ColourScaleKind,
+            Value::ContinuousColourScale(_) => ValueType::ContinuousColourScale,
+            Value::DiscreteColourScale(_) => ValueType::DiscreteColourScale,
+            Value::IndexedColourScale(_) => ValueType::IndexedColourScale,
+            Value::CategoricalColourScale(_) => ValueType::CategoricalColourScale,
+            Value::Colourmap(_) => ValueType::Colourmap,
+            Value::ColourScaleNorm(_) => ValueType::ColourScaleNorm,
+            Value::ColourScaleLevels(_) => ValueType::ColourScaleLevels,
+            Value::PanelColourbar(_) => ValueType::PanelColourbar,
+            Value::ColourbarOrientation(_) => ValueType::ColourbarOrientation,
+            Value::InsideColourbar(_) => ValueType::InsideColourbar,
+            Value::InsideColourbarSide(_) => ValueType::InsideColourbarSide,
+            Value::ColourbarTitlePlacement(_) => ValueType::ColourbarTitlePlacement,
             Value::Orientation(_) => ValueType::Orientation,
             Value::PerBar(_) => ValueType::PerBar,
             Value::BarWidth(_) => ValueType::BarWidth,

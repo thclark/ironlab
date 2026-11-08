@@ -46,10 +46,10 @@ const KINDS: [Kind; 4] = [
     Kind::ForcedUnconverged,
 ];
 
-const BLUE: Color = Color::rgb(0.12, 0.35, 0.84);
-const DARK: Color = Color::rgb(0.15, 0.15, 0.15);
-const GREY: Color = Color::rgb(0.6, 0.6, 0.6);
-const REFERENCE: Color = Color::rgb(0.55, 0.55, 0.55);
+const BLUE: Colour = Colour::rgb(0.12, 0.35, 0.84);
+const DARK: Colour = Colour::rgb(0.15, 0.15, 0.15);
+const GREY: Colour = Colour::rgb(0.6, 0.6, 0.6);
+const REFERENCE: Colour = Colour::rgb(0.55, 0.55, 0.55);
 
 impl Kind {
     fn name(self) -> &'static str {
@@ -130,7 +130,7 @@ pub fn figure() -> Figure {
         // however the rows are panned or zoomed.
         for x in [0.0, 0.5, 1.0] {
             ax.vline(x)
-                .color(REFERENCE)
+                .colour(REFERENCE)
                 .dash(Dash::Dotted)
                 .line_width(0.5);
         }
@@ -150,10 +150,10 @@ pub fn figure() -> Figure {
                 // Every case's points of one kind share the name and the look, so the key lists each kind once.
                 scatter.label(kind.name()).marker_size(4.0);
                 match kind {
-                    Kind::Free => scatter.marker(Marker::Circle).color(BLUE).filled(),
-                    Kind::Unconverged => scatter.marker(Marker::Circle).color(BLUE),
-                    Kind::Forced => scatter.marker(Marker::Diamond).color(DARK).filled(),
-                    Kind::ForcedUnconverged => scatter.marker(Marker::Diamond).color(GREY).filled(),
+                    Kind::Free => scatter.marker(Marker::Circle).colour(BLUE).filled(),
+                    Kind::Unconverged => scatter.marker(Marker::Circle).colour(BLUE),
+                    Kind::Forced => scatter.marker(Marker::Diamond).colour(DARK).filled(),
+                    Kind::ForcedUnconverged => scatter.marker(Marker::Diamond).colour(GREY).filled(),
                 };
             }
         }

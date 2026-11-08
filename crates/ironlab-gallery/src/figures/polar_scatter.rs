@@ -27,25 +27,25 @@ pub fn figure() -> Figure {
         .title("Florets of a sunflower head")
         .tag("polar")
         .tag("scatter")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .parameter("dimensionality", "2D")
         .parameter("artists", 1)
         .parameter("data_points", 1200)
         .parameter("has_legend", false);
     let scale = fig
-        .color_scale()
-        .colormap(Colormap::Viridis)
+        .colour_scale()
+        .colourmap(Colourmap::Viridis)
         .title("Floret number")
         .id();
     let mut ax = fig.polar_axes(0, 0);
     ax.polarscatter(&theta, &r)
-        .color_data(&age)
-        .color_scale(scale)
+        .colour_data(&age)
+        .colour_scale(scale)
         .marker(Marker::Circle)
         .marker_size(4.0)
         .filled();
     ax.rlim(0.0, 20.0);
-    fig.panel(0, 1).colorbar(scale);
+    fig.panel(0, 1).colourbar(scale);
     fig
 }

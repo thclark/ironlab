@@ -155,8 +155,8 @@ fn a_number_field_holds_a_typed_value_to_its_range_and_to_whole_numbers() {
 // controls has no room for it.
 #[test]
 fn a_swatch_reads_as_the_hex_of_its_colour_and_opens_the_picker_when_clicked() {
-    let mut harness = driven(egui::Color32::from_rgb(31, 119, 180), |ui, color| {
-        swatch(ui, color, egui::Id::new("stroke"));
+    let mut harness = driven(egui::Color32::from_rgb(31, 119, 180), |ui, colour| {
+        swatch(ui, colour, egui::Id::new("stroke"));
     });
     // The picker is egui's own, and what it puts in the accessibility tree is its spin buttons of the channels.
     assert!(
@@ -174,8 +174,8 @@ fn a_swatch_reads_as_the_hex_of_its_colour_and_opens_the_picker_when_clicked() {
     // promised is that the alpha is written, as two more digits.
     let harness = driven(
         egui::Color32::from_rgba_unmultiplied(31, 119, 180, 128),
-        |ui, color| {
-            swatch(ui, color, egui::Id::new("fill"));
+        |ui, colour| {
+            swatch(ui, colour, egui::Id::new("fill"));
         },
     );
     let label = harness
@@ -329,7 +329,7 @@ fn rows_follow_one_another_exactly_whatever_their_columns_hold() {
             checkbox(ui, &mut flag, "first");
         });
         Property::new("marker").disclosure(true).show(ui, |_| ());
-        Property::new("color")
+        Property::new("colour")
             .depth(1)
             .changed(true)
             .show(ui, |_| ());
@@ -338,12 +338,12 @@ fn rows_follow_one_another_exactly_whatever_their_columns_hold() {
 
     let first = harness.get_by_role_and_label(Role::Label, "first").rect();
     let marker = harness.get_by_role_and_label(Role::Button, "marker").rect();
-    let color = harness.get_by_role_and_label(Role::Label, "color").rect();
+    let colour = harness.get_by_role_and_label(Role::Label, "colour").rect();
     let last = harness.get_by_role_and_label(Role::Label, "last").rect();
     for (above, below, name) in [
         (first, marker, "marker"),
-        (marker, color, "color"),
-        (color, last, "last"),
+        (marker, colour, "colour"),
+        (colour, last, "last"),
     ] {
         assert!(
             (below.min.y - above.max.y).abs() < 0.5,

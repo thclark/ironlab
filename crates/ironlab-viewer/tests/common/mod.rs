@@ -159,7 +159,7 @@ pub fn figure_with_artists() -> Figure {
             id: NodeId(6),
             grid: Grid::Rectilinear { x: gx, y: gy },
             z: field,
-            color_scale: Some(NodeId(7)),
+            colour_scale: Some(NodeId(7)),
             ..Surface::default()
         })],
         ..axes_3d(3)
@@ -168,9 +168,9 @@ pub fn figure_with_artists() -> Figure {
         id: NodeId(1),
         layout: TileLayout::new(1, 2),
         data,
-        color_scales: vec![ironlab_ir::ColorScale {
+        colour_scales: vec![ironlab_ir::ColourScale {
             id: NodeId(7),
-            ..ironlab_ir::ColorScale::default()
+            ..ironlab_ir::ColourScale::default()
         }],
         axes: vec![flat, solid],
         ..Figure::new()
@@ -304,9 +304,9 @@ pub fn assert_close(actual: f64, expected: f64, tolerance: f64, what: &str) {
 pub fn figure_with_every_artist() -> Figure {
     use ironlab_ir::ContourPlacement;
     use ironlab_ir::{
-        Artist, Bar, Binning, Binning2d, Bins, Cells, Color, ColorScale, ColorScaleKind,
-        ColorScaleOutOfRange, ColorSpec, ContinuousColorScale, Contour, Grid, HistNorm, Image,
-        ImagePlacement, ImagePlane, IndexedColorScale, Levels, LineStyle, NdArray, OutOfRange,
+        Artist, Bar, Binning, Binning2d, Bins, Cells, Colour, ColourScale, ColourScaleKind,
+        ColourScaleOutOfRange, ColourSpec, ContinuousColourScale, Contour, Grid, HistNorm, Image,
+        ImagePlacement, ImagePlane, IndexedColourScale, Levels, LineStyle, NdArray, OutOfRange,
         PixelRange, Quiver, QuiverScale, ScalarImage, Series, Stairs, StairsData, StepAt, Surface,
     };
 
@@ -367,12 +367,12 @@ pub fn figure_with_every_artist() -> Figure {
             y,
             z: Some(z),
             line: LineStyle {
-                color: ColorSpec::Colormapped,
+                colour: ColourSpec::Colourmapped,
                 ..markers().line
             },
             size_data: Some(u),
-            color_data: Some(v),
-            color_scale: Some(NodeId(12)),
+            colour_data: Some(v),
+            colour_scale: Some(NodeId(12)),
             ..markers()
         }),
         Artist::Contour(Contour {
@@ -383,7 +383,7 @@ pub fn figure_with_every_artist() -> Figure {
                 values: vec![1.0, 4.0],
             }),
             placement: ContourPlacement::Plane { z: Some(0.0) },
-            color_scale: Some(NodeId(12)),
+            colour_scale: Some(NodeId(12)),
             ..Contour::default()
         }),
         Artist::Quiver(Quiver {
@@ -402,7 +402,7 @@ pub fn figure_with_every_artist() -> Figure {
             grid: Grid::Rectilinear { x: gx, y: gx },
             z: field,
             c: Some(field),
-            color_scale: Some(NodeId(12)),
+            colour_scale: Some(NodeId(12)),
             ..Surface::default()
         }),
         Artist::Image(Image {
@@ -417,7 +417,7 @@ pub fn figure_with_every_artist() -> Figure {
         Artist::ScalarImage(ScalarImage {
             id: NodeId(9),
             values: indices,
-            color_scale: Some(NodeId(13)),
+            colour_scale: Some(NodeId(13)),
             placement: ImagePlacement {
                 plane: ImagePlane::Yz { x: Some(0.5) },
                 ..ranges
@@ -427,7 +427,7 @@ pub fn figure_with_every_artist() -> Figure {
         Artist::ScalarImage(ScalarImage {
             id: NodeId(10),
             values: field,
-            color_scale: Some(NodeId(12)),
+            colour_scale: Some(NodeId(12)),
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: Some(1.0) },
                 ..ranges
@@ -435,42 +435,42 @@ pub fn figure_with_every_artist() -> Figure {
             ..ScalarImage::default()
         }),
     ];
-    let continuous = ColorScale {
+    let continuous = ColourScale {
         id: NodeId(12),
-        kind: ColorScaleKind::Continuous(ContinuousColorScale {
-            below: ColorScaleOutOfRange::new(OutOfRange::Transparent),
-            above: ColorScaleOutOfRange::new(OutOfRange::Transparent),
-            ..ContinuousColorScale::default()
+        kind: ColourScaleKind::Continuous(ContinuousColourScale {
+            below: ColourScaleOutOfRange::new(OutOfRange::Transparent),
+            above: ColourScaleOutOfRange::new(OutOfRange::Transparent),
+            ..ContinuousColourScale::default()
         }),
-        non_finite: ColorScaleOutOfRange::new(OutOfRange::Rgba {
-            color: Color::BLACK,
+        non_finite: ColourScaleOutOfRange::new(OutOfRange::Rgba {
+            colour: Colour::BLACK,
         }),
-        ..ColorScale::default()
+        ..ColourScale::default()
     };
-    let indexed = ColorScale {
+    let indexed = ColourScale {
         id: NodeId(13),
-        kind: ColorScaleKind::Indexed(IndexedColorScale {
-            colors: (0..9u8)
-                .map(|k| Color::rgb(f32::from(k) / 8.0, 0.5, 1.0 - f32::from(k) / 8.0))
+        kind: ColourScaleKind::Indexed(IndexedColourScale {
+            colours: (0..9u8)
+                .map(|k| Colour::rgb(f32::from(k) / 8.0, 0.5, 1.0 - f32::from(k) / 8.0))
                 .collect(),
-            outside: ColorScaleOutOfRange::new(OutOfRange::Clamp),
-            ..IndexedColorScale::default()
+            outside: ColourScaleOutOfRange::new(OutOfRange::Clamp),
+            ..IndexedColourScale::default()
         }),
-        ..ColorScale::default()
+        ..ColourScale::default()
     };
     let flat = vec![
         Artist::Bar(Bar {
             id: NodeId(15),
             positions: x,
             values: y,
-            face: ColorSpec::Colormapped,
-            color_data: Some(v),
-            color_scale: Some(NodeId(12)),
+            face: ColourSpec::Colourmapped,
+            colour_data: Some(v),
+            colour_scale: Some(NodeId(12)),
             binning: Some(Binning {
                 bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5]),
                 edges: bin_edges,
                 range: Some([0.5, 3.5]),
-                normalization: HistNorm::Count,
+                normalisation: HistNorm::Count,
                 total: 9.0,
                 excluded_non_finite: 1,
                 excluded_out_of_range: 0,
@@ -488,7 +488,7 @@ pub fn figure_with_every_artist() -> Figure {
                 bins: Bins::Count(3),
                 edges: bin_edges,
                 range: None,
-                normalization: HistNorm::Density,
+                normalisation: HistNorm::Density,
                 total: 9.0,
                 excluded_non_finite: 0,
                 excluded_out_of_range: 2,
@@ -498,7 +498,7 @@ pub fn figure_with_every_artist() -> Figure {
         Artist::Cells(Cells {
             id: NodeId(17),
             values: field,
-            color_scale: Some(NodeId(12)),
+            colour_scale: Some(NodeId(12)),
             binning: Some(Binning2d {
                 x_bins: Bins::Width(1.0),
                 y_bins: Bins::Count(3),
@@ -506,7 +506,7 @@ pub fn figure_with_every_artist() -> Figure {
                 y_edges: bin_edges,
                 x_range: None,
                 y_range: Some([0.0, 3.0]),
-                normalization: HistNorm::Probability,
+                normalisation: HistNorm::Probability,
                 min_count: Some(1.0),
                 total: 20.0,
                 excluded_non_finite: 0,
@@ -519,7 +519,7 @@ pub fn figure_with_every_artist() -> Figure {
         id: NodeId(1),
         layout: ironlab_ir::TileLayout::new(1, 3),
         data,
-        color_scales: vec![continuous, indexed],
+        colour_scales: vec![continuous, indexed],
         axes: vec![
             Axes {
                 artists,
@@ -540,7 +540,7 @@ pub fn figure_with_every_artist() -> Figure {
                 col: 1,
                 ..ironlab_ir::Cell::default()
             },
-            align: ironlab_ir::PanelLocation::Center,
+            align: ironlab_ir::PanelLocation::Centre,
             title: None,
             title_align: ironlab_ir::TitleAlign::Left,
             content: ironlab_ir::PanelContent::Legend(ironlab_ir::PanelLegend::default()),
@@ -616,9 +616,9 @@ pub fn figure_with_many_axes() -> Figure {
 /// rows and `nx` columns whose values are 0, 1, …, ny · nx − 1 in row order, mapped through a
 /// continuous colour scale of viridis (node 4) between automatic limits and placed by
 /// default, so that the image fills the axes and neighbouring pixels differ in colour along
-/// both axes: by one step of the colormap along a row and by `nx` steps down a column.
+/// both axes: by one step of the colourmap along a row and by `nx` steps down a column.
 pub fn figure_with_scalar_image(ny: usize, nx: usize) -> Figure {
-    use ironlab_ir::{Artist, ColorScale, NdArray, ScalarImage};
+    use ironlab_ir::{Artist, ColourScale, NdArray, ScalarImage};
 
     let values: Vec<f64> = (0..ny * nx).map(|k| k as f64).collect();
     let data = data_arrays([(
@@ -633,14 +633,14 @@ pub fn figure_with_scalar_image(ny: usize, nx: usize) -> Figure {
             artists: vec![Artist::ScalarImage(ScalarImage {
                 id: NodeId(3),
                 values: array_id(0),
-                color_scale: Some(NodeId(4)),
+                colour_scale: Some(NodeId(4)),
                 ..ScalarImage::default()
             })],
             ..Axes::default()
         }],
-        color_scales: vec![ColorScale {
+        colour_scales: vec![ColourScale {
             id: NodeId(4),
-            ..ColorScale::default()
+            ..ColourScale::default()
         }],
         ..Figure::new()
     }

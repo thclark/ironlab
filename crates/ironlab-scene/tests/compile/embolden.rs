@@ -12,8 +12,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ironlab_ir::{
-    Color, ColorSpec, DashStyle, Embolden, Figure, InsideColorbar, InsideLegend, Legend, LineStyle,
-    MarkerShape, MarkerStyle, NodeId, View3d,
+    Colour, ColourSpec, DashStyle, Embolden, Figure, InsideColourbar, InsideLegend, Legend,
+    LineStyle, MarkerShape, MarkerStyle, NodeId, View3d,
 };
 use ironlab_scene::display::ItemKind;
 use ironlab_scene::{CompileOptions, Scene, compile, compile_with};
@@ -139,15 +139,15 @@ fn many_kinds() -> (Figure, Kinds) {
         None,
         |s, fx| {
             s.size_data = Some(fx.vector(&SIZE_DATA));
-            s.marker.edge = ColorSpec::Rgba {
-                color: Color::BLACK,
+            s.marker.edge = ColourSpec::Rgba {
+                colour: Colour::BLACK,
             };
         },
     );
     let scale = fx.axes_scale(field_axes);
-    fx.ax(field_axes).colorbar = Some(InsideColorbar {
+    fx.ax(field_axes).colourbar = Some(InsideColourbar {
         scale,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
 
     let cells_axes = fx.axes2d(1, 0);
@@ -159,8 +159,8 @@ fn many_kinds() -> (Figure, Kinds) {
         Some(cells_scale),
         |c, _| {
             c.edge = LineStyle {
-                color: ColorSpec::Rgba {
-                    color: Color::BLACK,
+                colour: ColourSpec::Rgba {
+                    colour: Colour::BLACK,
                 },
                 width_pt: 0.8,
                 ..c.edge
@@ -183,8 +183,8 @@ fn many_kinds() -> (Figure, Kinds) {
         &ring,
         |x, y| x * y,
         |s| {
-            s.edge = ColorSpec::Rgba {
-                color: Color::BLACK,
+            s.edge = ColourSpec::Rgba {
+                colour: Colour::BLACK,
             };
             s.edge_width_pt = 0.4;
         },

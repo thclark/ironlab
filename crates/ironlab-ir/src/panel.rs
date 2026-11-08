@@ -46,7 +46,7 @@ pub struct Panel {
 pub enum PanelLocation {
     /// The centre.
     #[default]
-    Center,
+    Centre,
     /// The centre of the top edge.
     North,
     /// The centre of the bottom edge.
@@ -76,7 +76,7 @@ pub enum PanelContent {
     /// A legend, which lists the entries of every axes whose legend names the panel.
     Legend(PanelLegend),
     /// A colourbar, which shows a colour scale along the cells of the panel.
-    Colorbar(PanelColorbar),
+    Colourbar(PanelColourbar),
 }
 
 /// A colourbar held by a panel: a colour scale shown as a bar that runs along the panel's
@@ -87,11 +87,11 @@ pub enum PanelContent {
 /// every bar of one scale agrees with every other and with the artists drawn through it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct PanelColorbar {
+pub struct PanelColourbar {
     /// The colour scale that the bar shows.
     pub scale: NodeId,
     /// Whether the bar stands along the panel's rows or lies along its columns.
-    pub orientation: ColorbarOrientation,
+    pub orientation: ColourbarOrientation,
     /// The length of the bar, its keys included, as a fraction of the span of the drawn
     /// plot boxes beside it, or `None` for the automatic length: the whole span for a
     /// standing bar and half of it for a lying one. A fraction is a finite number greater
@@ -99,7 +99,7 @@ pub struct PanelColorbar {
     #[schemars(default)]
     pub length: Option<f64>,
     /// Where the title of the scale is drawn beside the bar.
-    pub title_placement: ColorbarTitlePlacement,
+    pub title_placement: ColourbarTitlePlacement,
 }
 
 /// Where the title of a colour scale is drawn beside a colourbar of the scale.
@@ -108,7 +108,7 @@ pub struct PanelColorbar {
 /// drawn text and this is where the scale's title is drawn.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ColorbarTitlePlacement {
+pub enum ColourbarTitlePlacement {
     /// Beyond the tick labels, on their side of the bar, centred on its length. Along a
     /// standing bar the title is rotated a quarter turn counter-clockwise, so that it reads
     /// from bottom to top, as the label of a y axis does.
@@ -125,7 +125,7 @@ pub enum ColorbarTitlePlacement {
 /// The direction in which a panel colourbar runs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ColorbarOrientation {
+pub enum ColourbarOrientation {
     /// The bar stands upright, with low values at the bottom and its tick labels on the
     /// right.
     #[default]

@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::NodeId;
-use crate::style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
+use crate::style::{Colour, ColourSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 use crate::text::Text;
 
 /// The legend of an axes, which lists the artists of the axes that have a label.
@@ -171,9 +171,9 @@ impl LegendItem {
 
     /// Returns an item, not on a row of its own, that shows the colour scale with this
     /// node identifier, whose bar runs along [`DEFAULT_BAR_ROWS`] entry rows.
-    pub fn color_scale(scale: NodeId) -> Self {
+    pub fn colour_scale(scale: NodeId) -> Self {
         Self {
-            content: LegendItemContent::ColorScale {
+            content: LegendItemContent::ColourScale {
                 scale,
                 rows: DEFAULT_BAR_ROWS,
             },
@@ -185,7 +185,7 @@ impl LegendItem {
     /// of any other content is returned unchanged.
     #[must_use]
     pub fn with_rows(mut self, rows: u32) -> Self {
-        if let LegendItemContent::ColorScale { rows: r, .. } = &mut self.content {
+        if let LegendItemContent::ColourScale { rows: r, .. } = &mut self.content {
             *r = rows;
         }
         self
@@ -209,7 +209,7 @@ impl From<NodeId> for LegendItem {
 /// In JSON the content is an object whose `type` names the variant, such as
 /// `{"type": "artist", "value": 12}`,
 /// `{"type": "custom", "value": {"label": {...}, "sample": {...}}}` or
-/// `{"type": "color_scale", "value": {"scale": 4, "rows": 5}}`.
+/// `{"type": "colour_scale", "value": {"scale": 4, "rows": 5}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -238,7 +238,7 @@ pub enum LegendItemContent {
     /// (the below or outside key, then the non-finite key). On a row of its own, the bar is
     /// horizontal, spans the width of the legend and is titled below its tick labels.
     /// Clicking the item does nothing, because a scale is not an artist.
-    ColorScale {
+    ColourScale {
         /// The node identifier of the colour scale.
         scale: NodeId,
         /// The number of entry rows along which a standing bar runs: at least 1. It is
@@ -252,7 +252,7 @@ pub enum LegendItemContent {
 /// The sample of a legend item that stands for no artist.
 ///
 /// In JSON a sample is an object whose `type` names the variant, such as
-/// `{"type": "swatch", "color": "#e69f00"}`.
+/// `{"type": "swatch", "colour": "#e69f00"}`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -275,16 +275,16 @@ pub enum LegendSample {
     /// same label and colour as a category is merged with the entry of the category.
     Swatch {
         /// The colour of the rectangle.
-        color: Color,
+        colour: Colour,
     },
 }
 
 impl LegendSample {
     /// Returns a sample of a solid line of the given colour, without a marker.
-    pub fn line(color: Color) -> Self {
+    pub fn line(colour: Colour) -> Self {
         LegendSample::Line {
             line: LineStyle {
-                color: ColorSpec::Rgba { color },
+                colour: ColourSpec::Rgba { colour },
                 ..LineStyle::default()
             },
             marker: MarkerStyle::default(),
@@ -293,25 +293,25 @@ impl LegendSample {
 
     /// Returns a sample of a single filled marker of the given shape and colour, without
     /// a line.
-    pub fn marker(shape: MarkerShape, color: Color) -> Self {
+    pub fn marker(shape: MarkerShape, colour: Colour) -> Self {
         LegendSample::Line {
             line: LineStyle {
-                color: ColorSpec::Rgba { color },
+                colour: ColourSpec::Rgba { colour },
                 dash: DashStyle::None,
                 ..LineStyle::default()
             },
             marker: MarkerStyle {
                 shape,
-                face: ColorSpec::Auto,
-                edge: ColorSpec::Auto,
+                face: ColourSpec::Auto,
+                edge: ColourSpec::Auto,
                 ..MarkerStyle::default()
             },
         }
     }
 
     /// Returns a sample of an outlined square of the given colour.
-    pub fn swatch(color: Color) -> Self {
-        LegendSample::Swatch { color }
+    pub fn swatch(colour: Colour) -> Self {
+        LegendSample::Swatch { colour }
     }
 }
 
@@ -384,7 +384,7 @@ pub enum LegendLocation {
     West,
     /// The centre. A legend inside a plot area at this location covers the data at the
     /// centre of the plot.
-    Center,
+    Centre,
     /// The corner that overlaps the least data.
     Best,
 }

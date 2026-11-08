@@ -1,6 +1,6 @@
 //! Axes property setters: titles, labels, limits, scales, grid, legend and box. The
-//! colormap and colour limits belong to colour scales, whose setters are tested in
-//! `color_scales.rs`.
+//! colourmap and colour limits belong to colour scales, whose setters are tested in
+//! `colour_scales.rs`.
 
 mod common;
 

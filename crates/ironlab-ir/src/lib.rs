@@ -7,7 +7,7 @@
 //! numeric array ([`NdArray`]) that artists refer to by the identifier of the data array.
 //! An array holds either 64-bit floating-point values or 8-bit unsigned integers, which is
 //! its element type ([`NdArrayElement`]); the two image artists accept either, and every
-//! other artist requires floating-point values. A colour scale ([`ColorScale`]) turns
+//! other artist requires floating-point values. A colour scale ([`ColourScale`]) turns
 //! numbers into colours, and every artist that maps numbers to colours names its scale
 //! by the identifier of the scale.
 //!
@@ -45,8 +45,8 @@
 //!   has no shape, a size of 4 pt, no face colour and the automatic edge colour.
 //! - A series draws a line in the line style's defaults, without markers, size or
 //!   colour data; a contour takes the levels of its colour scale and draws them as
-//!   colormapped, unfilled isolines in the bottom plane; a quiver scales arrows automatically with heads of 0.3 of the arrow length; a surface has
-//!   colormapped faces and black edges 0.5 pt wide.
+//!   colourmapped, unfilled isolines in the bottom plane; a quiver scales arrows automatically with heads of 0.3 of the arrow length; a surface has
+//!   colourmapped faces and black edges 0.5 pt wide.
 //! - An image of either kind lies in the xy plane (the floor of a three-dimensional
 //!   axes, at the bottom of its z axis) with its pixel centres at 0 to n − 1 along each
 //!   axis of the plane. A colour-mapped artist names no colour scale.
@@ -66,7 +66,7 @@
 
 mod artist;
 mod axes;
-mod color_scale;
+mod colour_scale;
 pub mod command;
 mod data;
 mod edit;
@@ -92,15 +92,15 @@ pub use artist::{
     StepAt, Surface,
 };
 pub use axes::{
-    AngleUnits, Aspect, AspectAdjust, Axes, Axis, AxisSide, ColormapName, InsideColorbar,
-    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    AngleUnits, Aspect, AspectAdjust, Axes, Axis, AxisSide, ColourmapName, InsideColourbar,
+    InsideColourbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
     TickLabels, Ticks, TitleAlign, View3d,
 };
-pub use color_scale::{
-    CategoricalColorScale, ColorCategory, ColorMapping, ColorScale, ColorScaleClass,
-    ColorScaleDomain, ColorScaleKey, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
-    ColorScaleOutOfRange, ColorScaleSlot, Colormap, ContinuousColorScale, DiscreteColorScale,
-    IndexedColorScale, LISTED_COLORMAP_MAX, LISTED_COLORMAP_MIN, OutOfRange,
+pub use colour_scale::{
+    CategoricalColourScale, ColourCategory, ColourMapping, ColourScale, ColourScaleClass,
+    ColourScaleDomain, ColourScaleKey, ColourScaleKind, ColourScaleLevels, ColourScaleNorm,
+    ColourScaleOutOfRange, ColourScaleSlot, Colourmap, ContinuousColourScale, DiscreteColourScale,
+    IndexedColourScale, LISTED_COLOURMAP_MAX, LISTED_COLOURMAP_MIN, OutOfRange,
 };
 pub use data::{DataArray, NdArray, NdArrayElement, Values};
 pub use edit::{
@@ -119,9 +119,10 @@ pub use legend::{
 };
 pub use link::{AxisLink, Dimension};
 pub use panel::{
-    ColorbarOrientation, ColorbarTitlePlacement, Panel, PanelColorbar, PanelContent, PanelLocation,
+    ColourbarOrientation, ColourbarTitlePlacement, Panel, PanelColourbar, PanelContent,
+    PanelLocation,
 };
-pub use style::{Color, ColorSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
+pub use style::{Colour, ColourSpec, DashStyle, LineStyle, MarkerShape, MarkerStyle};
 pub use text::{Interpreter, Text};
 pub use validate::{IssueKind, ValidationIssue, ValidationReport};
 

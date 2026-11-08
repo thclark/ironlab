@@ -1,10 +1,10 @@
 //! Colour maps as 256-entry sRGB lookup tables.
 //!
-//! The tables are generated from matplotlib by `crates/ironlab-scene/scripts/generate_colormaps.py`
+//! The tables are generated from matplotlib by `crates/ironlab-scene/scripts/generate_colourmaps.py`
 //! (see that script for the provenance and licence of each table) and live in the generated
-//! `colormap_data` module.
+//! `colourmap_data` module.
 
-pub use super::colormap_data::{CIVIDIS, COOLWARM, GRAY, INFERNO, MAGMA, PLASMA, VIRIDIS};
+pub use super::colourmap_data::{CIVIDIS, COOLWARM, GREY, INFERNO, MAGMA, PLASMA, VIRIDIS};
 
 /// A colour map: 256 sRGB colours ordered from the lowest to the highest value.
 pub type Lut = [[u8; 3]; 256];

@@ -143,7 +143,7 @@ pub fn figure() -> Figure {
             let (x, y) = member.outline(80);
             ax.plot(&x, &y)
                 .label(format!("NACA {}", member.designation()))
-                .color(Color::BLACK)
+                .colour(Colour::BLACK)
                 .dash(dash);
         }
         ax.title(panel.title)

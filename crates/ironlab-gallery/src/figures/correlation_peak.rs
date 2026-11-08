@@ -48,7 +48,7 @@ pub fn figure() -> Figure {
     section(&mut ax, ImagePlane::Xy { z: Some(0.5) }, 0.25, 0.75, |x, y| correlation_field(x, y, 0.5));
     section(&mut ax, ImagePlane::Xz { y: Some(0.5) }, 0.25, 0.75, |x, z| correlation_field(x, 0.5, z));
     section(&mut ax, ImagePlane::Yz { x: Some(0.5) }, 0.25, 0.75, |y, z| correlation_field(0.5, y, z));
-    ax.color_scale().colormap(Colormap::Magma);
+    ax.colour_scale().colourmap(Colourmap::Magma);
     ax.xlim(0.0, 1.0)
         .ylim(0.0, 1.0)
         .zlim(0.0, 1.0)
