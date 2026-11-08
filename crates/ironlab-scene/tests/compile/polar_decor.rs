@@ -1122,3 +1122,16 @@ fn the_grid_is_painted_under_the_artists() {
         "the grid (leaf {last_grid}) is painted before the first artist leaf ({first_artist})"
     );
 }
+
+// Why: polar axes draw the angle round the rim and the radius along a spoke, so neither axis has a side of the plot to
+// move to; validation warns that the side is ignored, and the drawing must be exactly the drawing of the default side,
+// so that a figure switched to polar axes from Cartesian axes with an axis on the right draws as any polar plot.
+#[test]
+fn a_side_on_polar_axes_changes_nothing_drawn() {
+    let (plain, _) = polar_scene(PolarView::default(), |_| {});
+    let (sided, _) = polar_scene(PolarView::default(), |axes| {
+        axes.x.side = ironlab_ir::AxisSide::High;
+        axes.y.side = ironlab_ir::AxisSide::Centre;
+    });
+    assert_eq!(sided.display_list, plain.display_list);
+}

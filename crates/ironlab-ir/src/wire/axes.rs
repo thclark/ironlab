@@ -269,6 +269,21 @@ proto_file! {
         /// The angle of every tick label in degrees anticlockwise from horizontal; absent
         /// means 0.
         optional double tick_label_angle = 9;
+        /// The side of the plot on which the axis is drawn; unspecified means low.
+        enum AxisSide side = 10;
+    }
+
+    /// The side of the plot on which an axis draws its line, tick marks, tick labels and
+    /// label, across the direction in which the axis runs on the page.
+    enum AxisSide {
+        /// The left of the plot for an axis that runs up the page, and the bottom for one
+        /// that runs across it.
+        Low = 1;
+        /// Through the middle of the plot.
+        Centre = 2;
+        /// The right of the plot for an axis that runs up the page, and the top for one
+        /// that runs across it.
+        High = 3;
     }
 
     /// Where the major ticks of an axis are placed.

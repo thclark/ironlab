@@ -10,9 +10,9 @@ use std::collections::BTreeMap;
 use crate::error::{IrError, ProtobufError};
 use crate::wire as w;
 use crate::{
-    AngleUnits, Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, Bar, BarOffset, BarWidth,
-    BinRule, Binning, Binning2d, Bins, CategoricalColorScale, Cell, CellEdges, CellGap, Cells,
-    Color, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
+    AngleUnits, Artist, Aspect, AspectAdjust, Axes, Axis, AxisLink, AxisSide, Bar, BarOffset,
+    BarWidth, BinRule, Binning, Binning2d, Bins, CategoricalColorScale, Cell, CellEdges, CellGap,
+    Cells, Color, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
     ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Colormap,
     ColormapName, ContinuousColorScale, Contour, ContourPlacement, Coords, DEFAULT_BAR_ROWS,
     DashStyle, DataArray, Dimension, DiscreteColorScale, Edit, Embolden, Figure, FigureSize,
@@ -118,6 +118,7 @@ wire_enum! {
     AspectAdjust => AspectAdjust { Box, Limits }
     TitleAlign => TitleAlign { Center, Left, Right }
     PolarAngle => PolarAngle { Elevation, Inclination }
+    AxisSide => AxisSide { Low, Centre, High }
     MarkerShape => MarkerShape {
         None, Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine,
     }
@@ -354,6 +355,7 @@ fn encode_axis(axis: &Axis) -> w::Axis {
         tick_labels: Some(encode_tick_labels(&axis.tick_labels)),
         visible: Some(axis.visible),
         tick_label_angle: Some(axis.tick_label_angle),
+        side: axis.side.to_wire(),
     }
 }
 
@@ -1748,6 +1750,7 @@ fn decode_axis(wire: Option<w::Axis>, at: &str) -> Result<Axis> {
         grid: wire.grid.unwrap_or(default.grid),
         visible: wire.visible.unwrap_or(default.visible),
         tick_label_angle: wire.tick_label_angle.unwrap_or(default.tick_label_angle),
+        side: decode_enum(wire.side, Some(default.side), at, "side")?,
     })
 }
 
@@ -2707,6 +2710,7 @@ fn encode_value(value: &Value) -> w::Value {
             value: Some(encode_angle_units(*v)),
         }),
         Value::PolarAngle(v) => w::ValueKind::PolarAngle(w::ValuePolarAngle { value: v.to_wire() }),
+        Value::AxisSide(v) => w::ValueKind::AxisSide(w::ValueAxisSide { value: v.to_wire() }),
         Value::Axis(v) => w::ValueKind::Axis(w::ValueAxis {
             value: Some(encode_axis(v)),
         }),
@@ -3090,6 +3094,12 @@ fn decode_value(wire: w::Value, at: &str) -> Result<Value> {
             v.value,
             None,
             &join(at, "polar_angle_value"),
+            "value",
+        )?),
+        w::ValueKind::AxisSide(v) => Value::AxisSide(decode_enum(
+            v.value,
+            None,
+            &join(at, "axis_side_value"),
             "value",
         )?),
         w::ValueKind::View3d(v) => {

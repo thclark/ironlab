@@ -482,16 +482,16 @@ fn the_bar_stairs_and_cells_types_are_defined_in_the_artist_module_with_their_va
     }
 }
 
-// Why: files written before an axis could be hidden or its tick labels rotated have
-// neither property, so the schema must not require them, or every existing file would
-// fail validation against the schema while IronLAB still reads it.
+// Why: files written before an axis could be hidden, its tick labels rotated or its side
+// chosen have none of these properties, so the schema must not require them, or every
+// existing file would fail validation against the schema while IronLAB still reads it.
 #[test]
-fn the_axis_definition_does_not_require_its_visibility_or_tick_label_angle() {
+fn the_axis_definition_does_not_require_its_visibility_tick_label_angle_or_side() {
     let schema = ironlab_ir::json_schema();
     let axis = schema
         .pointer("/$defs/Axis")
         .expect("the schema defines Axis");
-    for property in ["visible", "tick_label_angle"] {
+    for property in ["visible", "tick_label_angle", "side"] {
         assert!(
             axis.pointer(&format!("/properties/{property}")).is_some(),
             "Axis has no {property} property"
@@ -502,7 +502,7 @@ fn the_axis_definition_does_not_require_its_visibility_or_tick_label_angle() {
         .and_then(Value::as_array)
         .map(|items| items.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    for property in ["visible", "tick_label_angle"] {
+    for property in ["visible", "tick_label_angle", "side"] {
         assert!(
             !required.contains(&property),
             "{property} is required, so files written before it would not validate: {required:?}"

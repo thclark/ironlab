@@ -208,11 +208,11 @@ fn arrange(
         .iter()
         .zip(&decorations)
         .map(|(axes, d)| match axes.projection {
-            Projection::TwoD => axes2d::margins(ctx, d),
+            Projection::TwoD => axes2d::margins(ctx, axes, d),
             Projection::Polar { .. } => axes_polar::margins(ctx, d),
             Projection::ThreeD { .. }
             | Projection::Cylindrical { .. }
-            | Projection::Spherical { .. } => axes3d::margins(ctx, d),
+            | Projection::Spherical { .. } => axes3d::margins(ctx, axes, d),
         })
         .collect();
     let placement = layout::place(ctx, fits, grid_area, &margins, panel_tops);
@@ -878,11 +878,11 @@ fn lay_out(
         .iter()
         .zip(&decorations)
         .map(|(axes, d)| match axes.projection {
-            Projection::TwoD => axes2d::margins(ctx, d),
+            Projection::TwoD => axes2d::margins(ctx, axes, d),
             Projection::Polar { .. } => axes_polar::margins(ctx, d),
             Projection::ThreeD { .. }
             | Projection::Cylindrical { .. }
-            | Projection::Spherical { .. } => axes3d::margins(ctx, d),
+            | Projection::Spherical { .. } => axes3d::margins(ctx, axes, d),
         })
         .collect();
     (outer, ranges, targets, decorations, margins)

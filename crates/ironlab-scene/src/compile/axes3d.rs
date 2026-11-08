@@ -1,9 +1,9 @@
 //! Three-dimensional axes: the projected box, back-plane grid lines, tick labels on the outer edges, axis labels,
 //! depth-sorted artists and the legend.
 
-use ironlab_ir::View3d;
+use ironlab_ir::{Axes, AxisSide, Projection, View3d};
 
-use crate::display::{Item, ItemKind, Point, Rect};
+use crate::display::{Depth, Item, ItemKind, Point, Rect};
 use crate::hit::{AxesHit, AxesHitKind, HitMap};
 use crate::maths::camera::{Plane, UNIT_BOX_CORNERS, back_planes, depth_order};
 
@@ -18,12 +18,26 @@ use super::style::{self, GRID, INK};
 use super::text::TextBlock;
 use super::{colorbar, legend};
 
+/// Returns the side on which axis `dim` of an axes is drawn: its own side where the projection honours it (every axis
+/// of a Cartesian axes, and z of a cylindrical axes), and the low side where it is ignored.
+pub(super) fn drawn_side(axes: &Axes, dim: usize) -> AxisSide {
+    let axis = [&axes.x, &axes.y, &axes.z][dim];
+    match axes.projection {
+        Projection::TwoD | Projection::ThreeD { .. } => axis.side,
+        Projection::Cylindrical { .. } if dim == 2 => axis.side,
+        Projection::Cylindrical { .. }
+        | Projection::Polar { .. }
+        | Projection::Spherical { .. } => AxisSide::Low,
+    }
+}
+
 /// Computes the space a 3D axes reserves around the rectangle into which its box is fitted.
 ///
 /// The box is fitted into the plot rectangle for every view, so tick labels and axis labels, which lie outside the
-/// projected box, need room around it: the widest tick label and the rotated z label on the left, and a row of tick
-/// labels and an axis label below.
-pub(super) fn margins(ctx: &Ctx, decor: &Decor) -> Margins {
+/// projected box, need room around it: the widest tick label on both sides, the rotated z label beside the side the z
+/// axis is drawn on (the left for the low side, the right for the high side, neither through the middle), and a row
+/// of tick labels and an axis label below for x and y on the low side, and above for x and y on the high side.
+pub(super) fn margins(ctx: &Ctx, axes: &Axes, decor: &Decor) -> Margins {
     let fs = ctx.font_size;
     let outer = page_padding(ctx);
     let widest = decor
@@ -45,12 +59,58 @@ pub(super) fn margins(ctx: &Ctx, decor: &Decor) -> Margins {
         .title
         .as_ref()
         .map_or(0.0, |t| t.total_height() + 0.5 * fs);
+    let sides = [0, 1, 2].map(|dim| drawn_side(axes, dim));
+    // The tallest label of the x and y axes drawn on `side`, or `None` when neither is drawn there.
+    let tallest_on = |side: AxisSide| {
+        [0, 1]
+            .into_iter()
+            .filter(|&d| sides[d] == side)
+            .map(label_height)
+            .reduce(f64::max)
+    };
+    let (left, right) = match sides[2] {
+        AxisSide::Low => (
+            outer + widest + label_height(2) + 1.2 * fs,
+            outer + widest + 0.5 * fs,
+        ),
+        AxisSide::Centre => (outer + widest + 0.5 * fs, outer + widest + 0.5 * fs),
+        AxisSide::High => (
+            outer + widest + 0.5 * fs,
+            outer + widest + label_height(2) + 1.2 * fs,
+        ),
+    };
     Margins {
-        left: outer + widest + label_height(2) + 1.2 * fs,
-        right: outer + widest + 0.5 * fs,
-        top: outer + title + 0.5 * fs,
-        bottom: outer + row + label_height(0).max(label_height(1)) + 1.2 * fs,
+        left,
+        right,
+        top: match tallest_on(AxisSide::High) {
+            Some(tallest) => outer + title + row + tallest + 1.2 * fs,
+            None => outer + title + 0.5 * fs,
+        },
+        bottom: match tallest_on(AxisSide::Low) {
+            Some(tallest) => outer + row + tallest + 1.2 * fs,
+            None => outer + 0.5 * fs,
+        },
     }
+}
+
+/// Returns the height of the band above the box that holds the tick labels and axis labels of the x and y axes on the
+/// high side, without the gaps around it, or `None` when neither is on the high side. [`margins`] reserves it.
+fn high_band(axes: &Axes, decor: &Decor) -> Option<f64> {
+    let row = decor
+        .ticks
+        .iter()
+        .map(|t| t.max_height() + t.max_depth())
+        .fold(0.0, f64::max);
+    [0, 1]
+        .into_iter()
+        .filter(|&d| drawn_side(axes, d) == AxisSide::High)
+        .map(|d| {
+            decor.labels[d]
+                .as_ref()
+                .map_or(0.0, TextBlock::total_height)
+        })
+        .reduce(f64::max)
+        .map(|tallest| row + tallest)
 }
 
 /// Returns the axis and coordinate of a face of the unit box.
@@ -106,7 +166,9 @@ pub(super) fn emit(
 
     // With the box off, only the three edges that carry the tick marks and labels are drawn.
     let labelled: Vec<(usize, [f64; 3])> = (0..3)
-        .filter_map(|dim| label_edge(&projector, dim).map(|edge| (dim, edge.at)))
+        .filter_map(|dim| {
+            label_edge(&projector, dim, drawn_side(axes, dim)).map(|edge| (dim, edge.at))
+        })
         .collect();
     let carries_ticks = |a: &[f64; 3], b: &[f64; 3]| {
         labelled.iter().any(|(dim, at)| {
@@ -145,6 +207,17 @@ pub(super) fn emit(
     // Images drawn in a 3D axes record no placement, so there is nothing of theirs to add to the hit map.
     hits.images.extend(drawn.images);
     let mut prims = drawn.prims;
+    // An axis through the middle draws its own line through the box, among the artists, so that the artists in front
+    // of it hide it.
+    let shown = [axes.x.visible, axes.y.visible, axes.z.visible];
+    for &(dim, at) in &labelled {
+        if drawn_side(axes, dim) == AxisSide::Centre && shown[dim] {
+            let (mut lo, mut hi) = (at, at);
+            lo[dim] = -0.5;
+            hi[dim] = 0.5;
+            prims.extend(interior_line(&projector, axes.id, lo, hi));
+        }
+    }
     depth_order(&mut prims);
     let sorted: Vec<Item> = prims.into_iter().map(|(_, item)| item).collect();
     let artists = group_dense(coalesce_markers(sorted), &drawn.dense);
@@ -182,6 +255,36 @@ pub(super) fn emit(
         plot_rect: input.plot,
         kind: AxesHitKind::ThreeD,
     });
+}
+
+/// The number of pieces into which an interior straight line is cut, each sorted at its own mean depth, so that the
+/// painter's order of a backend without a depth buffer can put the parts of a long line on both sides of an artist.
+pub(super) const INTERIOR_PIECES: usize = 8;
+
+/// Returns the straight line from `a` to `b` of the normalised box as [`INTERIOR_PIECES`] primitives to be sorted
+/// among the artists, each with the depth of its two ends and keyed by their mean.
+pub(super) fn interior_line(
+    projector: &Projector,
+    owner: ironlab_ir::NodeId,
+    a: [f64; 3],
+    b: [f64; 3],
+) -> Vec<(f64, Item)> {
+    let at = |t: f64| [0, 1, 2].map(|k| a[k] + (b[k] - a[k]) * t);
+    (0..INTERIOR_PIECES)
+        .filter_map(|k| {
+            let t0 = k as f64 / INTERIOR_PIECES as f64;
+            let t1 = (k + 1) as f64 / INTERIOR_PIECES as f64;
+            let (p, dp) = projector.project(at(t0))?;
+            let (q, dq) = projector.project(at(t1))?;
+            let mut path = PathBuilder::new();
+            path.polyline(&[p, q], false);
+            let item = paths::item(owner, path.finish(), None, Some(paths::solid(INK, 0.5)))?;
+            Some((
+                (dp + dq) / 2.0,
+                paths::with_depth(item, Depth::Vertices(vec![dp, dq])),
+            ))
+        })
+        .collect()
 }
 
 /// Returns the normalised position of a data value along axis `dim`, or `None` when it cannot be placed.
@@ -261,11 +364,18 @@ struct LabelEdge {
     along: Point,
 }
 
-/// Chooses the edge that carries the tick labels of axis `dim`.
+/// Chooses the edge that carries the tick labels of axis `dim` drawn on `side`.
 ///
-/// For x and y, it is the edge parallel to the axis that is lowest on the page; for z, it is the vertical edge
-/// furthest to the left. Ties are broken in favour of the edge nearer the viewer.
-fn label_edge(projector: &Projector, dim: usize) -> Option<LabelEdge> {
+/// On the low side, it is the edge parallel to the axis that is lowest on the page for x and y, and the vertical edge
+/// furthest to the left for z; on the high side, the edge highest on the page and the vertical edge furthest to the
+/// right. Ties are broken in favour of the edge nearer the viewer. The edge is chosen for the current view, so the axis
+/// stays on its side of the page as the camera turns. Through the middle, it is the line through the centre of the
+/// floor parallel to the axis (for z, the vertical line standing on that centre), whose labels lie on its low side:
+/// below it on the page for x and y, and to its left for z.
+fn label_edge(projector: &Projector, dim: usize, side: AxisSide) -> Option<LabelEdge> {
+    if side == AxisSide::Centre {
+        return centre_edge(projector, dim);
+    }
     let others: Vec<usize> = (0..3).filter(|k| *k != dim).collect();
     let mut best: Option<(LabelEdge, f64, f64)> = None;
     for (sa, sb) in [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)] {
@@ -292,7 +402,8 @@ fn label_edge(projector: &Projector, dim: usize) -> Option<LabelEdge> {
             Point::new(0.0, 1.0)
         };
         let outward = unit(away, fallback);
-        let score = if dim == 2 { -mid.x } else { mid.y };
+        let low = if dim == 2 { -mid.x } else { mid.y };
+        let score = if side == AxisSide::High { -low } else { low };
         let better = match &best {
             None => true,
             Some((_, s, d)) => score > s + 1e-6 || ((score - s).abs() <= 1e-6 && depth > *d),
@@ -311,6 +422,45 @@ fn label_edge(projector: &Projector, dim: usize) -> Option<LabelEdge> {
         }
     }
     best.map(|(edge, _, _)| edge)
+}
+
+/// Returns the line through the centre of the floor parallel to axis `dim`, as the edge that carries its tick labels
+/// on their low side: below the line on the page for x and y, and to its left for z.
+fn centre_edge(projector: &Projector, dim: usize) -> Option<LabelEdge> {
+    let mut at = [0.0; 3];
+    if dim != 2 {
+        at[2] = -0.5;
+    }
+    let (mid, _) = projector.project(at)?;
+    let (mut lo, mut hi) = (at, at);
+    lo[dim] = -0.5;
+    hi[dim] = 0.5;
+    let (p_lo, _) = projector.project(lo)?;
+    let (p_hi, _) = projector.project(hi)?;
+    let fallback = if dim == 2 {
+        Point::new(0.0, -1.0)
+    } else {
+        Point::new(1.0, 0.0)
+    };
+    let along = unit(Point::new(p_hi.x - p_lo.x, p_hi.y - p_lo.y), fallback);
+    let normal = Point::new(-along.y, along.x);
+    let outward = if dim == 2 {
+        if normal.x <= 0.0 {
+            normal
+        } else {
+            Point::new(-normal.x, -normal.y)
+        }
+    } else if normal.y >= 0.0 {
+        normal
+    } else {
+        Point::new(-normal.x, -normal.y)
+    };
+    Some(LabelEdge {
+        at,
+        mid,
+        outward,
+        along,
+    })
 }
 
 /// The length of a 3D tick mark, in font sizes.
@@ -342,7 +492,8 @@ fn draw_labels(ctx: &mut Ctx, input: &AxesInput, projector: &Projector, out: &mu
     let mut marks = PathBuilder::new();
     let mut placed: Vec<Rect> = Vec::new();
     for dim in 0..3 {
-        let Some(edge) = label_edge(projector, dim) else {
+        let side = drawn_side(input.axes, dim);
+        let Some(edge) = label_edge(projector, dim, side) else {
             continue;
         };
         let ticks = &decor.ticks[dim];
@@ -388,7 +539,15 @@ fn draw_labels(ctx: &mut Ctx, input: &AxesInput, projector: &Projector, out: &mu
         let Some(label) = &decor.labels[dim] else {
             continue;
         };
-        if dim == 2 {
+        if dim == 2 && side == AxisSide::High {
+            let left = boxes
+                .iter()
+                .map(Rect::right)
+                .fold(edge.mid.x + pad, f64::max)
+                + gap;
+            let origin = Point::new(left + label.height(), edge.mid.y + label.width() / 2.0);
+            label.draw_upwards_on_page(ctx, origin, INK, id, out);
+        } else if dim == 2 {
             let right = boxes.iter().map(|b| b.x).fold(edge.mid.x - pad, f64::min) - gap;
             let origin = Point::new(right - label.depth(), edge.mid.y + label.width() / 2.0);
             label.draw_upwards_on_page(ctx, origin, INK, id, out);
@@ -412,9 +571,12 @@ fn draw_labels(ctx: &mut Ctx, input: &AxesInput, projector: &Projector, out: &mu
     ));
     if let Some(title) = &decor.title {
         let plot = input.plot;
+        // Above the tick labels and axis labels of the x and y axes on the high side, for which `margins` reserves the
+        // band.
+        let band = high_band(input.axes, decor).map_or(0.0, |band| band + 0.7 * fs);
         let origin = Point::new(
             super::axes2d::title_left(input.axes.title_align, plot, title.width()),
-            plot.y - 0.5 * fs - title.depth(),
+            plot.y - band - 0.5 * fs - title.depth(),
         );
         title.draw_on_page(ctx, origin, INK, id, out);
     }

@@ -13,7 +13,7 @@
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
 
-use ironlab_ir::{PolarView, Projection, View3d};
+use ironlab_ir::{AxisSide, PolarView, Projection, View3d};
 
 use crate::display::{Depth, Item, ItemKind, Point, Rect};
 use crate::hit::{AxesHit, AxesHitKind, HitMap};
@@ -22,7 +22,7 @@ use super::Ctx;
 use super::artists::{
     AxesInput, Projector, Space, Stage, coalesce_markers, draw_artists, group_dense,
 };
-use super::axes3d::{LABEL_CLEARANCE, TICK_LENGTH, crowds, half_extent, unit};
+use super::axes3d::{LABEL_CLEARANCE, TICK_LENGTH, crowds, drawn_side, half_extent, unit};
 use super::decor::AxisTicks;
 use super::paths::{self, PathBuilder};
 use super::style::{self, GRID, INK};
@@ -653,13 +653,16 @@ pub(super) fn emit(
 
 /// Returns the room, across and down, that the tick labels placed outside the frame circles take beyond the
 /// circumscribing sphere on each side: the pad between a circle and its labels and the widest or tallest of those
-/// labels. They are the angle labels of a cylinder, and the azimuth and polar-angle labels of a sphere. The room
-/// depends on the labels alone, never on the view, so the drawing keeps its size as the view turns.
+/// labels. They are the angle labels of a cylinder, and the azimuth and polar-angle labels of a sphere, and the z
+/// labels of a cylinder whose z axis stands on a wall, beside it. The room depends on the labels alone, never on the
+/// view, so the drawing keeps its size as the view turns.
 fn label_inset(ctx: &Ctx, input: &AxesInput, stage: Stage) -> [f64; 2] {
     let fs = ctx.font_size;
     let pad = TICK_LENGTH * fs + 0.3 * fs;
+    let on_wall = drawn_side(input.axes, 2) != AxisSide::Centre;
     let outside: &[usize] = match stage {
         Stage::Sphere { .. } => &[0, 1],
+        _ if on_wall => &[0, 2],
         _ => &[0],
     };
     let ticks = &input.decor.ticks;
@@ -689,10 +692,14 @@ struct Cylinder {
 /// On the floor, at the lower z limit: the rim circle (or the arc of a partial sector and its two radial edges), the
 /// circle of the hole when there is one, spokes at the angular ticks when the x grid is on and circles at the radial
 /// ticks when the y grid is on; angular tick labels outside the rim, and radial tick labels centred on the spoke that
-/// the polar view names. Up the axis of the cylinder from the floor to the top: the z axis with its tick marks and
-/// labels beside it. On the wall: a ring at every z tick when the z grid is on. When the box is on: at the top, the rim,
-/// the hole and the edges of a partial sector, joined to the floor by vertical edges at the edges of the sector, and the
-/// two silhouette lines of the wall, from the floor rim to the top rim, that lie inside the sector.
+/// the polar view names. On the wall: a ring at every z tick when the z grid is on. When the box is on: at the top, the
+/// rim, the hole and the edges of a partial sector, joined to the floor by vertical edges at the edges of the sector,
+/// and the two silhouette lines of the wall, from the floor rim to the top rim, that lie inside the sector.
+///
+/// The z axis, with its tick marks and labels, stands on the vertical line of that outline furthest left on the page
+/// for the low side and furthest right for the high side, with its labels outside the cylinder; that line is drawn
+/// even when the box is off. Through the middle it runs up the axis of the cylinder, among the artists, with its
+/// labels to its left.
 fn cylinder(
     ctx: &mut Ctx,
     input: &AxesInput,
@@ -809,34 +816,53 @@ fn cylinder(
             }
         }
     }
-    if axes.box_ && !full {
+    // The vertical lines of the outline, each an azimuth and a fraction of the rim radius: the edges of a partial
+    // sector, and the silhouette lines of the wall that lie inside the sector.
+    let mut uprights: Vec<(f64, f64)> = Vec::new();
+    if !full {
         for a in [a0, a1] {
             for q in [c.hole, 1.0] {
                 if q > 0.0 {
-                    f.segment(Kind::Lines, at(a, q, floor), at(a, q, top), Layering::Split);
+                    uprights.push((a, q));
                 }
             }
         }
     }
-    if axes.box_ {
-        for a in wall_silhouette(p) {
-            let a = a0 + (a - a0).rem_euclid(TAU);
-            if full || (a - a0 > 1e-9 && a1 - a > 1e-9) {
-                f.segment(
-                    Kind::Lines,
-                    at(a, 1.0, floor),
-                    at(a, 1.0, top),
-                    Layering::Split,
-                );
-            }
+    for a in wall_silhouette(p) {
+        let a = a0 + (a - a0).rem_euclid(TAU);
+        if full || (a - a0 > 1e-9 && a1 - a > 1e-9) {
+            uprights.push((a, 1.0));
         }
     }
-    f.segment(
-        Kind::Lines,
-        [0.0, 0.0, -0.5],
-        [0.0, 0.0, 0.5],
-        Layering::Interior,
-    );
+    // A z axis on the low side stands on the vertical line of the outline furthest left on the page, and one on the
+    // high side on the line furthest right; one through the middle stands on the axis of the cylinder.
+    let z_side = drawn_side(axes, 2);
+    let page_x = |(a, q): (f64, f64)| f.page(at(a, q, floor)).map_or(0.0, |(point, _)| point.x);
+    let z_wall = match z_side {
+        AxisSide::Centre => None,
+        AxisSide::Low => uprights
+            .iter()
+            .copied()
+            .min_by(|u, v| page_x(*u).total_cmp(&page_x(*v))),
+        AxisSide::High => uprights
+            .iter()
+            .copied()
+            .max_by(|u, v| page_x(*u).total_cmp(&page_x(*v))),
+    };
+    // With the box, every vertical line of the outline is drawn; without it, only the one that carries the z axis.
+    for &(a, q) in &uprights {
+        if axes.box_ || z_wall == Some((a, q)) {
+            f.segment(Kind::Lines, at(a, q, floor), at(a, q, top), Layering::Split);
+        }
+    }
+    if z_wall.is_none() {
+        f.segment(
+            Kind::Lines,
+            [0.0, 0.0, -0.5],
+            [0.0, 0.0, 0.5],
+            Layering::Interior,
+        );
+    }
 
     // Angular tick labels outside the rim.
     for (&theta, label) in xt.major.iter().zip(&xt.labels) {
@@ -846,22 +872,32 @@ fn cylinder(
         f.tick(ctx, label, point, (d, true), false);
     }
 
-    // The z axis: tick marks and labels to the left of the axis of the cylinder.
-    let (bottom, upper) = (f.page([0.0, 0.0, -0.5]), f.page([0.0, 0.0, 0.5]));
+    // The z axis: tick marks and labels on the line that carries it, to its left (on the high side, to its right).
+    let base = |z: f64| match z_wall {
+        Some((a, q)) => at(a, q, z),
+        None => [0.0, 0.0, z],
+    };
+    let (bottom, upper) = (f.page(base(-0.5)), f.page(base(0.5)));
     let mut z_boxes = Vec::new();
     if let (Some((b, _)), Some((t, _))) = (bottom, upper) {
         let along = Point::new(t.x - b.x, t.y - b.y);
         if along.x.hypot(along.y) >= 1.0 {
             let along = unit(along, Point::new(0.0, -1.0));
-            let z_side = if along.y > 0.0 {
-                Point::new(along.y, -along.x)
+            let normal = Point::new(-along.y, along.x);
+            let leftward = if normal.x <= 0.0 {
+                normal
             } else {
-                Point::new(-along.y, along.x)
+                Point::new(-normal.x, -normal.y)
+            };
+            let outward = if z_side == AxisSide::High {
+                Point::new(-leftward.x, -leftward.y)
+            } else {
+                leftward
             };
             let mut last = None;
             for (&z, label) in zt.major.iter().zip(&zt.labels) {
-                let point = [0.0, 0.0, height(z)];
-                if let Some(bounds) = f.tick(ctx, label, point, (z_side, true), true) {
+                let point = base(height(z));
+                if let Some(bounds) = f.tick(ctx, label, point, (outward, true), true) {
                     z_boxes.push(bounds);
                     last = Some((bounds, point));
                 }
@@ -925,18 +961,39 @@ fn cylinder(
             label.draw_on_page(ctx, label.origin_for_centre(centre), INK, id, axis_labels);
         }
     }
-    // The z label stands upright to the left of the cylinder, clear of the data inside it, as the z label of a
-    // Cartesian box stands to the left of its leftmost edge.
+    // The z label stands upright to the left of the cylinder (to its right for a z axis on the high side), clear of
+    // the data inside it, as the z label of a Cartesian box stands beside its leftmost or rightmost edge.
     if let (Some(label), Some((b, _)), Some((t, _))) = (&decor.labels[2], bottom, upper) {
         let mid = Point::new((b.x + t.x) / 2.0, (b.y + t.y) / 2.0);
         let rims = (0..64).flat_map(|k| {
             let a = TAU * f64::from(k) / 64.0;
             [floor, top].map(|z| f.page(at(a, 1.0, z)).map(|(q, _)| q))
         });
+        // Besides the z tick labels, the label clears every other tick label beside the span it stands over, such as an
+        // angle label outside the rim below the wall.
+        let (span_top, span_bottom) = (mid.y - label.width() / 2.0, mid.y + label.width() / 2.0);
+        let beside: Vec<Rect> = f
+            .placed
+            .iter()
+            .filter(|r| r.y < span_bottom && r.bottom() > span_top)
+            .chain(&z_boxes)
+            .copied()
+            .collect();
+        if z_side == AxisSide::High {
+            let left = rims
+                .flatten()
+                .map(|q| q.x + f.pad)
+                .chain(beside.iter().map(Rect::right))
+                .fold(mid.x, f64::max)
+                + gap;
+            let origin = Point::new(left + label.height(), mid.y + label.width() / 2.0);
+            label.draw_upwards_on_page(ctx, origin, INK, id, axis_labels);
+            return;
+        }
         let left = rims
             .flatten()
             .map(|q| q.x - f.pad)
-            .chain(z_boxes.iter().map(|r| r.x))
+            .chain(beside.iter().map(|r| r.x))
             .fold(mid.x, f64::min)
             - gap;
         let origin = Point::new(left - label.depth(), mid.y + label.width() / 2.0);

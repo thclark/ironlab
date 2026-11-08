@@ -328,6 +328,13 @@ pub enum IssueKind {
     /// axes. A cylindrical axes keeps the ratio of its height to its radius, so its aspect
     /// is honoured.
     AspectIgnored,
+    /// An axis that has no side of the plot to move to is given a side other than
+    /// [`AxisSide::Low`](crate::AxisSide::Low): either axis of a polar axes, any axis of a
+    /// spherical axes, or the angle (x) or radius (y) of a cylindrical axes. This is a
+    /// warning, not an error, because the figure is drawn with the axis where the
+    /// projection puts it. It is reported against the axes. The z axis of a
+    /// two-dimensional axes, which is not drawn at all, is not reported.
+    AxisSideIgnored,
 }
 
 impl Figure {
@@ -1131,6 +1138,25 @@ impl<'a> Validator<'a> {
                  axes are drawn as a sphere"
                     .to_owned(),
             );
+        }
+        let sideless: &[(&str, &Axis)] = match axes.projection {
+            Projection::TwoD | Projection::ThreeD { .. } => &[],
+            Projection::Polar { .. } => &[("x", &axes.x), ("y", &axes.y)],
+            Projection::Cylindrical { .. } => &[("x", &axes.x), ("y", &axes.y)],
+            Projection::Spherical { .. } => &[("x", &axes.x), ("y", &axes.y), ("z", &axes.z)],
+        };
+        for &(name, axis) in sideless {
+            if !axis.side.is_low() {
+                self.warning(
+                    Some(axes.id),
+                    IssueKind::AxisSideIgnored,
+                    format!(
+                        "the {} side of the {name} axis is ignored, because this projection \
+                         draws that axis where its angles or radii place it",
+                        format!("{:?}", axis.side).to_lowercase()
+                    ),
+                );
+            }
         }
     }
 

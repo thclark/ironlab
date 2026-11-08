@@ -125,6 +125,10 @@ pub use ironlab_ir::OutOfRange;
 
 pub use ironlab_ir::{AngleUnits, PolarAngle, PolarView, SphericalView};
 
+/// The side of the plot on which an axis draws its line, tick marks, tick labels and label.
+/// See [`AxesMut::xaxis_side`].
+pub use ironlab_ir::AxisSide;
+
 pub use ironlab_ir::{
     Aspect, AspectAdjust, Color, ColorSpec, ColorbarOrientation, ColorbarTitlePlacement, Coords,
     InsideColorbarSide, InsideLegend, Interpreter, IssueKind, Legend, LegendEntries,
@@ -226,6 +230,7 @@ pub struct ExportReport {
 /// ```
 pub mod prelude {
     pub use crate::AxesMut;
+    pub use crate::AxisSide;
     pub use crate::{AngleUnits, PolarAngle, PolarView, SphericalView, ThetaZero};
     pub use crate::{
         Aspect, AspectAdjust, BarMut, BarsMut, ByteMatrix, CategoryRows, CellsMut, Color,

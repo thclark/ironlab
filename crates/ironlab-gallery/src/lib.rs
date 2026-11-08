@@ -156,6 +156,7 @@ gallery!(
     wind_rose,
     cylindrical_surface,
     helix,
+    axis_sides,
     antenna_balloon,
     globe_image,
 );
