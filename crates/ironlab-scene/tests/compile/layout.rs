@@ -1,6 +1,6 @@
 //! Page size, tile layout and placement of titles, labels and tick labels.
 
-use ironlab_ir::{Cell, Color, Legend, Projection, TrackSize};
+use ironlab_ir::{Cell, Colour, Legend, Projection, TrackSize};
 use ironlab_scene::display::Rect;
 
 use crate::common::{Fx, cell, compile_figure, linspace, rgba, text};
@@ -33,13 +33,13 @@ fn page_size_is_figure_size_in_points_with_figure_background() {
     let (mut fx, _) = labelled_figure();
     fx.fig.size.width_mm = 120.0;
     fx.fig.size.height_mm = 80.0;
-    fx.fig.background = Color::rgb(0.9, 0.95, 1.0);
+    fx.fig.background = Colour::rgb(0.9, 0.95, 1.0);
     let scene = compile_figure(&fx.build());
     assert_close(scene.display_list.width_pt, 120.0 * MM_TO_PT, 1e-9);
     assert_close(scene.display_list.height_pt, 80.0 * MM_TO_PT, 1e-9);
     assert_eq!(
         scene.display_list.background,
-        rgba(Color::rgb(0.9, 0.95, 1.0))
+        rgba(Colour::rgb(0.9, 0.95, 1.0))
     );
 }
 

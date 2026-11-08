@@ -1,9 +1,9 @@
 //! Two-dimensional artists: lines, markers, scatter, contour, filled contour and quiver.
 
-use ironlab_ir::{Color, ColorSpec, DashStyle, Levels, Limits, MarkerShape, NodeId};
+use ironlab_ir::{Colour, ColourSpec, DashStyle, Levels, Limits, MarkerShape, NodeId};
 use ironlab_scene::Scene;
 use ironlab_scene::display::{FillRule, Point, Rgba};
-use ironlab_scene::maths::colormap::{VIRIDIS, sample};
+use ironlab_scene::maths::colourmap::{VIRIDIS, sample};
 
 use crate::common::{
     COLOUR_ORDER, Fx, compile_figure, linspace, nearest_lut_index, rgb8, rgb8_close,
@@ -19,8 +19,8 @@ fn stroked(leaves: &[Leaf], id: NodeId) -> Vec<Leaf> {
         .collect()
 }
 
-fn in_viridis(color: Rgba) -> bool {
-    VIRIDIS.iter().any(|c| rgb8_close(*c, rgb8(color)))
+fn in_viridis(colour: Rgba) -> bool {
+    VIRIDIS.iter().any(|c| rgb8_close(*c, rgb8(colour)))
 }
 
 /// Asserts that each data point has exactly one marker instance of the artist centred on it, whatever order the
@@ -52,7 +52,7 @@ fn stroke_rgb8(scene: &Scene, id: NodeId) -> [u8; 3] {
     let leaves = leaves(scene);
     let colour = stroked(&leaves, id)
         .first()
-        .map(|l| l.path().unwrap().stroke.as_ref().unwrap().color)
+        .map(|l| l.path().unwrap().stroke.as_ref().unwrap().colour)
         .or_else(|| marker_instances(&leaves, id).first().and_then(|m| m.edge))
         .unwrap_or_else(|| panic!("artist {id} is stroked"));
     rgb8(colour)
@@ -95,16 +95,16 @@ fn hidden_artist_keeps_its_place_in_the_colour_order() {
 }
 
 // Why: only series that ask for an automatic colour advance the colour order. An explicitly coloured
-// line or a colormapped contour must not use up a colour, lines, scatters and quivers share one
+// line or a colourmapped contour must not use up a colour, lines, scatters and quivers share one
 // sequence, and each axes starts its own sequence at the first colour, as in MATLAB.
 #[test]
 fn only_automatic_line_scatter_and_quiver_colours_advance_the_order() {
     let mut fx = Fx::new();
     fx.fig.layout.cols = 2;
     let ax = fx.axes2d(0, 0);
-    let red = Color::rgb(1.0, 0.0, 0.0);
+    let red = Colour::rgb(1.0, 0.0, 0.0);
     let explicit = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
-        l.line.color = ColorSpec::Rgba { color: red }
+        l.line.colour = ColourSpec::Rgba { colour: red }
     });
     let g = linspace(0.0, 1.0, 5);
     fx.contour(ax, &g, &g, |x, y| x + y, |_| {});
@@ -323,16 +323,16 @@ fn scatter_draws_one_marker_per_point() {
     assert_one_marker_per_point(&scene, ax, scatter, &points);
 }
 
-// Why: scatter colour data must be mapped through the axes colormap and automatic colour limits, so
+// Why: scatter colour data must be mapped through the axes colourmap and automatic colour limits, so
 // the lowest value takes the first colour and the highest the last.
 #[test]
-fn scatter_colour_data_is_colormapped() {
+fn scatter_colour_data_is_colourmapped() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let scatter = fx.scatter(ax, &[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0], None, |s, fx| {
-        s.color_data = Some(fx.vector(&[10.0, 15.0, 20.0]));
-        s.line.color = ColorSpec::Colormapped;
-        s.marker.face = ColorSpec::Auto;
+        s.colour_data = Some(fx.vector(&[10.0, 15.0, 20.0]));
+        s.line.colour = ColourSpec::Colourmapped;
+        s.marker.face = ColourSpec::Auto;
     });
     let scene = compile_figure(&fx.build());
     let (xmap, _) = axis_maps(&scene, ax);
@@ -350,10 +350,10 @@ fn scatter_colour_data_is_colormapped() {
     }
 }
 
-// Why: each isoline must lie on its level and take that level's colormap colour, with higher levels
-// further along the colormap, so a reader can tell high ground from low ground.
+// Why: each isoline must lie on its level and take that level's colourmap colour, with higher levels
+// further along the colourmap, so a reader can tell high ground from low ground.
 #[test]
-fn contour_lines_lie_on_their_levels_with_colormapped_colours() {
+fn contour_lines_lie_on_their_levels_with_colourmapped_colours() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     // Ten nodes per axis keep every level off the grid nodes.
@@ -388,21 +388,21 @@ fn contour_lines_lie_on_their_levels_with_colormapped_colours() {
             xs.iter().all(|x| (x - levels[k]).abs() < 1e-6),
             "a path holds one level"
         );
-        let colour = leaf.path().unwrap().stroke.as_ref().unwrap().color;
-        assert!(in_viridis(colour), "{colour:?} comes from the colormap");
+        let colour = leaf.path().unwrap().stroke.as_ref().unwrap().colour;
+        assert!(in_viridis(colour), "{colour:?} comes from the colourmap");
         colour_of_level[k] = Some(colour);
     }
     let [lo, mid, hi] =
         colour_of_level.map(|c| nearest_lut_index(&VIRIDIS, c.expect("every level is drawn")));
     assert!(
         lo < mid && mid < hi,
-        "colormap indices increase with level: {lo}, {mid}, {hi}"
+        "colourmap indices increase with level: {lo}, {mid}, {hi}"
     );
 }
 
 // Why: filled contours paint one nonzero-rule path per band. The pieces of a band share one winding,
 // so they union without holes; each band holds only data in its own level range and is coloured
-// further along the colormap than the band below it; and together the bands cover the data domain
+// further along the colourmap than the band below it; and together the bands cover the data domain
 // exactly, without gaps or overlaps.
 #[test]
 fn filled_contour_bands_tile_the_data_domain() {
@@ -463,12 +463,12 @@ fn filled_contour_bands_tile_the_data_domain() {
             band_colour_index[band].is_none(),
             "band {band} is painted once"
         );
-        band_colour_index[band] = Some(nearest_lut_index(&VIRIDIS, fill.color));
+        band_colour_index[band] = Some(nearest_lut_index(&VIRIDIS, fill.colour));
     }
     let indices = band_colour_index.map(|i| i.expect("every band is painted"));
     assert!(
         indices.windows(2).all(|w| w[0] < w[1]),
-        "colormap indices increase from the lowest band to the highest: {indices:?}"
+        "colourmap indices increase from the lowest band to the highest: {indices:?}"
     );
     let domain = (xmap.to_figure(1.0) - xmap.to_figure(-1.0)).abs()
         * (ymap.to_figure(1.0) - ymap.to_figure(-1.0)).abs();

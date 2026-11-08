@@ -2,10 +2,10 @@
 
 use ironlab_ir::{
     Legend, LegendEntries, LegendEntryColumns, LegendEntryOrder, LegendItem, LegendSample, NodeId,
-    Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Text, TitleAlign,
+    Panel, PanelColourbar, PanelContent, PanelLegend, PanelLocation, Text, TitleAlign,
 };
 
-use crate::colorbar::PanelColorbarMut;
+use crate::colourbar::PanelColourbarMut;
 
 /// A handle to one panel of a figure, returned by [`Figure::panel`](crate::Figure::panel)
 /// and [`Figure::panel_span`](crate::Figure::panel_span), through which its placement and
@@ -13,7 +13,7 @@ use crate::colorbar::PanelColorbarMut;
 ///
 /// A panel occupies cells of the figure's tile layout, as an axes does, and holds one key:
 /// a legend, set with [`legend`](PanelMut::legend), or a colourbar, set with
-/// [`colorbar`](PanelMut::colorbar). A panel created without a call to either holds a
+/// [`colourbar`](PanelMut::colourbar). A panel created without a call to either holds a
 /// legend with the default settings.
 ///
 /// Like [`AxesMut`](crate::AxesMut), the handle borrows the figure mutably, so it is
@@ -90,7 +90,7 @@ impl PanelMut<'_> {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new().tiles(1, 2);
-    /// fig.panel(0, 1).title("Key").title_align(TitleAlign::Center);
+    /// fig.panel(0, 1).title("Key").title_align(TitleAlign::Centre);
     /// ```
     pub fn title_align(&mut self, align: TitleAlign) -> &mut Self {
         self.panel().title_align = align;
@@ -132,22 +132,22 @@ impl PanelMut<'_> {
     /// let field = Matrix::from_fn(8, 8, |row, col| (row * col) as f64);
     /// let mut fig = Figure::new().tiles(1, 2).fit_col(1);
     /// fig.axes(0, 0).scalar_image(&field);
-    /// let s = fig.axes(0, 0).color_scale().title("Intensity").id();
-    /// fig.panel(0, 1).colorbar(s);
+    /// let s = fig.axes(0, 0).colour_scale().title("Intensity").id();
+    /// fig.panel(0, 1).colourbar(s);
     /// assert!(fig.validate().is_valid());
     /// ```
-    pub fn colorbar(&mut self, scale: NodeId) -> PanelColorbarMut<'_> {
+    pub fn colourbar(&mut self, scale: NodeId) -> PanelColourbarMut<'_> {
         let panel = self.panel();
         match &mut panel.content {
-            PanelContent::Colorbar(colorbar) => colorbar.scale = scale,
+            PanelContent::Colourbar(colourbar) => colourbar.scale = scale,
             PanelContent::Legend(_) => {
-                panel.content = PanelContent::Colorbar(PanelColorbar {
+                panel.content = PanelContent::Colourbar(PanelColourbar {
                     scale,
-                    ..PanelColorbar::default()
+                    ..PanelColourbar::default()
                 });
             }
         }
-        PanelColorbarMut::new(self.fig, self.id)
+        PanelColourbarMut::new(self.fig, self.id)
     }
 
     /// Returns the panel, which exists because the handle is only created for a panel of
@@ -263,7 +263,7 @@ impl PanelLegendMut<'_> {
     ///
     /// let mut fig = Figure::new().tiles(2, 1);
     /// fig.panel(1, 0).legend().entries(LegendEntries::Explicit(vec![LegendItem::custom(
-    ///     LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)),
+    ///     LegendSample::swatch(Colour::rgb(0.9, 0.6, 0.0)),
     ///     "Upper surface",
     /// )]));
     /// ```
@@ -289,7 +289,7 @@ impl PanelLegendMut<'_> {
     /// categorical scale is listed as one entry per category, and any other scale as a
     /// vertical bar five entry rows long in one column, ticked and titled along its length
     /// as its colourbar is, with each key it shows as an entry row of its own (see the
-    /// colour guide); `LegendItem::color_scale(id).with_rows(n)` asks for another length.
+    /// colour guide); `LegendItem::colour_scale(id).with_rows(n)` asks for another length.
     ///
     /// Items are listed in the order they are appended, whatever the order in which their
     /// artists are drawn, so a reference series drawn last, on top of the others, can be
@@ -303,7 +303,7 @@ impl PanelLegendMut<'_> {
     /// let mut ax = fig.axes(0, 0);
     /// let member = ax.plot(&x, &x).label("Member").id();
     /// let reference = ax.plot(&x, &x).label("Reference").id();
-    /// let speed = fig.color_scale().limits(0.0, 1.0).title("Speed (m/s)").id();
+    /// let speed = fig.colour_scale().limits(0.0, 1.0).title("Speed (m/s)").id();
     /// fig.panel(1, 0).legend().item(reference).item(member).item(speed);
     /// assert!(fig.validate().is_valid());
     /// ```
@@ -324,8 +324,8 @@ impl PanelLegendMut<'_> {
         match item {
             LegendItemRef::Item(item) => item,
             LegendItemRef::Id(id) => {
-                let item = if self.fig.color_scale(id).is_some() {
-                    LegendItem::color_scale(id)
+                let item = if self.fig.colour_scale(id).is_some() {
+                    LegendItem::colour_scale(id)
                 } else {
                     LegendItem::artist(id)
                 };
@@ -372,13 +372,13 @@ impl PanelLegendMut<'_> {
     /// ```
     /// use ironlab::prelude::*;
     ///
-    /// let grey = Color::rgb(0.45, 0.45, 0.45);
+    /// let grey = Colour::rgb(0.45, 0.45, 0.45);
     /// let mut fig = Figure::new().tiles(2, 1);
     /// fig.panel(1, 0)
     ///     .legend()
     ///     .custom_item(LegendSample::marker(Marker::Square, grey), "Transition")
     ///     .custom_item(LegendSample::marker(Marker::TriangleUp, grey), "Separation")
-    ///     .custom_item(LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0)), "Upper surface");
+    ///     .custom_item(LegendSample::swatch(Colour::rgb(0.9, 0.6, 0.0)), "Upper surface");
     /// assert!(fig.validate().is_valid());
     /// ```
     pub fn custom_item(&mut self, sample: LegendSample, label: impl Into<Text>) -> &mut Self {
@@ -416,7 +416,7 @@ impl PanelLegendMut<'_> {
             .expect("a panel legend handle names a panel of the figure");
         match &mut panel.content {
             PanelContent::Legend(legend) => legend,
-            PanelContent::Colorbar(_) => {
+            PanelContent::Colourbar(_) => {
                 unreachable!("a panel legend handle names a panel that holds a legend")
             }
         }

@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use ironlab_ir::{Color, ColorSpec, Legend, MarkerShape, NodeId, View3d};
+use ironlab_ir::{Colour, ColourSpec, Legend, MarkerShape, NodeId, View3d};
 use ironlab_scene::Scene;
 use ironlab_scene::display::{MarkerInstance, MarkersItem, PathSegment, Point};
 use ironlab_scene::hit::LegendHit;
-use ironlab_scene::maths::colormap::{VIRIDIS, sample};
+use ironlab_scene::maths::colourmap::{VIRIDIS, sample};
 use ironlab_scene::maths::decimate::Sample;
 
 use crate::common::{COLOUR_ORDER, Fx, compile_figure, linspace, rgb8, rgb8_close, rgba, text};
@@ -116,7 +116,7 @@ fn every_marker_shape_is_an_outline_of_unit_width_centred_on_the_origin() {
         let ax = fx.axes2d(0, 0);
         let scatter = fx.scatter(ax, &[0.0], &[0.0], None, |s, _| {
             s.marker.shape = shape;
-            s.marker.face = ColorSpec::Auto;
+            s.marker.face = ColourSpec::Auto;
         });
         let scene = compile_figure(&fx.build());
         let leaves = leaves(&scene);
@@ -272,8 +272,8 @@ fn two_scatters_on_one_axes_are_two_items_each_holding_the_instances_of_its_own_
 
 /// Where the face or the edge of a marker takes its colour from, in the scatter test below.
 #[derive(Clone, Copy)]
-enum Colour {
-    /// The colour of the point through the colormap.
+enum ColourSource {
+    /// The colour of the point through the colourmap.
     OfPoint,
     /// The fixed colour of the spec.
     Fixed,
@@ -283,7 +283,7 @@ enum Colour {
 
 // WHY: a scatter encodes further variables in the size and colour of each marker, so every instance must carry the
 // size and colour of its own point rather than the artist's, and the face and edge specs decide where the point's
-// colour goes: `Auto` and `Colormapped` take it (a scatter's automatic colour is its colour scale), `Rgba` keeps
+// colour goes: `Auto` and `Colourmapped` take it (a scatter's automatic colour is its colour scale), `Rgba` keeps
 // its fixed colour whatever the point, and `None` leaves that part undrawn; a scatter that gave every marker the
 // first point's colour, or painted a fixed edge in the data colour, would misreport the data while every marker
 // still looked plausible.
@@ -291,42 +291,42 @@ enum Colour {
 fn a_scatter_gives_each_instance_the_size_of_its_point_and_the_colours_its_specs_ask_for() {
     let sizes = [3.0, 5.0, 8.0];
     let values = [10.0, 15.0, 20.0];
-    let fixed = Color::rgb(1.0, 0.0, 0.0);
+    let fixed = Colour::rgb(1.0, 0.0, 0.0);
     let cases = [
         (
             "an auto face and edge",
-            ColorSpec::Auto,
-            ColorSpec::Auto,
-            Colour::OfPoint,
-            Colour::OfPoint,
+            ColourSpec::Auto,
+            ColourSpec::Auto,
+            ColourSource::OfPoint,
+            ColourSource::OfPoint,
         ),
         (
-            "a colormapped face and edge",
-            ColorSpec::Colormapped,
-            ColorSpec::Colormapped,
-            Colour::OfPoint,
-            Colour::OfPoint,
+            "a colourmapped face and edge",
+            ColourSpec::Colourmapped,
+            ColourSpec::Colourmapped,
+            ColourSource::OfPoint,
+            ColourSource::OfPoint,
         ),
         (
             "a fixed face and an auto edge",
-            ColorSpec::Rgba { color: fixed },
-            ColorSpec::Auto,
-            Colour::Fixed,
-            Colour::OfPoint,
+            ColourSpec::Rgba { colour: fixed },
+            ColourSpec::Auto,
+            ColourSource::Fixed,
+            ColourSource::OfPoint,
         ),
         (
             "no face and a fixed edge",
-            ColorSpec::None,
-            ColorSpec::Rgba { color: fixed },
-            Colour::Absent,
-            Colour::Fixed,
+            ColourSpec::None,
+            ColourSpec::Rgba { colour: fixed },
+            ColourSource::Absent,
+            ColourSource::Fixed,
         ),
         (
             "an auto face and no edge",
-            ColorSpec::Auto,
-            ColorSpec::None,
-            Colour::OfPoint,
-            Colour::Absent,
+            ColourSpec::Auto,
+            ColourSpec::None,
+            ColourSource::OfPoint,
+            ColourSource::Absent,
         ),
     ];
     for (what, face, edge, expected_face, expected_edge) in cases {
@@ -334,8 +334,8 @@ fn a_scatter_gives_each_instance_the_size_of_its_point_and_the_colours_its_specs
         let ax = fx.axes2d(0, 0);
         let scatter = fx.scatter(ax, &[0.0, 1.0, 2.0], &[0.0, 0.0, 0.0], None, |s, fx| {
             s.size_data = Some(fx.vector(&sizes));
-            s.color_data = Some(fx.vector(&values));
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(fx.vector(&values));
+            s.line.colour = ColourSpec::Colourmapped;
             s.marker.face = face;
             s.marker.edge = edge;
         });
@@ -354,19 +354,19 @@ fn a_scatter_gives_each_instance_the_size_of_its_point_and_the_colours_its_specs
                 ("edge", m.edge, expected_edge),
             ] {
                 match expected {
-                    Colour::OfPoint => {
+                    ColourSource::OfPoint => {
                         let c = colour.unwrap_or_else(|| panic!("{what}: point {i} has a {part}"));
                         assert!(
                             rgb8_close(rgb8(c), of_point),
                             "{what}: the {part} of point {i} is the point's colour {of_point:?}, not {c:?}"
                         );
                     }
-                    Colour::Fixed => assert_eq!(
+                    ColourSource::Fixed => assert_eq!(
                         colour,
                         Some(rgba(fixed)),
                         "{what}: the {part} of point {i} is the fixed colour"
                     ),
-                    Colour::Absent => {
+                    ColourSource::Absent => {
                         assert_eq!(colour, None, "{what}: point {i} has no {part}");
                     }
                 }
@@ -382,28 +382,28 @@ fn a_scatter_gives_each_instance_the_size_of_its_point_and_the_colours_its_specs
 // is nothing to draw.
 #[test]
 fn a_point_marker_is_a_dot_filled_with_the_edge_colour_and_without_an_edge() {
-    let red = Color::rgb(1.0, 0.0, 0.0);
-    let blue = Color::rgb(0.0, 0.0, 1.0);
+    let red = Colour::rgb(1.0, 0.0, 0.0);
+    let blue = Colour::rgb(0.0, 0.0, 1.0);
     let cases = [
         (
             "a face and an edge",
-            ColorSpec::Rgba { color: red },
-            ColorSpec::Rgba { color: blue },
+            ColourSpec::Rgba { colour: red },
+            ColourSpec::Rgba { colour: blue },
             Some(blue),
         ),
         (
             "a face alone",
-            ColorSpec::Rgba { color: red },
-            ColorSpec::None,
+            ColourSpec::Rgba { colour: red },
+            ColourSpec::None,
             Some(red),
         ),
         (
             "an edge alone",
-            ColorSpec::None,
-            ColorSpec::Rgba { color: blue },
+            ColourSpec::None,
+            ColourSpec::Rgba { colour: blue },
             Some(blue),
         ),
-        ("neither", ColorSpec::None, ColorSpec::None, None),
+        ("neither", ColourSpec::None, ColourSpec::None, None),
     ];
     for (what, face, edge, fill) in cases {
         let mut fx = Fx::new();
@@ -448,28 +448,28 @@ fn a_point_marker_is_a_dot_filled_with_the_edge_colour_and_without_an_edge() {
 // no colour at all is nothing to draw.
 #[test]
 fn plus_and_cross_markers_have_no_face_and_an_edge_of_the_edge_or_else_the_face_colour() {
-    let red = Color::rgb(1.0, 0.0, 0.0);
-    let blue = Color::rgb(0.0, 0.0, 1.0);
+    let red = Colour::rgb(1.0, 0.0, 0.0);
+    let blue = Colour::rgb(0.0, 0.0, 1.0);
     let colours = [
         (
             "a face and an edge",
-            ColorSpec::Rgba { color: red },
-            ColorSpec::Rgba { color: blue },
+            ColourSpec::Rgba { colour: red },
+            ColourSpec::Rgba { colour: blue },
             Some(blue),
         ),
         (
             "a face alone",
-            ColorSpec::Rgba { color: red },
-            ColorSpec::None,
+            ColourSpec::Rgba { colour: red },
+            ColourSpec::None,
             Some(red),
         ),
         (
             "an edge alone",
-            ColorSpec::None,
-            ColorSpec::Rgba { color: blue },
+            ColourSpec::None,
+            ColourSpec::Rgba { colour: blue },
             Some(blue),
         ),
-        ("neither", ColorSpec::None, ColorSpec::None, None),
+        ("neither", ColourSpec::None, ColourSpec::None, None),
     ];
     for shape in [
         MarkerShape::Plus,

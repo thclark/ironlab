@@ -5,7 +5,7 @@
 
 use ironlab::ir::{self, Artist, Axes, IssueKind, NdArray, NodeId, ValidationReport};
 use ironlab::{
-    ByteMatrix, Color, Colormap, ColormapSample, Figure, ImagePlane, Matrix, OutOfRange, Pixels,
+    ByteMatrix, Colour, Colourmap, ColourmapSample, Figure, ImagePlane, Matrix, OutOfRange, Pixels,
 };
 
 /// Returns the axes with the given identifier, panicking if it does not exist.
@@ -156,21 +156,21 @@ pub fn image_figure() -> Figure {
         .pixel_rows(1.0, -1.0)
         .label("photo");
     let palette = fig
-        .indexed_scale(Colormap::Viridis.sample(6))
+        .indexed_scale(Colourmap::Viridis.sample(6))
         .outside(OutOfRange::Clamp)
         .id();
     fig.axes(0, 1)
         .scalar_image(&indices)
         .pixel_columns(0.5, 2.5)
-        .color_scale(palette);
+        .colour_scale(palette);
     fig.axes(0, 2)
         .scalar_image(&values)
         .plane(ImagePlane::Xz { y: Some(0.5) });
     fig.axes(0, 2)
-        .color_scale()
+        .colour_scale()
         .limits(0.0, 1.0)
         // A multiple of 1/255, so that the eight-bit colour of the JSON form reloads exactly.
-        .non_finite(Color::rgba(0.0, 0.0, 0.0, 128.0 / 255.0));
+        .non_finite(Colour::rgba(0.0, 0.0, 0.0, 128.0 / 255.0));
     fig
 }
 
@@ -190,9 +190,9 @@ pub fn filled_paths(fig: &Figure, id: NodeId) -> Vec<([u8; 4], usize)> {
             return;
         }
         if let ItemKind::Path(path) = &item.kind
-            && let Some(fill) = path.fill.filter(|f| f.color.a > 0.0)
+            && let Some(fill) = path.fill.filter(|f| f.colour.a > 0.0)
         {
-            let c = fill.color;
+            let c = fill.colour;
             let colour = [c.r, c.g, c.b, c.a].map(|v| (v * 255.0).round() as u8);
             let subpaths = path
                 .segments
@@ -213,11 +213,11 @@ pub fn filled_shapes(fig: &Figure, id: NodeId) -> usize {
 
 /// The range of values, `(min, max)`, over which the colourbar of the given colour scale is drawn in the compiled
 /// figure, which for automatic limits is the range the scene compiler resolved from the artists.
-pub fn colorbar_span(fig: &Figure, scale: NodeId) -> (f64, f64) {
+pub fn colourbar_span(fig: &Figure, scale: NodeId) -> (f64, f64) {
     let scene = compile(fig);
     let bar = scene
         .hit_map
-        .colorbars
+        .colourbars
         .iter()
         .find(|bar| bar.scale == scale)
         .unwrap_or_else(|| panic!("no colourbar of {scale} is drawn"));
@@ -238,9 +238,9 @@ pub fn stroke_colours(fig: &Figure, id: NodeId) -> std::collections::BTreeSet<[u
             return;
         }
         if let ItemKind::Path(path) = &item.kind
-            && let Some(stroke) = path.stroke.as_ref().filter(|s| s.color.a > 0.0)
+            && let Some(stroke) = path.stroke.as_ref().filter(|s| s.colour.a > 0.0)
         {
-            let c = stroke.color;
+            let c = stroke.colour;
             out.insert([c.r, c.g, c.b, c.a].map(|v| (v * 255.0).round() as u8));
         }
     });

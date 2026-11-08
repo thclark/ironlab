@@ -34,9 +34,9 @@ pub fn figure() -> Figure {
     .enumerate()
     {
         let mut ax = fig.axes(0, col as u32);
-        ax.plot(&x, &y).color(Color::BLACK);
+        ax.plot(&x, &y).colour(Colour::BLACK);
         ax.plot(square_x, square_y)
-            .color(Color::BLACK)
+            .colour(Colour::BLACK)
             .dash(Dash::LongDash);
         ax.title(title)
             .title_align(TitleAlign::Left)

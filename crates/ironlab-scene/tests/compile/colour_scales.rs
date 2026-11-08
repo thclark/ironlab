@@ -1,11 +1,11 @@
 //! Colour scales as figure nodes (#40, part of #24): one mapping for every artist, automatic limits per scale over
-//! every artist that names it in every axes, the four kinds, both colormap variants, both norms, the out-of-range
+//! every artist that names it in every axes, the four kinds, both colourmap variants, both norms, the out-of-range
 //! policies of the scale, and contour levels taken from the scale.
 //!
 //! Expected colours are worked out here from the public 256-entry tables and the arithmetic stated in the plan,
 //! rather than from the compiler's own mapping, so that the expectations do not depend on the code under test. A
-//! named colormap at a normalised position `t` is the table entry `min(floor(256 t), 255)`, as
-//! `ironlab_scene::maths::colormap::sample` gives; one entry of slack absorbs any other rounding of the same
+//! named colourmap at a normalised position `t` is the table entry `min(floor(256 t), 255)`, as
+//! `ironlab_scene::maths::colourmap::sample` gives; one entry of slack absorbs any other rounding of the same
 //! position.
 //!
 //! Validation (which issues are raised, and against which node) belongs to the IR tests; these tests own what the
@@ -22,28 +22,28 @@
 //!   places its levels at the half-integers 0.5, 1.5, …, n − 1.5 between entries, so each band holds exactly one
 //!   whole number and takes that entry's colour, and each isoline takes the colour of the band below it. A contour
 //!   with explicit levels colours each isoline by the entry its level names.
-//! - **Colormapped lines and quivers.** In this stage a line or quiver has no values to map and names no scale (the
-//!   `Series` of stage 3 resolves line colour properly). A `Colormapped` colour on one keeps today's drawing with
-//!   the default colormap: the middle entry of viridis, whatever scales the other artists of its axes use.
+//! - **Colourmapped lines and quivers.** In this stage a line or quiver has no values to map and names no scale (the
+//!   `Series` of stage 3 resolves line colour properly). A `Colourmapped` colour on one keeps today's drawing with
+//!   the default colourmap: the middle entry of viridis, whatever scales the other artists of its axes use.
 
-use ironlab_ir::{Artist, CategoricalColorScale, ColorCategory, Text};
+use ironlab_ir::{Artist, CategoricalColourScale, ColourCategory, Text};
 use ironlab_ir::{
-    Color, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorSpec, Colormap, ColormapName,
-    ContinuousColorScale, DiscreteColorScale, Edit, IndexedColorScale, Levels, Limits, NodeId,
-    OutOfRange, PropertyPath, Transaction, Value,
+    Colour, ColourScaleKind, ColourScaleLevels, ColourScaleNorm, ColourSpec, Colourmap,
+    ColourmapName, ContinuousColourScale, DiscreteColourScale, Edit, IndexedColourScale, Levels,
+    Limits, NodeId, OutOfRange, PropertyPath, Transaction, Value,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{ImageItem, Rgba};
-use ironlab_scene::maths::colormap::{Lut, VIRIDIS};
+use ironlab_scene::maths::colourmap::{Lut, VIRIDIS};
 
 use crate::common::{
     Fx, compile_figure, linspace, nearest_lut_index, out_of_range, range, rgb8, xy,
 };
 use crate::probe::{Leaf, axis_maps, from_source, leaves, pixel};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 /// Returns the image item of the one leaf an image artist drew.
 #[track_caller]
@@ -67,8 +67,8 @@ fn warnings_naming(scene: &Scene, id: NodeId) -> Vec<String> {
 }
 
 /// An IR colour as the four 8-bit channels the pixel probe reads.
-fn channels(color: Color) -> [u8; 4] {
-    [color.r, color.g, color.b, color.a].map(|c| (c * 255.0).round() as u8)
+fn channels(colour: Colour) -> [u8; 4] {
+    [colour.r, colour.g, colour.b, colour.a].map(|c| (c * 255.0).round() as u8)
 }
 
 /// The index of the entry of `lut` nearest to an 8-bit pixel.
@@ -84,7 +84,7 @@ fn lut_index(lut: &Lut, px: [u8; 4]) -> usize {
     )
 }
 
-/// The table entry of a named colormap at the normalised position `t`.
+/// The table entry of a named colourmap at the normalised position `t`.
 fn entry(t: f64) -> usize {
     ((t * 256.0).floor() as usize).min(255)
 }
@@ -113,44 +113,44 @@ fn assert_pixel_close(actual: [u8; 4], expected: [u8; 4], slack: u8, what: &str)
 }
 
 /// A continuous scale of viridis with the given limits and the defaults of its kind otherwise.
-fn viridis(limits: Limits) -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Named {
-            name: ColormapName::Viridis,
+fn viridis(limits: Limits) -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Named {
+            name: ColourmapName::Viridis,
             reverse: false,
         },
         limits,
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     })
 }
 
 /// A discrete scale of viridis with the given band edges and the defaults of its kind otherwise.
-fn bands(edges: &[f64]) -> ColorScaleKind {
-    ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Explicit {
+fn bands(edges: &[f64]) -> ColourScaleKind {
+    ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Explicit {
             values: edges.to_vec(),
         },
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     })
 }
 
 /// An indexed scale of the given colours whose out-of-range indices follow `outside`.
-fn indexed(colors: Vec<Color>, outside: OutOfRange) -> ColorScaleKind {
-    ColorScaleKind::Indexed(IndexedColorScale {
-        colors,
+fn indexed(colours: Vec<Colour>, outside: OutOfRange) -> ColourScaleKind {
+    ColourScaleKind::Indexed(IndexedColourScale {
+        colours,
         outside: out_of_range(outside),
-        ..IndexedColorScale::default()
+        ..IndexedColourScale::default()
     })
 }
 
 /// A categorical scale of the given colours, with a label for each, whose out-of-range indices follow `outside`.
-fn categorical(colors: Vec<Color>, outside: OutOfRange) -> ColorScaleKind {
-    ColorScaleKind::Categorical(CategoricalColorScale {
-        categories: colors
+fn categorical(colours: Vec<Colour>, outside: OutOfRange) -> ColourScaleKind {
+    ColourScaleKind::Categorical(CategoricalColourScale {
+        categories: colours
             .into_iter()
             .enumerate()
-            .map(|(k, color)| ColorCategory {
-                color,
+            .map(|(k, colour)| ColourCategory {
+                colour,
                 label: Text::plain(format!("category {k}")),
             })
             .collect(),
@@ -160,10 +160,10 @@ fn categorical(colors: Vec<Color>, outside: OutOfRange) -> ColorScaleKind {
 
 /// Compiles a figure of one 2D axes holding a 1 × n scalar image of `values` through one scale of the given kind,
 /// and returns the scene, the image item, the image and the scale.
-fn one_image(kind: ColorScaleKind, values: Vec<f64>) -> (Scene, ImageItem, NodeId, NodeId) {
+fn one_image(kind: ColourScaleKind, values: Vec<f64>) -> (Scene, ImageItem, NodeId, NodeId) {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(kind);
+    let scale = fx.colour_scale(kind);
     let n = values.len();
     let image = fx.scalar_image(ax, vec![1, n], values, Some(scale), xy(None, None), |_| {});
     let scene = compile_figure(&fx.build());
@@ -183,11 +183,11 @@ fn automatic_limits_of_a_scale_span_every_artist_that_names_it_across_axes() {
         fx.fig.layout.cols = 2;
         let left = fx.axes2d(0, 0);
         let right = fx.axes2d(0, 1);
-        let first = fx.color_scale(viridis(Limits::Auto));
+        let first = fx.colour_scale(viridis(Limits::Auto));
         let second = if shared {
             first
         } else {
-            fx.color_scale(viridis(Limits::Auto))
+            fx.colour_scale(viridis(Limits::Auto))
         };
         let a = fx.scalar_image(
             left,
@@ -233,7 +233,7 @@ fn a_hidden_artist_still_contributes_to_its_scales_automatic_limits() {
     fx.fig.layout.cols = 2;
     let left = fx.axes2d(0, 0);
     let right = fx.axes2d(0, 1);
-    let scale = fx.color_scale(viridis(Limits::Auto));
+    let scale = fx.colour_scale(viridis(Limits::Auto));
     let shown = fx.scalar_image(
         left,
         vec![1, 2],
@@ -271,7 +271,7 @@ fn one_set_of_a_scales_limits_recolours_every_artist_that_names_it() {
     fx.fig.layout.cols = 2;
     let left = fx.axes2d(0, 0);
     let right = fx.axes2d(0, 1);
-    let scale = fx.color_scale(viridis(Limits::Auto));
+    let scale = fx.colour_scale(viridis(Limits::Auto));
     let a = fx.scalar_image(
         left,
         vec![1, 2],
@@ -313,18 +313,18 @@ fn one_set_of_a_scales_limits_recolours_every_artist_that_names_it() {
 }
 
 // ---------------------------------------------------------------------------------
-// Continuous scales: colormaps, norms and policies
+// Continuous scales: colourmaps, norms and policies
 // ---------------------------------------------------------------------------------
 
-// WHY: a listed colormap is the author's own palette, so three colours are interpolated evenly between the limits rather than looked up as three blocks.
+// WHY: a listed colourmap is the author's own palette, so three colours are interpolated evenly between the limits rather than looked up as three blocks.
 #[test]
-fn a_listed_colormap_of_three_colours_interpolates_between_them() {
-    let kind = ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, GREEN, BLUE],
+fn a_listed_colourmap_of_three_colours_interpolates_between_them() {
+    let kind = ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, GREEN, BLUE],
         },
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     });
     let (scene, item, _, _) = one_image(kind, vec![0.0, 0.25, 0.5, 0.75, 1.0]);
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
@@ -339,38 +339,38 @@ fn a_listed_colormap_of_three_colours_interpolates_between_them() {
     }
 }
 
-// WHY: a reversed colormap is the same palette run the other way, so the lower limit takes its last colour.
+// WHY: a reversed colourmap is the same palette run the other way, so the lower limit takes its last colour.
 #[test]
-fn a_reversed_named_colormap_runs_from_its_last_colour() {
-    let kind = ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Named {
-            name: ColormapName::Viridis,
+fn a_reversed_named_colourmap_runs_from_its_last_colour() {
+    let kind = ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Named {
+            name: ColourmapName::Viridis,
             reverse: true,
         },
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     });
     let (_, item, _, _) = one_image(kind, vec![0.0, 1.0]);
     assert_viridis(
         pixel(&item, 0, 0),
         255,
-        "the lower limit of a reversed colormap",
+        "the lower limit of a reversed colourmap",
     );
     assert_viridis(
         pixel(&item, 0, 1),
         0,
-        "the upper limit of a reversed colormap",
+        "the upper limit of a reversed colourmap",
     );
 }
 
-// WHY: a logarithmic scale must give each decade the same share of the colormap, under manual limits and under automatic ones.
+// WHY: a logarithmic scale must give each decade the same share of the colourmap, under manual limits and under automatic ones.
 #[test]
 fn a_log_norm_spaces_decades_evenly() {
     let log = |limits: Limits| {
-        ColorScaleKind::Continuous(ContinuousColorScale {
+        ColourScaleKind::Continuous(ContinuousColourScale {
             limits,
-            norm: ColorScaleNorm::Log,
-            ..ContinuousColorScale::default()
+            norm: ColourScaleNorm::Log,
+            ..ContinuousColourScale::default()
         })
     };
     let (scene, item, _, _) = one_image(
@@ -402,13 +402,13 @@ fn a_log_norm_spaces_decades_evenly() {
 fn non_positive_log_limits_are_reported_and_the_figure_still_compiles() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
+    let scale = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
         limits: Limits::Manual {
             min: 0.0,
             max: 100.0,
         },
-        norm: ColorScaleNorm::Log,
-        ..ContinuousColorScale::default()
+        norm: ColourScaleNorm::Log,
+        ..ContinuousColourScale::default()
     }));
     fx.scalar_image(
         ax,
@@ -433,7 +433,7 @@ fn a_continuous_scale_clamps_values_beyond_manual_limits_by_default_for_every_ar
     fx.fig.layout.cols = 2;
     let left = fx.axes2d(0, 0);
     let right = fx.axes2d(0, 1);
-    let scale = fx.color_scale(viridis(Limits::Manual { min: 0.0, max: 1.0 }));
+    let scale = fx.colour_scale(viridis(Limits::Manual { min: 0.0, max: 1.0 }));
     let image = fx.scalar_image(
         left,
         vec![1, 3],
@@ -449,8 +449,8 @@ fn a_continuous_scale_clamps_values_beyond_manual_limits_by_default_for_every_ar
         &[0.0, 1.0],
         |_, _| -3.0,
         |s| {
-            s.color_scale = Some(scale);
-            s.edge = ColorSpec::None;
+            s.colour_scale = Some(scale);
+            s.edge = ColourSpec::None;
         },
     );
     let scene = compile_figure(&fx.build());
@@ -473,7 +473,7 @@ fn a_continuous_scale_clamps_values_beyond_manual_limits_by_default_for_every_ar
         .and_then(|p| p.fill)
         .expect("the face is filled");
     assert_eq!(
-        nearest_lut_index(&VIRIDIS, fill.color),
+        nearest_lut_index(&VIRIDIS, fill.colour),
         0,
         "the face below is clamped"
     );
@@ -499,9 +499,9 @@ fn nan_draws_nothing_by_default_on_every_kind() {
 // Discrete scales
 // ---------------------------------------------------------------------------------
 
-// WHY: a discrete bar shows bands of single colours that use both ends of the colormap, so band i of k must take the colour at i / (k − 1), and values beyond the edges take the end bands by default.
+// WHY: a discrete bar shows bands of single colours that use both ends of the colourmap, so band i of k must take the colour at i / (k − 1), and values beyond the edges take the end bands by default.
 #[test]
-fn discrete_band_i_of_k_takes_the_colormap_colour_at_i_over_k_minus_one() {
+fn discrete_band_i_of_k_takes_the_colourmap_colour_at_i_over_k_minus_one() {
     let edges = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
     let (scene, item, _, _) =
         one_image(bands(&edges), vec![0.5, 1.5, 2.5, 3.5, 4.5, 1.9, -1.0, 9.0]);
@@ -532,11 +532,11 @@ fn discrete_band_i_of_k_takes_the_colormap_colour_at_i_over_k_minus_one() {
 
 // WHY: a discrete scale bands every artist, a smooth surface included, so the plot agrees with its banded bar.
 #[test]
-fn a_smooth_surface_is_banded_by_a_discrete_scale_using_both_ends_of_the_colormap() {
+fn a_smooth_surface_is_banded_by_a_discrete_scale_using_both_ends_of_the_colourmap() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let edges = [0.0, 0.25, 0.5, 0.75, 1.0];
-    let scale = fx.color_scale(bands(&edges));
+    let scale = fx.colour_scale(bands(&edges));
     let x = linspace(0.0, 1.0, 21);
     let surface = fx.surface(
         ax,
@@ -544,8 +544,8 @@ fn a_smooth_surface_is_banded_by_a_discrete_scale_using_both_ends_of_the_colorma
         &[0.0, 1.0],
         |x, _| x,
         |s| {
-            s.color_scale = Some(scale);
-            s.edge = ColorSpec::None;
+            s.colour_scale = Some(scale);
+            s.edge = ColourSpec::None;
         },
     );
     let scene = compile_figure(&fx.build());
@@ -563,7 +563,7 @@ fn a_smooth_surface_is_banded_by_a_discrete_scale_using_both_ends_of_the_colorma
         let mean = xs.iter().sum::<f64>() / xs.len() as f64;
         let band = ((mean / 0.25).floor() as usize).min(3);
         let fill = face.path().and_then(|p| p.fill).expect("faces are filled");
-        let actual = nearest_lut_index(&VIRIDIS, fill.color);
+        let actual = nearest_lut_index(&VIRIDIS, fill.colour);
         assert!(
             actual.abs_diff(band_entries[band]) <= 1,
             "the face at x = {mean} takes the colour of band {band}: entry {actual}, expected {}",
@@ -573,11 +573,11 @@ fn a_smooth_surface_is_banded_by_a_discrete_scale_using_both_ends_of_the_colorma
     }
     assert_eq!(
         seen, [true; 4],
-        "every band, both ends of the colormap included, is used"
+        "every band, both ends of the colourmap included, is used"
     );
     let distinct: std::collections::BTreeSet<[u8; 3]> = faces
         .iter()
-        .map(|f| rgb8(f.path().and_then(|p| p.fill).unwrap().color))
+        .map(|f| rgb8(f.path().and_then(|p| p.fill).unwrap().colour))
         .collect();
     assert_eq!(
         distinct.len(),
@@ -590,10 +590,10 @@ fn a_smooth_surface_is_banded_by_a_discrete_scale_using_both_ends_of_the_colorma
 #[test]
 fn under_a_log_norm_automatic_limits_ignore_values_that_are_not_positive() {
     let log = |below: OutOfRange| {
-        ColorScaleKind::Continuous(ContinuousColorScale {
-            norm: ColorScaleNorm::Log,
+        ColourScaleKind::Continuous(ContinuousColourScale {
+            norm: ColourScaleNorm::Log,
             below: out_of_range(below),
-            ..ContinuousColorScale::default()
+            ..ContinuousColourScale::default()
         })
     };
     let values = vec![-5.0, 0.0, 1.0, 10.0, 100.0];
@@ -618,13 +618,13 @@ fn under_a_log_norm_automatic_limits_ignore_values_that_are_not_positive() {
 // WHY: a bar's band edge must be read one way only, so a value exactly on an inner edge takes the upper band, and a value exactly at the first or last edge lies inside the range rather than following `below` or `above`.
 #[test]
 fn a_value_on_a_band_edge_belongs_to_the_upper_band_and_the_outer_edges_are_inside() {
-    let kind = ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Explicit {
+    let kind = ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Explicit {
             values: vec![0.0, 1.0, 2.0, 3.0],
         },
         below: out_of_range(OutOfRange::Transparent),
         above: out_of_range(OutOfRange::Transparent),
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     });
     let (scene, item, _, _) =
         one_image(kind, vec![0.5, 1.5, 2.5, 1.0, 2.0, 0.0, 3.0, -0.001, 3.001]);
@@ -659,7 +659,7 @@ fn eight_bit_values_take_their_entry_directly() {
     ] {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        let scale = fx.color_scale(kind.clone());
+        let scale = fx.colour_scale(kind.clone());
         let image = fx.scalar_image(
             ax,
             vec![1, 4],
@@ -671,8 +671,8 @@ fn eight_bit_values_take_their_entry_directly() {
         let scene = compile_figure(&fx.build());
         assert!(scene.warnings.is_empty(), "{kind:?}: {:?}", scene.warnings);
         let item = image_item(&scene, image);
-        for (i, color) in [BLUE, RED, GREEN, BLUE].into_iter().enumerate() {
-            assert_eq!(pixel(&item, 0, i), channels(color), "{kind:?}: pixel {i}");
+        for (i, colour) in [BLUE, RED, GREEN, BLUE].into_iter().enumerate() {
+            assert_eq!(pixel(&item, 0, i), channels(colour), "{kind:?}: pixel {i}");
         }
     }
 }
@@ -680,22 +680,22 @@ fn eight_bit_values_take_their_entry_directly() {
 // WHY: #40 lifts the 256-entry limit, so a palette of 1024 entries draws each of its indices in its own colour.
 #[test]
 fn an_indexed_scale_of_1024_entries_draws_each_index_in_its_own_colour() {
-    let color = |k: usize| {
-        Color::rgb(
+    let colour = |k: usize| {
+        Colour::rgb(
             (k % 256) as f32 / 255.0,
             (k / 256) as f32 * 85.0 / 255.0,
             1.0,
         )
     };
-    let colors: Vec<Color> = (0..1024).map(color).collect();
+    let colours: Vec<Colour> = (0..1024).map(colour).collect();
     let indices = [0usize, 255, 256, 511, 768, 1023];
     let (scene, item, _, _) = one_image(
-        indexed(colors, OutOfRange::Strict),
+        indexed(colours, OutOfRange::Strict),
         indices.iter().map(|&k| k as f64).collect(),
     );
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
     for (i, k) in indices.into_iter().enumerate() {
-        assert_eq!(pixel(&item, 0, i), channels(color(k)), "index {k}");
+        assert_eq!(pixel(&item, 0, i), channels(colour(k)), "index {k}");
     }
 }
 
@@ -720,7 +720,7 @@ fn a_fractional_or_out_of_range_index_under_strict_is_refused_on_both_index_mapp
             let mut fx = Fx::new();
             let ax = fx.axes2d(0, 0);
             let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
-            let scale = fx.color_scale(kind.clone());
+            let scale = fx.colour_scale(kind.clone());
             let image = fx.scalar_image(
                 ax,
                 vec![1, 2],
@@ -748,7 +748,7 @@ fn a_fractional_or_out_of_range_index_under_strict_is_refused_on_both_index_mapp
     }
 }
 
-// WHY: under clamp an index is truncated toward zero and then clamped to the ends, so 1.7 draws entry 1 and 7 the last entry, on both index-mapped kinds.
+// WHY: under clamp an index is truncated towards zero and then clamped to the ends, so 1.7 draws entry 1 and 7 the last entry, on both index-mapped kinds.
 #[test]
 fn clamp_truncates_toward_zero_then_clamps_to_the_ends() {
     for kind in [
@@ -757,7 +757,7 @@ fn clamp_truncates_toward_zero_then_clamps_to_the_ends() {
     ] {
         let (scene, item, _, _) = one_image(kind.clone(), vec![-0.5, 1.7, 2.9, 3.5, -3.0, 7.0]);
         assert!(scene.warnings.is_empty(), "{kind:?}: {:?}", scene.warnings);
-        for (i, color, what) in [
+        for (i, colour, what) in [
             (0, RED, "−0.5 truncates to 0"),
             (1, GREEN, "1.7 truncates to 1"),
             (2, BLUE, "2.9 truncates to 2"),
@@ -765,7 +765,7 @@ fn clamp_truncates_toward_zero_then_clamps_to_the_ends() {
             (4, RED, "−3 clamps to the first entry"),
             (5, BLUE, "7 clamps to the last entry"),
         ] {
-            assert_eq!(pixel(&item, 0, i), channels(color), "{kind:?}: {what}");
+            assert_eq!(pixel(&item, 0, i), channels(colour), "{kind:?}: {what}");
         }
     }
 }
@@ -789,21 +789,21 @@ fn transparent_and_fixed_colour_policies_paint_an_index_outside_the_entries_as_s
         "an index past the last entry is transparent"
     );
 
-    let gray = Color::rgba(0.5, 0.5, 0.5, 0.8);
+    let grey = Colour::rgba(0.5, 0.5, 0.5, 0.8);
     let (_, item, _, _) = one_image(
-        categorical(vec![RED, GREEN], OutOfRange::Rgba { color: gray }),
+        categorical(vec![RED, GREEN], OutOfRange::Rgba { colour: grey }),
         vec![0.0, 1.5, 2.0],
     );
     assert_eq!(pixel(&item, 0, 0), channels(RED));
     assert_pixel_close(
         pixel(&item, 0, 1),
-        channels(gray),
+        channels(grey),
         1,
         "a fractional index takes the fixed colour",
     );
     assert_pixel_close(
         pixel(&item, 0, 2),
-        channels(gray),
+        channels(grey),
         1,
         "an index past the last entry takes the fixed colour",
     );
@@ -847,7 +847,7 @@ fn a_contour_with_no_levels_on_a_discrete_scale_draws_its_isolines_at_the_band_e
     let ax = fx.axes2d(0, 0);
     // Uneven edges, which no automatic choice of levels would make, and a grid whose nodes avoid them.
     let edges = [0.0, 2.0, 7.0, 10.0];
-    let scale = fx.color_scale(bands(&edges));
+    let scale = fx.colour_scale(bands(&edges));
     let x = linspace(-0.9, 10.9, 9);
     let contour = fx.contour(
         ax,
@@ -856,7 +856,7 @@ fn a_contour_with_no_levels_on_a_discrete_scale_draws_its_isolines_at_the_band_e
         |x, _| x,
         |c| {
             c.levels = None;
-            c.color_scale = Some(scale);
+            c.colour_scale = Some(scale);
         },
     );
     let fig = fx.build();
@@ -879,7 +879,7 @@ fn a_filled_contour_with_no_levels_on_a_discrete_scale_fills_each_band_in_its_co
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let edges = [0.0, 2.0, 7.0, 10.0];
-    let scale = fx.color_scale(bands(&edges));
+    let scale = fx.colour_scale(bands(&edges));
     let x = linspace(0.05, 9.95, 9);
     let contour = fx.contour(
         ax,
@@ -889,7 +889,7 @@ fn a_filled_contour_with_no_levels_on_a_discrete_scale_fills_each_band_in_its_co
         |c| {
             c.levels = None;
             c.fill = true;
-            c.color_scale = Some(scale);
+            c.colour_scale = Some(scale);
         },
     );
     let scene = compile_figure(&fx.build());
@@ -906,7 +906,7 @@ fn a_filled_contour_with_no_levels_on_a_discrete_scale_fills_each_band_in_its_co
                 .windows(2)
                 .position(|w| mean > w[0] && mean < w[1])
                 .expect("a piece lies in a band");
-            let actual = nearest_lut_index(&VIRIDIS, fill.color);
+            let actual = nearest_lut_index(&VIRIDIS, fill.colour);
             assert!(
                 actual.abs_diff(band_entries[band]) <= 1,
                 "the piece at x = {mean} takes band {band}'s colour: entry {actual}, expected {}",
@@ -924,7 +924,7 @@ fn a_contour_with_no_levels_on_a_continuous_scale_draws_ten_automatic_levels() {
     let levels_of = |levels: Option<Levels>| {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        let scale = fx.color_scale(viridis(Limits::Auto));
+        let scale = fx.colour_scale(viridis(Limits::Auto));
         let x = linspace(-0.37, 9.71, 13);
         let contour = fx.contour(
             ax,
@@ -933,7 +933,7 @@ fn a_contour_with_no_levels_on_a_continuous_scale_draws_ten_automatic_levels() {
             |x, _| x,
             |c| {
                 c.levels = levels;
-                c.color_scale = Some(scale);
+                c.colour_scale = Some(scale);
             },
         );
         let scene = compile_figure(&fx.build());
@@ -948,9 +948,9 @@ fn a_contour_with_no_levels_on_a_continuous_scale_draws_ten_automatic_levels() {
 /// linearly between nodes, cross exactly at their levels, through a continuous logarithmic viridis scale with
 /// automatic limits.
 fn log_contour(fx: &mut Fx, ax: NodeId, edit: impl FnOnce(&mut ironlab_ir::Contour)) -> NodeId {
-    let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-        norm: ColorScaleNorm::Log,
-        ..ContinuousColorScale::default()
+    let scale = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+        norm: ColourScaleNorm::Log,
+        ..ContinuousColourScale::default()
     }));
     let x: Vec<f64> = linspace(-2.0, 3.0, 21)
         .into_iter()
@@ -962,7 +962,7 @@ fn log_contour(fx: &mut Fx, ax: NodeId, edit: impl FnOnce(&mut ironlab_ir::Conto
         &[0.0, 1.0],
         |x, _| x,
         |c| {
-            c.color_scale = Some(scale);
+            c.colour_scale = Some(scale);
             edit(c);
         },
     )
@@ -992,7 +992,7 @@ fn automatic_contour_levels_under_a_log_norm_are_the_decades_inside_the_field() 
             };
             let level = xmap.to_data(leaf.subpaths()[0][0].x);
             let t = (level.log10() + 2.0) / 5.0;
-            let actual = nearest_lut_index(&VIRIDIS, stroke.color);
+            let actual = nearest_lut_index(&VIRIDIS, stroke.colour);
             assert!(
                 actual.abs_diff(entry(t)) <= 1,
                 "the isoline at {level} takes entry {actual}, expected {}",
@@ -1027,7 +1027,7 @@ fn a_filled_band_under_a_log_norm_takes_the_colour_of_its_geometric_middle() {
             continue;
         }
         // The band [1, 100) has its geometric middle at 10, midway between the limits 0.01 and 1000.
-        let actual = nearest_lut_index(&VIRIDIS, fill.color);
+        let actual = nearest_lut_index(&VIRIDIS, fill.colour);
         assert!(
             actual.abs_diff(entry(0.6)) <= 1,
             "the band [1, 100) takes entry {actual}, expected {}",
@@ -1045,16 +1045,16 @@ fn a_contour_with_no_levels_on_a_discrete_log_scale_keeps_the_band_edges() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let edges = [0.05, 3.0, 70.0, 500.0];
-    let scale = fx.color_scale(ColorScaleKind::Discrete(DiscreteColorScale {
-        levels: ColorScaleLevels::Explicit {
+    let scale = fx.colour_scale(ColourScaleKind::Discrete(DiscreteColourScale {
+        levels: ColourScaleLevels::Explicit {
             values: edges.to_vec(),
         },
-        norm: ColorScaleNorm::Log,
-        ..DiscreteColorScale::default()
+        norm: ColourScaleNorm::Log,
+        ..DiscreteColourScale::default()
     }));
     let contour = log_contour(&mut fx, ax, |c| {
         c.levels = None;
-        c.color_scale = Some(scale);
+        c.colour_scale = Some(scale);
     });
     let scene = compile_figure(&fx.build());
     let drawn = isoline_levels(&scene, ax, contour);
@@ -1069,7 +1069,7 @@ fn a_contour_with_no_levels_on_a_discrete_log_scale_keeps_the_band_edges() {
 fn a_contour_through_an_indexed_scale_colours_each_isoline_by_the_entry_its_level_names() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Transparent));
+    let scale = fx.colour_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Transparent));
     let x = linspace(-0.45, 2.35, 8);
     let contour = fx.contour(
         ax,
@@ -1080,14 +1080,17 @@ fn a_contour_through_an_indexed_scale_colours_each_isoline_by_the_entry_its_leve
             c.levels = Some(Levels::Explicit {
                 values: vec![0.0, 1.0, 2.0],
             });
-            c.color_scale = Some(scale);
+            c.colour_scale = Some(scale);
         },
     );
     let scene = compile_figure(&fx.build());
     let (xmap, _) = axis_maps(&scene, ax);
     let mut seen = [false; 3];
     for leaf in from_source(&leaves(&scene), contour) {
-        let Some(stroke) = leaf.path().and_then(|p| p.stroke.as_ref().map(|s| s.color)) else {
+        let Some(stroke) = leaf
+            .path()
+            .and_then(|p| p.stroke.as_ref().map(|s| s.colour))
+        else {
             continue;
         };
         let level = xmap.to_data(leaf.subpaths()[0][0].x).round() as usize;
@@ -1111,7 +1114,7 @@ fn a_surface_face_through_an_index_mapped_scale_takes_the_value_of_its_first_cor
     ] {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        let scale = fx.color_scale(kind.clone());
+        let scale = fx.colour_scale(kind.clone());
         // Row j = 0 holds 0, 2, 0 and row j = 1 holds 1, 1, 1, so that each face's corner mean is 1 while its
         // four corners name different entries: the face from x = 0 has first corner 0 (red), and the face from
         // x = 1 has first corner 2 (blue). Any other corner, or the mean, gives another colour.
@@ -1127,8 +1130,8 @@ fn a_surface_face_through_an_index_mapped_scale_takes_the_value_of_its_first_cor
                 }
             },
             |s| {
-                s.color_scale = Some(scale);
-                s.edge = ColorSpec::None;
+                s.colour_scale = Some(scale);
+                s.edge = ColourSpec::None;
             },
         );
         let scene = compile_figure(&fx.build());
@@ -1146,7 +1149,7 @@ fn a_surface_face_through_an_index_mapped_scale_takes_the_value_of_its_first_cor
             let fill = face.path().and_then(|p| p.fill).expect("faces are filled");
             let want = channels(expected);
             assert_eq!(
-                rgb8(fill.color),
+                rgb8(fill.colour),
                 [want[0], want[1], want[2]],
                 "{kind:?}: the face from x = {left} takes its first corner's entry"
             );
@@ -1163,7 +1166,7 @@ fn a_contour_with_no_levels_through_an_index_mapped_scale_draws_isolines_between
     ] {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        let scale = fx.color_scale(kind.clone());
+        let scale = fx.colour_scale(kind.clone());
         // Whole-number nodes 0, 1 and 2, so that every data value names an entry.
         let contour = fx.contour(
             ax,
@@ -1172,7 +1175,7 @@ fn a_contour_with_no_levels_through_an_index_mapped_scale_draws_isolines_between
             |x, _| x,
             |c| {
                 c.levels = None;
-                c.color_scale = Some(scale);
+                c.colour_scale = Some(scale);
             },
         );
         let scene = compile_figure(&fx.build());
@@ -1184,7 +1187,10 @@ fn a_contour_with_no_levels_through_an_index_mapped_scale_draws_isolines_between
         );
         let (xmap, _) = axis_maps(&scene, ax);
         for leaf in from_source(&leaves(&scene), contour) {
-            let Some(stroke) = leaf.path().and_then(|p| p.stroke.as_ref().map(|s| s.color)) else {
+            let Some(stroke) = leaf
+                .path()
+                .and_then(|p| p.stroke.as_ref().map(|s| s.colour))
+            else {
                 continue;
             };
             let level = xmap.to_data(leaf.subpaths()[0][0].x);
@@ -1208,7 +1214,7 @@ fn a_filled_contour_with_no_levels_through_an_index_mapped_scale_fills_one_band_
     ] {
         let mut fx = Fx::new();
         let ax = fx.axes2d(0, 0);
-        let scale = fx.color_scale(kind.clone());
+        let scale = fx.colour_scale(kind.clone());
         let contour = fx.contour(
             ax,
             &[0.0, 1.0, 2.0],
@@ -1217,7 +1223,7 @@ fn a_filled_contour_with_no_levels_through_an_index_mapped_scale_fills_one_band_
             |c| {
                 c.levels = None;
                 c.fill = true;
-                c.color_scale = Some(scale);
+                c.colour_scale = Some(scale);
             },
         );
         let scene = compile_figure(&fx.build());
@@ -1241,7 +1247,7 @@ fn a_filled_contour_with_no_levels_through_an_index_mapped_scale_fills_one_band_
                 };
                 let want = channels([RED, GREEN, BLUE][entry]);
                 assert_eq!(
-                    rgb8(fill.color),
+                    rgb8(fill.colour),
                     [want[0], want[1], want[2]],
                     "{kind:?}: the band at x = {mean} holds {entry}"
                 );
@@ -1253,35 +1259,35 @@ fn a_filled_contour_with_no_levels_through_an_index_mapped_scale_fills_one_band_
 }
 
 // ---------------------------------------------------------------------------------
-// Colormapped lines and quivers
+// Colourmapped lines and quivers
 // ---------------------------------------------------------------------------------
 
-// WHY: a line or quiver has no values to map in this stage and the axes no longer has a colormap, so a colormapped colour keeps today's drawing with the default colormap, the middle of viridis, and does not borrow a scale another artist of the axes uses.
+// WHY: a line or quiver has no values to map in this stage and the axes no longer has a colourmap, so a colourmapped colour keeps today's drawing with the default colourmap, the middle of viridis, and does not borrow a scale another artist of the axes uses.
 #[test]
-fn a_colormapped_line_or_quiver_takes_the_middle_of_viridis() {
+fn a_colourmapped_line_or_quiver_takes_the_middle_of_viridis() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     // A magma scale used by a surface in the same axes, which the line and quiver must ignore.
-    let magma = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Named {
-            name: ColormapName::Magma,
+    let magma = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Named {
+            name: ColourmapName::Magma,
             reverse: false,
         },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     }));
     fx.surface(
         ax,
         &[0.0, 1.0],
         &[0.0, 1.0],
         |x, _| x,
-        |s| s.color_scale = Some(magma),
+        |s| s.colour_scale = Some(magma),
     );
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |l| {
-        l.line.color = ColorSpec::Colormapped;
+        l.line.colour = ColourSpec::Colourmapped;
     });
     let quiver = fx.quiver(ax, &[0.5], &[0.5], None, &[0.2], &[0.2], None);
     match fx.fig.artist_mut(quiver) {
-        Some(Artist::Quiver(q)) => q.line.color = ColorSpec::Colormapped,
+        Some(Artist::Quiver(q)) => q.line.colour = ColourSpec::Colourmapped,
         other => panic!("expected the quiver, found {other:?}"),
     }
     let scene = compile_figure(&fx.build());
@@ -1289,7 +1295,10 @@ fn a_colormapped_line_or_quiver_takes_the_middle_of_viridis() {
     for (what, id) in [("line", line), ("quiver", quiver)] {
         let strokes: Vec<Rgba> = from_source(&leaves(&scene), id)
             .iter()
-            .filter_map(|leaf| leaf.path().and_then(|p| p.stroke.as_ref().map(|s| s.color)))
+            .filter_map(|leaf| {
+                leaf.path()
+                    .and_then(|p| p.stroke.as_ref().map(|s| s.colour))
+            })
             .collect();
         assert!(!strokes.is_empty(), "the {what} is stroked");
         for stroke in strokes {
@@ -1306,7 +1315,7 @@ fn a_colormapped_line_or_quiver_takes_the_middle_of_viridis() {
 // References that cannot be followed
 // ---------------------------------------------------------------------------------
 
-// WHY: an artist whose scale is missing, names a node of another kind or names nothing cannot be coloured, so the scene skips it with a warning while drawing the rest, rather than failing or guessing a colormap.
+// WHY: an artist whose scale is missing, names a node of another kind or names nothing cannot be coloured, so the scene skips it with a warning while drawing the rest, rather than failing or guessing a colourmap.
 #[test]
 fn an_artist_with_no_scale_or_a_scale_of_the_wrong_kind_is_reported_and_skipped() {
     for (what, reference) in [

@@ -25,17 +25,17 @@ const WITH_CHOICES: [ValueType; 48] = [
     ValueType::Aspect,
     ValueType::AspectAdjust,
     ValueType::TitleAlign,
-    ValueType::ColormapName,
+    ValueType::ColourmapName,
     ValueType::Legend,
     ValueType::LegendLocation,
     ValueType::LegendEntryColumns,
     ValueType::LegendEntryOrder,
     ValueType::PanelLocation,
     ValueType::PanelContent,
-    ValueType::ColorbarOrientation,
-    ValueType::InsideColorbarSide,
-    ValueType::ColorbarTitlePlacement,
-    ValueType::ColorSpec,
+    ValueType::ColourbarOrientation,
+    ValueType::InsideColourbarSide,
+    ValueType::ColourbarTitlePlacement,
+    ValueType::ColourSpec,
     ValueType::DashStyle,
     ValueType::MarkerShape,
     ValueType::Coords,
@@ -45,10 +45,10 @@ const WITH_CHOICES: [ValueType; 48] = [
     ValueType::QuiverScale,
     ValueType::ImagePlane,
     ValueType::OutOfRange,
-    ValueType::ColorScaleKind,
-    ValueType::Colormap,
-    ValueType::ColorScaleNorm,
-    ValueType::ColorScaleLevels,
+    ValueType::ColourScaleKind,
+    ValueType::Colourmap,
+    ValueType::ColourScaleNorm,
+    ValueType::ColourScaleLevels,
     ValueType::Interpreter,
     ValueType::FontSetId,
     ValueType::Embolden,
@@ -278,7 +278,7 @@ fn a_choice_takes_what_it_can_from_the_value_it_replaces() {
     assert_eq!(
         fresh(ValueType::OutOfRange, "Fixed colour"),
         Value::OutOfRange(OutOfRange::Rgba {
-            color: Color::BLACK
+            colour: Colour::BLACK
         })
     );
     // A plane keeps its offset when the choice is the plane the image already lies in,
@@ -304,14 +304,14 @@ fn a_choice_takes_what_it_can_from_the_value_it_replaces() {
         Value::ImagePlane(ImagePlane::Xz { y: None })
     );
     // A fixed out-of-range colour keeps the colour it replaces.
-    let blue = Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
+    let blue = Colour::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
     assert_eq!(
         replacing(
             ValueType::OutOfRange,
-            Value::OutOfRange(OutOfRange::Rgba { color: blue }),
+            Value::OutOfRange(OutOfRange::Rgba { colour: blue }),
             "Fixed colour"
         ),
-        Value::OutOfRange(OutOfRange::Rgba { color: blue })
+        Value::OutOfRange(OutOfRange::Rgba { colour: blue })
     );
 }
 
@@ -565,14 +565,14 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         ],
     );
     covered(
-        ValueType::ColorSpec,
+        ValueType::ColourSpec,
         vec![
-            Value::ColorSpec(ColorSpec::Auto),
-            Value::ColorSpec(ColorSpec::Rgba {
-                color: Color::BLACK,
+            Value::ColourSpec(ColourSpec::Auto),
+            Value::ColourSpec(ColourSpec::Rgba {
+                colour: Colour::BLACK,
             }),
-            Value::ColorSpec(ColorSpec::None),
-            Value::ColorSpec(ColorSpec::Colormapped),
+            Value::ColourSpec(ColourSpec::None),
+            Value::ColourSpec(ColourSpec::Colourmapped),
         ],
     );
     covered(
@@ -627,48 +627,50 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::OutOfRange(OutOfRange::Transparent),
             Value::OutOfRange(OutOfRange::Clamp),
             Value::OutOfRange(OutOfRange::Rgba {
-                color: Color::WHITE,
+                colour: Colour::WHITE,
             }),
         ],
     );
     covered(
-        ValueType::ColorScaleKind,
+        ValueType::ColourScaleKind,
         vec![
-            Value::ColorScaleKind(ColorScaleKind::Continuous(ContinuousColorScale::default())),
-            Value::ColorScaleKind(ColorScaleKind::Discrete(DiscreteColorScale::default())),
-            Value::ColorScaleKind(ColorScaleKind::Indexed(IndexedColorScale::default())),
-            Value::ColorScaleKind(ColorScaleKind::Categorical(CategoricalColorScale::default())),
+            Value::ColourScaleKind(ColourScaleKind::Continuous(ContinuousColourScale::default())),
+            Value::ColourScaleKind(ColourScaleKind::Discrete(DiscreteColourScale::default())),
+            Value::ColourScaleKind(ColourScaleKind::Indexed(IndexedColourScale::default())),
+            Value::ColourScaleKind(ColourScaleKind::Categorical(
+                CategoricalColourScale::default(),
+            )),
         ],
     );
     covered(
-        ValueType::Colormap,
+        ValueType::Colourmap,
         vec![
-            Value::Colormap(Colormap::Named {
-                name: ColormapName::Magma,
+            Value::Colourmap(Colourmap::Named {
+                name: ColourmapName::Magma,
                 reverse: true,
             }),
-            Value::Colormap(Colormap::Listed {
-                colors: vec![Color::BLACK, Color::WHITE],
+            Value::Colourmap(Colourmap::Listed {
+                colours: vec![Colour::BLACK, Colour::WHITE],
             }),
         ],
     );
     covered(
-        ValueType::ColorScaleLevels,
+        ValueType::ColourScaleLevels,
         vec![
-            Value::ColorScaleLevels(ColorScaleLevels::Auto {
+            Value::ColourScaleLevels(ColourScaleLevels::Auto {
                 count: 3,
                 limits: Limits::Auto,
             }),
-            Value::ColorScaleLevels(ColorScaleLevels::Explicit {
+            Value::ColourScaleLevels(ColourScaleLevels::Explicit {
                 values: vec![0.0, 1.0],
             }),
         ],
     );
     covered(
-        ValueType::ColorScaleNorm,
+        ValueType::ColourScaleNorm,
         vec![
-            Value::ColorScaleNorm(ColorScaleNorm::Linear),
-            Value::ColorScaleNorm(ColorScaleNorm::Log),
+            Value::ColourScaleNorm(ColourScaleNorm::Linear),
+            Value::ColourScaleNorm(ColourScaleNorm::Log),
         ],
     );
     covered(
@@ -683,15 +685,15 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         ],
     );
     covered(
-        ValueType::ColormapName,
+        ValueType::ColourmapName,
         vec![
-            Value::ColormapName(ColormapName::Viridis),
-            Value::ColormapName(ColormapName::Cividis),
-            Value::ColormapName(ColormapName::Magma),
-            Value::ColormapName(ColormapName::Inferno),
-            Value::ColormapName(ColormapName::Plasma),
-            Value::ColormapName(ColormapName::Coolwarm),
-            Value::ColormapName(ColormapName::Gray),
+            Value::ColourmapName(ColourmapName::Viridis),
+            Value::ColourmapName(ColourmapName::Cividis),
+            Value::ColourmapName(ColourmapName::Magma),
+            Value::ColourmapName(ColourmapName::Inferno),
+            Value::ColourmapName(ColourmapName::Plasma),
+            Value::ColourmapName(ColourmapName::Coolwarm),
+            Value::ColourmapName(ColourmapName::Grey),
         ],
     );
     covered(
@@ -705,7 +707,7 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::LegendLocation(LegendLocation::South),
             Value::LegendLocation(LegendLocation::East),
             Value::LegendLocation(LegendLocation::West),
-            Value::LegendLocation(LegendLocation::Center),
+            Value::LegendLocation(LegendLocation::Centre),
             Value::LegendLocation(LegendLocation::Best),
         ],
     );
@@ -714,7 +716,7 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
     covered(
         ValueType::PanelLocation,
         vec![
-            Value::PanelLocation(PanelLocation::Center),
+            Value::PanelLocation(PanelLocation::Centre),
             Value::PanelLocation(PanelLocation::North),
             Value::PanelLocation(PanelLocation::South),
             Value::PanelLocation(PanelLocation::East),
@@ -730,34 +732,34 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
         ValueType::PanelContent,
         vec![
             Value::PanelContent(PanelContent::Legend(PanelLegend::default())),
-            Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
+            Value::PanelContent(PanelContent::Colourbar(PanelColourbar {
                 scale: NodeId(7),
-                orientation: ColorbarOrientation::Horizontal,
-                ..PanelColorbar::default()
+                orientation: ColourbarOrientation::Horizontal,
+                ..PanelColourbar::default()
             })),
         ],
     );
     covered(
-        ValueType::ColorbarOrientation,
+        ValueType::ColourbarOrientation,
         vec![
-            Value::ColorbarOrientation(ColorbarOrientation::Vertical),
-            Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
+            Value::ColourbarOrientation(ColourbarOrientation::Vertical),
+            Value::ColourbarOrientation(ColourbarOrientation::Horizontal),
         ],
     );
     covered(
-        ValueType::ColorbarTitlePlacement,
+        ValueType::ColourbarTitlePlacement,
         vec![
-            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Along),
-            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
+            Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Along),
+            Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Above),
         ],
     );
     covered(
-        ValueType::InsideColorbarSide,
+        ValueType::InsideColourbarSide,
         vec![
-            Value::InsideColorbarSide(InsideColorbarSide::South),
-            Value::InsideColorbarSide(InsideColorbarSide::North),
-            Value::InsideColorbarSide(InsideColorbarSide::East),
-            Value::InsideColorbarSide(InsideColorbarSide::West),
+            Value::InsideColourbarSide(InsideColourbarSide::South),
+            Value::InsideColourbarSide(InsideColourbarSide::North),
+            Value::InsideColourbarSide(InsideColourbarSide::East),
+            Value::InsideColourbarSide(InsideColourbarSide::West),
         ],
     );
     covered(
@@ -840,18 +842,18 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
 /// colour data or by its height, a series with colour data colours its line by it
 /// and, when the data holds one value per point, its markers too, and bars with colour
 /// data colour each face and each outline by the value of its bar. Nowhere else does the
-/// IR hold a value to look a colour up by: the compiler paints a colormapped quiver, or a
-/// colormapped colour of a series without colour data, in the middle colour of viridis,
+/// IR hold a value to look a colour up by: the compiler paints a colourmapped quiver, or a
+/// colourmapped colour of a series without colour data, in the middle colour of viridis,
 /// and stairs have no colour data at all.
-fn colormap_indexed(figure: &Figure, node: NodeId, kind: NodeKind) -> Vec<&'static str> {
+fn colourmap_indexed(figure: &Figure, node: NodeId, kind: NodeKind) -> Vec<&'static str> {
     match kind {
-        NodeKind::Contour => vec!["line.color"],
+        NodeKind::Contour => vec!["line.colour"],
         NodeKind::Surface => vec!["face", "edge"],
         // The outline of each cell takes the colour of its cell.
-        NodeKind::Cells => vec!["edge.color"],
+        NodeKind::Cells => vec!["edge.colour"],
         NodeKind::Bar => match figure.artist(node) {
-            Some((_, Artist::Bar(bar))) if bar.color_data.is_some() => {
-                vec!["face", "edge.color"]
+            Some((_, Artist::Bar(bar))) if bar.colour_data.is_some() => {
+                vec!["face", "edge.colour"]
             }
             _ => vec![],
         },
@@ -866,12 +868,12 @@ fn colormap_indexed(figure: &Figure, node: NodeId, kind: NodeKind) -> Vec<&'stat
                     .find(|data| data.id == id)
                     .map(|data| data.array.len())
             };
-            match series.color_data {
+            match series.colour_data {
                 None => vec![],
-                Some(colors) if length(colors) == length(series.x) => {
-                    vec!["line.color", "marker.face", "marker.edge"]
+                Some(colours) if length(colours) == length(series.x) => {
+                    vec!["line.colour", "marker.face", "marker.edge"]
                 }
-                Some(_) => vec!["line.color"],
+                Some(_) => vec!["line.colour"],
             }
         }
         _ => vec![],
@@ -879,10 +881,10 @@ fn colormap_indexed(figure: &Figure, node: NodeId, kind: NodeKind) -> Vec<&'stat
 }
 
 /// Every property of a kind of node whose value is a colour specification.
-fn color_spec_paths(kind: NodeKind) -> Vec<String> {
+fn colour_spec_paths(kind: NodeKind) -> Vec<String> {
     properties(kind)
         .into_iter()
-        .filter(|property| property.value_type == ValueType::ColorSpec)
+        .filter(|property| property.value_type == ValueType::ColourSpec)
         .map(|property| property.path.to_string())
         .collect()
 }
@@ -929,15 +931,15 @@ fn every_choice_of_a_property_is_listed_whether_or_not_it_is_available() {
     );
 }
 
-// Why: a colormapped colour promises that the plot is coloured by its data, and the scene
+// Why: a colourmapped colour promises that the plot is coloured by its data, and the scene
 // compiler can keep that promise only where the IR gives it a value to look the colour up
 // by and the artist names a colour scale to look it up in. Marking it available where it
 // is not would deliver a flat colour with no explanation; marking it unavailable where it
 // works would make a surface uncolourable.
 #[test]
-fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap() {
+fn a_colourmapped_colour_is_available_exactly_where_the_ir_indexes_the_colourmap() {
     let mut figures = representative_figures();
-    // A copy in which no artist names a scale, where nothing can be colormapped.
+    // A copy in which no artist names a scale, where nothing can be colourmapped.
     let mut unscaled = figures[0].clone();
     for artist in unscaled
         .axes
@@ -945,12 +947,12 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
         .flat_map(|axes| axes.artists.iter_mut())
     {
         match artist {
-            Artist::Contour(a) => a.color_scale = None,
-            Artist::Surface(a) => a.color_scale = None,
-            Artist::Series(a) => a.color_scale = None,
-            Artist::ScalarImage(a) => a.color_scale = None,
-            Artist::Cells(a) => a.color_scale = None,
-            Artist::Bar(a) => a.color_scale = None,
+            Artist::Contour(a) => a.colour_scale = None,
+            Artist::Surface(a) => a.colour_scale = None,
+            Artist::Series(a) => a.colour_scale = None,
+            Artist::ScalarImage(a) => a.colour_scale = None,
+            Artist::Cells(a) => a.colour_scale = None,
+            Artist::Bar(a) => a.colour_scale = None,
             Artist::Quiver(_) | Artist::Image(_) | Artist::Stairs(_) => {}
         }
     }
@@ -960,16 +962,16 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
             let names_a_scale = figure
                 .artist(node)
                 .and_then(|(_, artist)| match artist {
-                    Artist::Contour(a) => a.color_scale,
-                    Artist::Surface(a) => a.color_scale,
-                    Artist::Series(a) => a.color_scale,
-                    Artist::Cells(a) => a.color_scale,
-                    Artist::Bar(a) => a.color_scale,
+                    Artist::Contour(a) => a.colour_scale,
+                    Artist::Surface(a) => a.colour_scale,
+                    Artist::Series(a) => a.colour_scale,
+                    Artist::Cells(a) => a.colour_scale,
+                    Artist::Bar(a) => a.colour_scale,
                     _ => None,
                 })
-                .is_some_and(|scale| figure.color_scales.iter().any(|s| s.id == scale));
-            let indexed = colormap_indexed(&figure, node, kind);
-            let paths = color_spec_paths(kind);
+                .is_some_and(|scale| figure.colour_scales.iter().any(|s| s.id == scale));
+            let indexed = colourmap_indexed(&figure, node, kind);
+            let paths = colour_spec_paths(kind);
             assert!(
                 indexed
                     .iter()
@@ -982,15 +984,15 @@ fn a_colormapped_colour_is_available_exactly_where_the_ir_indexes_the_colormap()
                 if offered.is_empty() {
                     continue; // The property is not reachable in this figure.
                 }
-                let colormapped = offered
+                let colourmapped = offered
                     .iter()
-                    .find(|choice| choice.label == "Colormapped")
-                    .unwrap_or_else(|| panic!("{kind:?} lists no colormapped colour at {path}"));
+                    .find(|choice| choice.label == "Colourmapped")
+                    .unwrap_or_else(|| panic!("{kind:?} lists no colourmapped colour at {path}"));
                 assert_eq!(
-                    colormapped.available(),
+                    colourmapped.available(),
                     names_a_scale && indexed.contains(&path.as_str()),
-                    "{kind:?} marks the colormapped colour at {path} wrongly: {:?}",
-                    colormapped.unavailable
+                    "{kind:?} marks the colourmapped colour at {path} wrongly: {:?}",
+                    colourmapped.unavailable
                 );
             }
         }
@@ -1048,7 +1050,7 @@ fn an_unavailable_choice_carries_a_reason_and_an_available_one_carries_none() {
 // that named neither would leave the user stuck in front of a value they can see but
 // cannot pick.
 #[test]
-fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used() {
+fn the_reason_names_what_the_property_lacks_and_where_the_colourmap_can_be_used() {
     let figure = representative_figures().remove(0);
     let line = nodes(&figure)
         .into_iter()
@@ -1056,7 +1058,7 @@ fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used()
             kind == NodeKind::Series
                 && matches!(
                     figure.artist(node),
-                    Some((_, Artist::Series(series))) if series.color_data.is_none()
+                    Some((_, Artist::Series(series))) if series.colour_data.is_none()
                 )
         })
         .map(|(node, _)| node)
@@ -1065,12 +1067,12 @@ fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used()
     let reason_at = |figure: &Figure, node: NodeId, at: &str| {
         property_choices(figure, node, &at.parse().unwrap())
             .into_iter()
-            .find(|choice| choice.label == "Colormapped")
-            .unwrap_or_else(|| panic!("{at} lists the colormapped colour"))
+            .find(|choice| choice.label == "Colourmapped")
+            .unwrap_or_else(|| panic!("{at} lists the colourmapped colour"))
             .unavailable
-            .unwrap_or_else(|| panic!("{at} cannot be colormapped"))
+            .unwrap_or_else(|| panic!("{at} cannot be colourmapped"))
     };
-    for at in ["line.color", "marker.face"] {
+    for at in ["line.colour", "marker.face"] {
         let reason = reason_at(&figure, line, at);
         assert!(
             reason.starts_with("This series has no colour data, so it provides no value to look"),
@@ -1093,7 +1095,7 @@ fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used()
     let axes = b.axes2d(0, 0);
     let x = b.vector(&[0.0, 1.0, 2.0]);
     let colours = b.vector(&[0.0, 1.0]);
-    let scale = b.color_scale(ColorScaleKind::default());
+    let scale = b.colour_scale(ColourScaleKind::default());
     let id = b.node();
     b.push(
         axes,
@@ -1101,8 +1103,8 @@ fn the_reason_names_what_the_property_lacks_and_where_the_colormap_can_be_used()
             id,
             x,
             y: x,
-            color_data: Some(colours),
-            color_scale: Some(scale),
+            colour_data: Some(colours),
+            colour_scale: Some(scale),
             marker: MarkerStyle {
                 shape: MarkerShape::Circle,
                 ..MarkerStyle::default()
@@ -1129,12 +1131,12 @@ fn clamping_is_unavailable_at_the_non_finite_category_and_available_below_and_ab
     let mut checked = 0usize;
     let mut kinds_seen = std::collections::BTreeSet::new();
     for figure in representative_figures() {
-        for scale in &figure.color_scales {
+        for scale in &figure.colour_scales {
             let (kind, own): (&str, &[&str]) = match &scale.kind {
-                ColorScaleKind::Continuous(_) => ("continuous", &["below", "above"]),
-                ColorScaleKind::Discrete(_) => ("discrete", &["below", "above"]),
-                ColorScaleKind::Indexed(_) => ("indexed", &["outside"]),
-                ColorScaleKind::Categorical(_) => ("categorical", &["outside"]),
+                ColourScaleKind::Continuous(_) => ("continuous", &["below", "above"]),
+                ColourScaleKind::Discrete(_) => ("discrete", &["below", "above"]),
+                ColourScaleKind::Indexed(_) => ("indexed", &["outside"]),
+                ColourScaleKind::Categorical(_) => ("categorical", &["outside"]),
             };
             kinds_seen.insert(kind);
             let categories = own
@@ -1179,7 +1181,7 @@ fn the_reason_clamping_is_unavailable_names_what_a_non_finite_value_lacks_and_wh
     let figure = representative_figures().remove(0);
     let (scale, _) = nodes(&figure)
         .into_iter()
-        .find(|(_, kind)| *kind == NodeKind::ColorScale)
+        .find(|(_, kind)| *kind == NodeKind::ColourScale)
         .expect("a representative figure has a colour scale");
     let reason = property_choices(&figure, scale, &path("non_finite.policy"))
         .into_iter()
@@ -1198,11 +1200,11 @@ fn the_reason_clamping_is_unavailable_names_what_a_non_finite_value_lacks_and_wh
 }
 
 // Why: a series coloured from data is the supported way to colour a line and markers by
-// value (#19, #44), so marking the colormapped colour unavailable where the IR has no
+// value (#19, #44), so marking the colourmapped colour unavailable where the IR has no
 // value must not touch a series that has one, or the series would appear to have lost
 // data colouring altogether.
 #[test]
-fn a_series_with_colour_data_offers_a_colormapped_line_and_markers() {
+fn a_series_with_colour_data_offers_a_colourmapped_line_and_markers() {
     let mut checked = 0;
     for figure in representative_figures() {
         for (node, kind) in nodes(&figure) {
@@ -1210,19 +1212,19 @@ fn a_series_with_colour_data_offers_a_colormapped_line_and_markers() {
                 continue;
             };
             assert_eq!(kind, NodeKind::Series);
-            if series.color_data.is_none() || series.color_scale.is_none() {
+            if series.colour_data.is_none() || series.colour_scale.is_none() {
                 continue;
             }
-            for at in ["line.color", "marker.face", "marker.edge"] {
+            for at in ["line.colour", "marker.face", "marker.edge"] {
                 let offered = property_choices(&figure, node, &at.parse().unwrap());
-                let colormapped = offered
+                let colourmapped = offered
                     .iter()
-                    .find(|choice| choice.label == "Colormapped")
-                    .unwrap_or_else(|| panic!("{at} lists the colormapped colour"));
+                    .find(|choice| choice.label == "Colourmapped")
+                    .unwrap_or_else(|| panic!("{at} lists the colourmapped colour"));
                 assert!(
-                    colormapped.available(),
-                    "a series coloured by data lost the colormapped colour at {at}: {:?}",
-                    colormapped.unavailable
+                    colourmapped.available(),
+                    "a series coloured by data lost the colourmapped colour at {at}: {:?}",
+                    colourmapped.unavailable
                 );
                 checked += 1;
             }
@@ -1252,7 +1254,7 @@ fn a_node_or_a_path_that_the_figure_does_not_have_offers_no_choices() {
     );
     assert!(property_choices(&figure, NodeId(u64::MAX), &limits).is_empty());
     assert!(
-        property_choices(&figure, axes.id, &"line.color".parse().unwrap()).is_empty(),
+        property_choices(&figure, axes.id, &"line.colour".parse().unwrap()).is_empty(),
         "an axes has no line colour"
     );
     assert!(

@@ -101,18 +101,18 @@ impl PathBuilder {
     }
 }
 
-/// Returns a nonzero fill of `color`.
-pub(super) fn fill(color: Rgba) -> Fill {
+/// Returns a nonzero fill of `colour`.
+pub(super) fn fill(colour: Rgba) -> Fill {
     Fill {
-        color,
+        colour,
         rule: FillRule::NonZero,
     }
 }
 
-/// Returns a stroke of `color` and `width` with the given dash array, butt caps and round joins.
-pub(super) fn stroke(color: Rgba, width: f64, dash: Vec<f64>) -> Stroke {
+/// Returns a stroke of `colour` and `width` with the given dash array, butt caps and round joins.
+pub(super) fn stroke(colour: Rgba, width: f64, dash: Vec<f64>) -> Stroke {
     Stroke {
-        color,
+        colour,
         width,
         dash,
         dash_offset: 0.0,
@@ -121,11 +121,11 @@ pub(super) fn stroke(color: Rgba, width: f64, dash: Vec<f64>) -> Stroke {
     }
 }
 
-/// Returns a solid stroke of `color` and `width` with square joins, for axes decorations.
-pub(super) fn solid(color: Rgba, width: f64) -> Stroke {
+/// Returns a solid stroke of `colour` and `width` with square joins, for axes decorations.
+pub(super) fn solid(colour: Rgba, width: f64) -> Stroke {
     Stroke {
         join: LineJoin::Miter,
-        ..stroke(color, width, Vec::new())
+        ..stroke(colour, width, Vec::new())
     }
 }
 

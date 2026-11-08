@@ -16,7 +16,7 @@ use ironlab_canvas::inspector::{
 };
 use ironlab_canvas::{FigureState, Origin};
 use ironlab_ir::{
-    Choice, ColorScaleKind, Colormap, ColormapName, ContinuousColorScale, Dimension, Figure,
+    Choice, ColourScaleKind, Colourmap, ColourmapName, ContinuousColourScale, Dimension, Figure,
     NodeId, NodeKind, Parameter, Projection, Value, View3d,
 };
 use ironlab_scene::display::{Point, Rect};
@@ -36,14 +36,14 @@ const SCATTER: NodeId = NodeId(5);
 const SURFACE: NodeId = NodeId(6);
 const SCALE: NodeId = NodeId(7);
 
-/// The colormap name of the continuous colour scale [`SCALE`] of a figure.
-fn scale_colormap(figure: &Figure) -> ColormapName {
-    match figure.color_scale(SCALE).map(|scale| &scale.kind) {
-        Some(ColorScaleKind::Continuous(ContinuousColorScale {
-            colormap: Colormap::Named { name, .. },
+/// The colourmap name of the continuous colour scale [`SCALE`] of a figure.
+fn scale_colourmap(figure: &Figure) -> ColourmapName {
+    match figure.colour_scale(SCALE).map(|scale| &scale.kind) {
+        Some(ColourScaleKind::Continuous(ContinuousColourScale {
+            colourmap: Colourmap::Named { name, .. },
             ..
         })) => *name,
-        other => panic!("the colour scale is continuous with a named colormap: {other:?}"),
+        other => panic!("the colour scale is continuous with a named colourmap: {other:?}"),
     }
 }
 
@@ -127,8 +127,8 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
             NodeKind::DataArray,
             NodeKind::DataArray,
             NodeKind::DataArray,
-            NodeKind::ColorScale,
-            NodeKind::ColorScale,
+            NodeKind::ColourScale,
+            NodeKind::ColourScale,
             NodeKind::Axes,
             NodeKind::Series,
             NodeKind::Series,
@@ -147,36 +147,36 @@ fn the_tree_lists_every_node_under_its_parent_in_drawing_order() {
 #[test]
 fn colour_scales_are_gathered_in_a_group_and_named_by_their_title_or_their_kind() {
     use ironlab_ir::{
-        CategoricalColorScale, ColorScale, DiscreteColorScale, IndexedColorScale, Text,
+        CategoricalColourScale, ColourScale, DiscreteColourScale, IndexedColourScale, Text,
     };
 
     let mut figure = figure_with_artists();
-    figure.color_scales.extend([
-        ColorScale {
+    figure.colour_scales.extend([
+        ColourScale {
             id: NodeId(20),
             title: Some(Text::new(r"$T$ (K)")),
-            ..ColorScale::default()
+            ..ColourScale::default()
         },
-        ColorScale {
+        ColourScale {
             id: NodeId(21),
-            kind: ColorScaleKind::Discrete(DiscreteColorScale::default()),
-            ..ColorScale::default()
+            kind: ColourScaleKind::Discrete(DiscreteColourScale::default()),
+            ..ColourScale::default()
         },
-        ColorScale {
+        ColourScale {
             id: NodeId(22),
-            kind: ColorScaleKind::Indexed(IndexedColorScale::default()),
+            kind: ColourScaleKind::Indexed(IndexedColourScale::default()),
             title: Some(Text::plain("  ")),
-            ..ColorScale::default()
+            ..ColourScale::default()
         },
-        ColorScale {
+        ColourScale {
             id: NodeId(23),
-            kind: ColorScaleKind::Categorical(CategoricalColorScale::default()),
-            ..ColorScale::default()
+            kind: ColourScaleKind::Categorical(CategoricalColourScale::default()),
+            ..ColourScale::default()
         },
     ]);
     let rows: Vec<(Option<NodeId>, usize, String)> = tree_rows(&figure)
         .into_iter()
-        .filter(|row| row.kind == NodeKind::ColorScale)
+        .filter(|row| row.kind == NodeKind::ColourScale)
         .map(|row| (row.node, row.depth, row.label))
         .collect();
     assert_eq!(
@@ -193,7 +193,7 @@ fn colour_scales_are_gathered_in_a_group_and_named_by_their_title_or_their_kind(
          or a blank one"
     );
     let kinds: Vec<NodeKind> = tree_rows(&figure).iter().map(|row| row.kind).collect();
-    let first_scale = kinds.iter().position(|kind| *kind == NodeKind::ColorScale);
+    let first_scale = kinds.iter().position(|kind| *kind == NodeKind::ColourScale);
     let last_array = kinds.iter().rposition(|kind| *kind == NodeKind::DataArray);
     let first_axes = kinds.iter().position(|kind| *kind == NodeKind::Axes);
     assert!(
@@ -202,7 +202,7 @@ fn colour_scales_are_gathered_in_a_group_and_named_by_their_title_or_their_kind(
     );
 
     let state = FigureState::new(figure_with_artists());
-    match &row(&groups_of(&state, SURFACE), "color_scale", "").editor {
+    match &row(&groups_of(&state, SURFACE), "colour_scale", "").editor {
         Editor::ReadOnly { reason } => assert!(
             reason.contains("Colour scales") && reason.ends_with('.'),
             "the reason says where the scale is edited: {reason}"
@@ -338,7 +338,7 @@ fn data_arrays_and_panels_are_gathered_in_groups_and_named_by_what_tells_them_ap
     let panel = |id: u64, cell: Cell| Panel {
         id: NodeId(id),
         cell,
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: ironlab_ir::TitleAlign::Left,
         content: PanelContent::Legend(PanelLegend::default()),
@@ -433,23 +433,23 @@ fn data_arrays_and_panels_are_gathered_in_groups_and_named_by_what_tells_them_ap
 #[test]
 fn a_titled_panel_is_named_by_its_title_and_its_cell() {
     use ironlab_ir::{
-        Cell, Panel, PanelColorbar, PanelContent, PanelLegend, PanelLocation, Text, TitleAlign,
+        Cell, Panel, PanelColourbar, PanelContent, PanelLegend, PanelLocation, Text, TitleAlign,
     };
 
     let mut figure = figure_with_artists();
     let legend = || PanelContent::Legend(PanelLegend::default());
-    let colorbar = || {
-        PanelContent::Colorbar(PanelColorbar {
+    let colourbar = || {
+        PanelContent::Colourbar(PanelColourbar {
             scale: SCALE,
-            ..PanelColorbar::default()
+            ..PanelColourbar::default()
         })
     };
     for (id, row, title, content) in [
         (900, 2, Some(Text::plain("Key")), legend()),
-        (901, 3, Some(Text::new(r"$T$ (K)")), colorbar()),
+        (901, 3, Some(Text::new(r"$T$ (K)")), colourbar()),
         (902, 4, None, legend()),
-        (903, 5, None, colorbar()),
-        (904, 6, Some(Text::plain("  ")), colorbar()),
+        (903, 5, None, colourbar()),
+        (904, 6, Some(Text::plain("  ")), colourbar()),
     ] {
         figure.panels.push(Panel {
             id: NodeId(id),
@@ -457,7 +457,7 @@ fn a_titled_panel_is_named_by_its_title_and_its_cell() {
                 row,
                 ..Cell::default()
             },
-            align: PanelLocation::Center,
+            align: PanelLocation::Centre,
             title,
             title_align: TitleAlign::Left,
             content,
@@ -496,7 +496,7 @@ fn a_titled_panel_is_named_by_its_title_and_its_cell() {
 #[test]
 fn the_layout_of_panels_and_colourbars_is_edited_in_the_inspector() {
     use ironlab_ir::{
-        Cell, ColorbarTitlePlacement, InsideColorbar, Panel, PanelColorbar, PanelContent,
+        Cell, ColourbarTitlePlacement, InsideColourbar, Panel, PanelColourbar, PanelContent,
         PanelLegend, PanelLocation, Text, TitleAlign,
     };
 
@@ -506,24 +506,24 @@ fn the_layout_of_panels_and_colourbars_is_edited_in_the_inspector() {
         (key, PanelContent::Legend(PanelLegend::default())),
         (
             bar,
-            PanelContent::Colorbar(PanelColorbar {
+            PanelContent::Colourbar(PanelColourbar {
                 scale: SCALE,
-                ..PanelColorbar::default()
+                ..PanelColourbar::default()
             }),
         ),
     ] {
         figure.panels.push(Panel {
             id,
             cell: Cell::default(),
-            align: PanelLocation::Center,
+            align: PanelLocation::Centre,
             title: None,
             title_align: TitleAlign::Left,
             content,
         });
     }
-    figure.axes_mut(FLAT).expect("the 2D axes").colorbar = Some(InsideColorbar {
+    figure.axes_mut(FLAT).expect("the 2D axes").colourbar = Some(InsideColourbar {
         scale: SCALE,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     let mut state = FigureState::new(figure);
 
@@ -542,7 +542,7 @@ fn the_layout_of_panels_and_colourbars_is_edited_in_the_inspector() {
         );
     }
     let groups = groups_of(&state, bar);
-    let length = row(&groups, "content", "colorbar.length");
+    let length = row(&groups, "content", "colourbar.length");
     assert!(
         !matches!(length.editor, Editor::ReadOnly { .. }),
         "a bar's length is editable, not {:?}",
@@ -554,26 +554,26 @@ fn the_layout_of_panels_and_colourbars_is_edited_in_the_inspector() {
     );
     assert_eq!(length.value, Value::Unset);
     assert_eq!(
-        offered(&groups, "content", "colorbar.title_placement").len(),
+        offered(&groups, "content", "colourbar.title_placement").len(),
         2
     );
     assert_eq!(
-        offered(&groups_of(&state, FLAT), "colorbar", "title_placement").len(),
+        offered(&groups_of(&state, FLAT), "colourbar", "title_placement").len(),
         2
     );
 
     assert!(state.try_record(&set(bar.0, "title", Value::Text(Text::plain("Speed")))));
     assert!(state.try_record(&set(
         bar.0,
-        "content.colorbar.title_placement",
-        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above)
+        "content.colourbar.title_placement",
+        Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Above)
     )));
     let panel = state.figure().panel(bar).expect("the bar's panel");
     assert_eq!(panel.title, Some(Text::plain("Speed")));
     assert!(matches!(
         panel.content,
-        PanelContent::Colorbar(PanelColorbar {
-            title_placement: ColorbarTitlePlacement::Above,
+        PanelContent::Colourbar(PanelColourbar {
+            title_placement: ColourbarTitlePlacement::Above,
             ..
         })
     ));
@@ -1019,7 +1019,7 @@ fn hit_map_with_legend(artist: NodeId) -> HitMap {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -1064,7 +1064,7 @@ fn clicking_inside_an_axes_selects_it_without_changing_the_figure() {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -1097,7 +1097,7 @@ fn the_selection_survives_a_gesture() {
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars: vec![],
+        colourbars: vec![],
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -1174,11 +1174,11 @@ fn the_edits_of_one_drag_of_a_field_are_one_undo_step() {
 #[test]
 fn reverting_a_property_removes_its_entry_and_shows_the_source_again() {
     let mut state = state_with_artists();
-    let colormap = "kind.continuous.colormap.name";
+    let colourmap = "kind.continuous.colourmap.name";
     state.try_record(&set(
         SCALE.0,
-        colormap,
-        Value::ColormapName(ColormapName::Gray),
+        colourmap,
+        Value::ColourmapName(ColourmapName::Grey),
     ));
     state.try_record(&set(LINE.0, "visible", Value::Bool(false)));
     assert_eq!(
@@ -1187,16 +1187,16 @@ fn reverting_a_property_removes_its_entry_and_shows_the_source_again() {
         "both changes are recorded"
     );
 
-    assert!(state.revert(SCALE, &path(colormap)));
+    assert!(state.revert(SCALE, &path(colourmap)));
 
     assert_eq!(
-        scale_colormap(state.figure()),
-        ColormapName::Viridis,
-        "the source colormap is shown again"
+        scale_colourmap(state.figure()),
+        ColourmapName::Viridis,
+        "the source colourmap is shown again"
     );
     assert_eq!(state.overlay().entries().len(), 1, "the other entry stays");
     assert!(
-        !state.revert(SCALE, &path(colormap)),
+        !state.revert(SCALE, &path(colourmap)),
         "there is no second entry to revert"
     );
 }
@@ -1546,7 +1546,7 @@ fn typing_into_a_text_field_is_one_undo_step_that_closes_when_the_field_is_left(
     );
 }
 
-// Why: a combo box is the only way to change a colormap, a scale or the kind of a value,
+// Why: a combo box is the only way to change a colourmap, a scale or the kind of a value,
 // and its entries come from the choices the IR offers; if picking one did not commit the
 // value behind its label, every such property would be unreachable.
 #[test]
@@ -1559,20 +1559,20 @@ fn choosing_from_a_combo_box_commits_the_value_behind_its_label() {
     widget_showing(&harness, egui::accesskit::Role::ComboBox, "Viridis").click();
     harness.run();
     harness.run();
-    harness.get_by_label("Gray").click();
+    harness.get_by_label("Grey").click();
     harness.run();
 
     let state = &harness.state().figure;
-    assert_eq!(scale_colormap(state.figure()), ColormapName::Gray);
+    assert_eq!(scale_colourmap(state.figure()), ColourmapName::Grey);
     assert_eq!(state.overlay().entries().len(), 1);
     assert_eq!(
         state.overlay().entries()[0].path.to_string(),
-        "kind.continuous.colormap.name"
+        "kind.continuous.colourmap.name"
     );
     assert_eq!(
-        scale_colormap(state.source()),
-        ColormapName::Viridis,
-        "the source keeps its colormap"
+        scale_colourmap(state.source()),
+        ColourmapName::Viridis,
+        "the source keeps its colourmap"
     );
 }
 
@@ -1591,10 +1591,10 @@ fn a_choice_that_cannot_be_taken_is_disabled_in_the_combo_box_and_commits_nothin
     harness.run();
 
     {
-        let colormapped = harness.get_by_label("Colormapped");
+        let colourmapped = harness.get_by_label("Colourmapped");
         assert!(
-            colormapped.accesskit_node().is_disabled(),
-            "a line cannot be coloured by the colormap, so the entry must be disabled"
+            colourmapped.accesskit_node().is_disabled(),
+            "a line cannot be coloured by the colourmap, so the entry must be disabled"
         );
         assert!(
             !harness
@@ -1603,7 +1603,7 @@ fn a_choice_that_cannot_be_taken_is_disabled_in_the_combo_box_and_commits_nothin
                 .is_disabled(),
             "a colour the line can take must stay live in the same list"
         );
-        colormapped.click();
+        colourmapped.click();
     }
     harness.run();
 
@@ -1661,15 +1661,15 @@ fn choice<'a>(
     }
 }
 
-// Why: a colormapped colour promises that the plot is coloured by its data, and the scene
+// Why: a colourmapped colour promises that the plot is coloured by its data, and the scene
 // compiler can keep that promise only where the IR gives it a value to look the colour up
 // by. Removing the choice where it cannot be honoured would hide from the user that data
 // colouring exists at all, so it is listed everywhere and marked where it cannot be taken;
 // marking it where a surface face uses it would take away the reason a surface is drawn in
 // colour. Bars with colour data colour their faces and outlines by it as a series colours
-// its markers, while stairs have no colour data and so cannot be colormapped.
+// its markers, while stairs have no colour data and so cannot be colourmapped.
 #[test]
-fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours_by_data() {
+fn a_colourmapped_colour_is_listed_everywhere_and_available_only_where_it_colours_by_data() {
     let state = FigureState::new(figure_with_every_artist());
     let (line, markers, contour, quiver, surface) =
         (NodeId(3), NodeId(4), NodeId(5), NodeId(6), NodeId(7));
@@ -1677,16 +1677,16 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
 
     // A series without colour data, a quiver and stairs have no value to look a colour up by.
     for (node, group_name, label) in [
-        (line, "line", "color"),
+        (line, "line", "colour"),
         (line, "marker", "face"),
         (line, "marker", "edge"),
-        (quiver, "line", "color"),
-        (stairs, "line", "color"),
+        (quiver, "line", "colour"),
+        (stairs, "line", "colour"),
         (stairs, "fill", ""),
     ] {
         let labels = offered(&groups_of(&state, node), group_name, label);
         assert!(
-            labels.contains(&"Colormapped"),
+            labels.contains(&"Colourmapped"),
             "{group_name}.{label} of node {node} hides a colour instead of disabling it: \
              {labels:?}"
         );
@@ -1694,13 +1694,13 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
             labels.contains(&"Fixed colour") && labels.contains(&"Automatic"),
             "{group_name}.{label} of node {node} lost the colours it can use: {labels:?}"
         );
-        let reason = choice(&groups_of(&state, node), group_name, label, "Colormapped")
+        let reason = choice(&groups_of(&state, node), group_name, label, "Colourmapped")
             .unavailable
             .unwrap_or_else(|| {
                 panic!("{group_name}.{label} of node {node} offers a colour it cannot use")
             });
         assert!(
-            reason.contains("colormap") && reason.ends_with('.'),
+            reason.contains("colourmap") && reason.ends_with('.'),
             "{group_name}.{label} of node {node} gives no usable reason: {reason}"
         );
     }
@@ -1708,17 +1708,17 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
     // A series with colour data colours its line and its markers by it (#19), and bars with
     // colour data their faces and outlines.
     for (node, group_name, label) in [
-        (contour, "line", "color"),
+        (contour, "line", "colour"),
         (surface, "face", ""),
         (surface, "edge", ""),
-        (markers, "line", "color"),
+        (markers, "line", "colour"),
         (markers, "marker", "face"),
         (markers, "marker", "edge"),
         (bars, "face", ""),
-        (bars, "edge", "color"),
+        (bars, "edge", "colour"),
     ] {
         assert!(
-            choice(&groups_of(&state, node), group_name, label, "Colormapped").available(),
+            choice(&groups_of(&state, node), group_name, label, "Colourmapped").available(),
             "{group_name}.{label} of node {node} cannot be coloured by its data"
         );
     }
@@ -1732,7 +1732,7 @@ fn a_colormapped_colour_is_listed_everywhere_and_available_only_where_it_colours
 fn a_series_lists_its_colour_and_size_data_and_its_scale_as_references() {
     let state = FigureState::new(figure_with_every_artist());
     let groups = groups_of(&state, NodeId(4));
-    for name in ["color_data", "size_data"] {
+    for name in ["colour_data", "size_data"] {
         let editor = &row(&groups, name, "").editor;
         assert_eq!(
             *editor,
@@ -1742,7 +1742,7 @@ fn a_series_lists_its_colour_and_size_data_and_its_scale_as_references() {
             "{name} of a series is shown as the array it names, not edited"
         );
     }
-    let editor = &row(&groups, "color_scale", "").editor;
+    let editor = &row(&groups, "colour_scale", "").editor;
     assert!(
         matches!(editor, Editor::ReadOnly { .. }),
         "the colour scale of a series is shown as a reference, not edited: {editor:?}"
@@ -1908,7 +1908,7 @@ fn the_inspector_shows_an_image_by_its_placement_headings_and_disables_clamping_
     const INDEXED_SCALE: NodeId = NodeId(13);
     assert_eq!(kind_name(NodeKind::Image), "Image");
     assert_eq!(kind_name(NodeKind::ScalarImage), "Scalar image");
-    assert_eq!(kind_name(NodeKind::ColorScale), "Colour scale");
+    assert_eq!(kind_name(NodeKind::ColourScale), "Colour scale");
 
     let figure = figure_with_every_artist();
     let labels: Vec<String> = tree_rows(&figure)
@@ -2062,7 +2062,7 @@ struct Painted {
     /// The characters painted.
     text: String,
     /// The colour they are painted in.
-    color: egui::Color32,
+    colour: egui::Color32,
     /// Where they are painted.
     rect: egui::Rect,
 }
@@ -2117,13 +2117,13 @@ fn collect_painted_text(shape: &egui::Shape, runs: &mut Vec<Painted>) {
                     .first()
                     .map(|section| section.format.color)
             });
-            let color = match chosen {
-                Some(color) if color != egui::Color32::PLACEHOLDER => color,
+            let colour = match chosen {
+                Some(colour) if colour != egui::Color32::PLACEHOLDER => colour,
                 _ => text.fallback_color,
             };
             runs.push(Painted {
                 text: text.galley.text().to_owned(),
-                color,
+                colour,
                 rect: egui::Rect::from_min_size(text.pos, text.galley.size()),
             });
         }
@@ -2151,7 +2151,7 @@ fn a_composite_property_is_a_heading_that_carries_its_name_alone() {
     for (node, name, members) in [
         (FLAT, "cell", &["col", "col_span", "row", "row_span"][..]),
         (FIGURE, "size", &["height_mm", "width_mm"][..]),
-        (LINE, "line", &["color", "dash", "width_pt"][..]),
+        (LINE, "line", &["colour", "dash", "width_pt"][..]),
         (LINE, "marker", &["edge", "face", "shape", "size_pt"][..]),
     ] {
         let groups = groups_of(&FigureState::new(figure_with_artists()), node);
@@ -2208,7 +2208,7 @@ fn a_read_only_property_is_its_value_dimmed_with_the_reason_on_hover() {
             panic!("the groups of linked axes are not shown; the panel says {words:?}")
         });
     assert_eq!(
-        value.color,
+        value.colour,
         ironlab_viewer::style::WEAK_TEXT,
         "a read-only value is drawn in the colour of quiet text, not that of a control"
     );
@@ -2314,7 +2314,7 @@ fn the_inspector_is_ordered_by_the_names_it_shows() {
             "aspect_adjust",
             "box",
             "cell",
-            "colorbar",
+            "colourbar",
             "legend",
             "projection",
             "title",
@@ -2388,8 +2388,8 @@ fn state_with_three_changes() -> FigureState {
     state.try_record(&set(LINE.0, "visible", Value::Bool(false)));
     state.try_record(&set(
         SCALE.0,
-        "kind.continuous.colormap.name",
-        Value::ColormapName(ColormapName::Gray),
+        "kind.continuous.colourmap.name",
+        Value::ColourmapName(ColourmapName::Grey),
     ));
     assert_eq!(state.change_count(), 3, "three changes of three kinds");
     state
@@ -2820,13 +2820,13 @@ fn a_group_heading_is_a_row_in_the_same_text_as_its_members_with_them_indented_b
         heading.rect
     );
     assert!(
-        (heading.rect.height() - alone.rect.height()).abs() < 0.5 && heading.color == alone.color,
+        (heading.rect.height() - alone.rect.height()).abs() < 0.5 && heading.colour == alone.colour,
         "a heading is set in the same text as every other name: {} points in {:?} against \
          {} points in {:?}",
         heading.rect.height(),
-        heading.color,
+        heading.colour,
         alone.rect.height(),
-        alone.color
+        alone.colour
     );
 }
 
@@ -3172,8 +3172,8 @@ fn the_panel_shows_the_opacities_of_a_selected_contour() {
 // The entries of a palette (stage 6 of the colourbar epic)
 // ---------------------------------------------------------------------------------
 //
-// The IR addresses each entry of a palette by its index (`kind.indexed.colors.3`,
-// `kind.categorical.categories.1.label`, `kind.continuous.colormap.colors.0`; see
+// The IR addresses each entry of a palette by its index (`kind.indexed.colours.3`,
+// `kind.categorical.categories.1.label`, `kind.continuous.colourmap.colours.0`; see
 // `crates/ironlab-ir/tests/palette_paths.rs`), and `property_groups` lists the properties
 // of the node as it stands (`ironlab_ir::properties_of`) rather than the registry of its
 // kind alone, so that every entry the node holds has a row. The list itself has no row
@@ -3184,8 +3184,8 @@ fn the_panel_shows_the_opacities_of_a_selected_contour() {
 mod palette_entries {
     use super::*;
     use ironlab_ir::{
-        CategoricalColorScale, Color, ColorCategory, ColorScale, ColorScaleOutOfRange,
-        IndexedColorScale, OutOfRange, Text,
+        CategoricalColourScale, Colour, ColourCategory, ColourScale, ColourScaleOutOfRange,
+        IndexedColourScale, OutOfRange, Text,
     };
 
     const INDEXED_SCALE: NodeId = NodeId(13);
@@ -3193,42 +3193,42 @@ mod palette_entries {
     const CLASSES: NodeId = NodeId(30);
 
     /// [`figure_with_every_artist`] with its indexed scale grown to twelve entries, its
-    /// continuous scale given a listed colormap of three colours, and a categorical scale of
+    /// continuous scale given a listed colourmap of three colours, and a categorical scale of
     /// the categories Water and Forest that no artist uses.
     fn figure_with_palettes() -> Figure {
         let mut figure = figure_with_every_artist();
-        for scale in &mut figure.color_scales {
+        for scale in &mut figure.colour_scales {
             match &mut scale.kind {
-                ColorScaleKind::Indexed(IndexedColorScale { colors, .. }) => {
-                    *colors = (0..12u8)
-                        .map(|k| Color::rgb(f32::from(k) / 11.0, 0.5, 0.5))
+                ColourScaleKind::Indexed(IndexedColourScale { colours, .. }) => {
+                    *colours = (0..12u8)
+                        .map(|k| Colour::rgb(f32::from(k) / 11.0, 0.5, 0.5))
                         .collect();
                 }
-                ColorScaleKind::Continuous(scale) => {
-                    scale.colormap = Colormap::Listed {
-                        colors: vec![
-                            Color::rgb(1.0, 0.0, 0.0),
-                            Color::rgb(0.5, 0.5, 0.5),
-                            Color::rgb(0.0, 0.0, 1.0),
+                ColourScaleKind::Continuous(scale) => {
+                    scale.colourmap = Colourmap::Listed {
+                        colours: vec![
+                            Colour::rgb(1.0, 0.0, 0.0),
+                            Colour::rgb(0.5, 0.5, 0.5),
+                            Colour::rgb(0.0, 0.0, 1.0),
                         ],
                     };
                 }
                 _ => {}
             }
         }
-        figure.color_scales.push(ColorScale {
+        figure.colour_scales.push(ColourScale {
             id: CLASSES,
-            kind: ColorScaleKind::Categorical(CategoricalColorScale {
+            kind: ColourScaleKind::Categorical(CategoricalColourScale {
                 categories: ["Water", "Forest"]
                     .into_iter()
-                    .map(|label| ColorCategory {
-                        color: Color::rgb(0.0, 0.5, 1.0),
+                    .map(|label| ColourCategory {
+                        colour: Colour::rgb(0.0, 0.5, 1.0),
                         label: Text::plain(label),
                     })
                     .collect(),
-                outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+                outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
             }),
-            ..ColorScale::default()
+            ..ColourScale::default()
         });
         figure
     }
@@ -3242,15 +3242,15 @@ mod palette_entries {
         let state = FigureState::new(figure_with_palettes());
         let groups = groups_of(&state, INDEXED_SCALE);
         for k in 0..12u8 {
-            let entry = row(&groups, "kind", &format!("indexed.colors.{k}"));
+            let entry = row(&groups, "kind", &format!("indexed.colours.{k}"));
             assert_eq!(
                 entry.editor,
-                Editor::Color,
+                Editor::Colour,
                 "entry {k} takes a colour picker"
             );
             assert_eq!(
                 entry.value,
-                Value::Color(Color::rgb(f32::from(k) / 11.0, 0.5, 0.5)),
+                Value::Colour(Colour::rgb(f32::from(k) / 11.0, 0.5, 0.5)),
                 "entry {k} shows its own colour"
             );
         }
@@ -3258,10 +3258,10 @@ mod palette_entries {
             .rows
             .iter()
             .map(|row| row.label.as_str())
-            .filter(|label| label.starts_with("indexed.colors."))
+            .filter(|label| label.starts_with("indexed.colours."))
             .filter(|label| label.split('.').count() == 3)
             .collect();
-        let expected: Vec<String> = (0..12).map(|k| format!("indexed.colors.{k}")).collect();
+        let expected: Vec<String> = (0..12).map(|k| format!("indexed.colours.{k}")).collect();
         assert_eq!(labels, expected, "the entries are listed in index order");
         assert!(
             !labels.iter().any(|label| label.ends_with(".12")),
@@ -3280,10 +3280,10 @@ mod palette_entries {
                 row(
                     &groups,
                     "kind",
-                    &format!("categorical.categories.{k}.color")
+                    &format!("categorical.categories.{k}.colour")
                 )
                 .editor,
-                Editor::Color
+                Editor::Colour
             );
             assert_eq!(
                 row(
@@ -3301,16 +3301,21 @@ mod palette_entries {
         );
     }
 
-    // Why: a listed colormap is a palette the author typed, adjusted as an indexed palette is,
+    // Why: a listed colourmap is a palette the author typed, adjusted as an indexed palette is,
     // colour by colour.
     #[test]
-    fn every_colour_of_a_listed_colormap_has_a_colour_row() {
+    fn every_colour_of_a_listed_colourmap_has_a_colour_row() {
         let state = FigureState::new(figure_with_palettes());
         let groups = groups_of(&state, CONTINUOUS_SCALE);
         for k in 0..3 {
             assert_eq!(
-                row(&groups, "kind", &format!("continuous.colormap.colors.{k}")).editor,
-                Editor::Color
+                row(
+                    &groups,
+                    "kind",
+                    &format!("continuous.colourmap.colours.{k}")
+                )
+                .editor,
+                Editor::Colour
             );
         }
     }
@@ -3323,9 +3328,9 @@ mod palette_entries {
     fn no_row_edits_the_list_of_entries_itself() {
         let state = FigureState::new(figure_with_palettes());
         for (node, list) in [
-            (INDEXED_SCALE, "kind.indexed.colors"),
+            (INDEXED_SCALE, "kind.indexed.colours"),
             (CLASSES, "kind.categorical.categories"),
-            (CONTINUOUS_SCALE, "kind.continuous.colormap.colors"),
+            (CONTINUOUS_SCALE, "kind.continuous.colourmap.colours"),
         ] {
             for listed in groups_of(&state, node)
                 .iter()
@@ -3347,25 +3352,25 @@ mod palette_entries {
     #[test]
     fn editing_one_entry_records_one_set_that_can_be_reverted() {
         let mut state = FigureState::new(figure_with_palettes());
-        let at = path("kind.indexed.colors.10");
-        let grey = Color::rgb(0.25, 0.25, 0.25);
-        let transaction = commit(state.figure(), INDEXED_SCALE, &at, Value::Color(grey));
+        let at = path("kind.indexed.colours.10");
+        let grey = Colour::rgb(0.25, 0.25, 0.25);
+        let transaction = commit(state.figure(), INDEXED_SCALE, &at, Value::Colour(grey));
         assert_eq!(
             transaction,
             set(
                 INDEXED_SCALE.0,
-                "kind.indexed.colors.10",
-                Value::Color(grey)
+                "kind.indexed.colours.10",
+                Value::Colour(grey)
             )
         );
 
         assert!(state.try_record(&transaction));
-        let colors = |figure: &Figure| match &figure.color_scale(INDEXED_SCALE).unwrap().kind {
-            ColorScaleKind::Indexed(scale) => scale.colors.clone(),
+        let colours = |figure: &Figure| match &figure.colour_scale(INDEXED_SCALE).unwrap().kind {
+            ColourScaleKind::Indexed(scale) => scale.colours.clone(),
             other => panic!("{other:?}"),
         };
-        let shown = colors(state.figure());
-        let source = colors(state.source());
+        let shown = colours(state.figure());
+        let source = colours(state.source());
         assert_eq!(shown.len(), 12, "no entry is added or removed");
         assert_eq!(shown[10], grey);
         for k in (0..12).filter(|k| *k != 10) {
@@ -3381,15 +3386,15 @@ mod palette_entries {
             .collect();
         // Rows below the entry, such as its components if they are listed, may be marked with it, but no other entry.
         assert!(
-            overridden.contains(&"indexed.colors.10")
-                && overridden.iter().all(|label| *label == "indexed.colors.10"
-                    || label.starts_with("indexed.colors.10.")),
+            overridden.contains(&"indexed.colours.10")
+                && overridden.iter().all(|label| *label == "indexed.colours.10"
+                    || label.starts_with("indexed.colours.10.")),
             "exactly the edited entry is marked: {overridden:?}"
         );
 
         assert!(state.revert(INDEXED_SCALE, &at));
         assert_eq!(
-            colors(state.figure()),
+            colours(state.figure()),
             source,
             "the palette is the program's again"
         );

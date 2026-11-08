@@ -3,7 +3,7 @@
 mod common;
 
 use common::{data, has_error_at, series};
-use ironlab::ir::{ColorSpec, IssueKind, NdArray};
+use ironlab::ir::{ColourSpec, IssueKind, NdArray};
 use ironlab::prelude::*;
 
 // WHY: a reference line is a line whose one dimension spans the plot area as the fractions 0 and 1 and whose other
@@ -38,11 +38,11 @@ fn a_reference_line_is_dark_grey_and_takes_no_colour_from_the_colour_order() {
     let mut ax = fig.axes(0, 0);
     let h = ax.hline(0.0).id();
     let plotted = ax.plot([0.0, 1.0], [0.0, 1.0]).id();
-    let ColorSpec::Rgba { color } = series(&fig, h).line.color else {
+    let ColourSpec::Rgba { colour } = series(&fig, h).line.colour else {
         panic!("the reference line has a fixed colour");
     };
-    assert_eq!(color, Color::rgb(0.15, 0.15, 0.15));
-    assert_eq!(series(&fig, plotted).line.color, ColorSpec::Auto);
+    assert_eq!(colour, Colour::rgb(0.15, 0.15, 0.15));
+    assert_eq!(series(&fig, plotted).line.colour, ColourSpec::Auto);
 }
 
 // WHY: the style setters of a line are how a reference line is made dotted, coloured or thickened, so they must apply
@@ -50,17 +50,17 @@ fn a_reference_line_is_dark_grey_and_takes_no_colour_from_the_colour_order() {
 #[test]
 fn a_reference_line_takes_the_line_style_setters() {
     let mut fig = Figure::new();
-    let orange = Color::rgb(0.9, 0.6, 0.0);
+    let orange = Colour::rgb(0.9, 0.6, 0.0);
     let id = fig
         .axes(0, 0)
         .vline(0.5)
         .dash(Dash::Dotted)
-        .color(orange)
+        .colour(orange)
         .line_width(0.5)
         .id();
     let style = series(&fig, id).line;
     assert_eq!(style.dash, Dash::Dotted);
-    assert_eq!(style.color, ColorSpec::Rgba { color: orange });
+    assert_eq!(style.colour, ColourSpec::Rgba { colour: orange });
     assert_eq!(style.width_pt, 0.5);
 }
 

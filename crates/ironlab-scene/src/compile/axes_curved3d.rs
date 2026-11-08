@@ -27,7 +27,7 @@ use super::decor::AxisTicks;
 use super::paths::{self, PathBuilder};
 use super::style::{self, GRID, INK};
 use super::text::TextBlock;
-use super::{colorbar, legend};
+use super::{colourbar, legend};
 
 /// A point or a vector of the normalised box.
 type Vec3 = [f64; 3];
@@ -642,7 +642,7 @@ pub(super) fn emit(
         );
         title.draw_on_page(ctx, origin, INK, axes.id, out);
     }
-    colorbar::draw_inside(ctx, axes, input.plot, input.scales, out, hits);
+    colourbar::draw_inside(ctx, axes, input.plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &[], out, hits);
     hits.axes.push(AxesHit {
         id: axes.id,

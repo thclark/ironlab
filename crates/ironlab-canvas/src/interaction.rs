@@ -58,7 +58,7 @@
 //! - **Colourbars** are on top: a bar inside a plot area is drawn over the artists, and the box behind it hides
 //!   them, so the colourbars are asked first by every gesture and by the datatip. Hovering a bar reads the value under
 //!   the pointer on a continuous bar, the band on a discrete bar, the entry on an indexed bar, the category of a
-//!   square and the label of a key ([`ColorbarTip`]). The wheel over a continuous bar, or over a discrete bar of
+//!   square and the label of a key ([`ColourbarTip`]). The wheel over a continuous bar, or over a discrete bar of
 //!   automatic levels, zooms the scale's limits about the value under the pointer, a drag along it pans them with
 //!   every tool, and a double-click restores them from the source, each by the same rules and the same arithmetic as
 //!   the gesture on an axis, through one set of `kind.continuous.limits` or `kind.discrete.levels.limits`. A gesture
@@ -71,15 +71,15 @@
 
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::{
-    Artist, AspectAdjust, Axes, Axis, CategoricalColorScale, ColorScaleClass, ColorScaleDomain,
-    ColorScaleKey, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleSlot,
-    ColorbarOrientation, Coords, Dimension, DiscreteColorScale, Edit, EditError, Figure,
-    IndexedColorScale, Limits, NdArray, NodeId, PixelRange, Projection, PropertyPath, Scale,
+    Artist, AspectAdjust, Axes, Axis, CategoricalColourScale, ColourScaleClass, ColourScaleDomain,
+    ColourScaleKey, ColourScaleKind, ColourScaleLevels, ColourScaleNorm, ColourScaleSlot,
+    ColourbarOrientation, Coords, Dimension, DiscreteColourScale, Edit, EditError, Figure,
+    IndexedColourScale, Limits, NdArray, NodeId, PixelRange, Projection, PropertyPath, Scale,
     TickLabels, Ticks, Transaction, Value, View3d, command,
 };
 use ironlab_scene::display::{Point, Rect};
 pub use ironlab_scene::hit::BinReading;
-use ironlab_scene::hit::{AxesHitKind, AxisMap, ColorbarHit, ColorbarOwner, HitMap};
+use ironlab_scene::hit::{AxesHitKind, AxisMap, ColourbarHit, ColourbarOwner, HitMap};
 use ironlab_scene::maths::aspect;
 
 use crate::problems::{Origin, Problem};
@@ -120,7 +120,7 @@ pub struct Datatip {
     pub z: Option<f64>,
     /// The colour value, for a series with colour data: the value of the point, or, when the data holds one value
     /// per segment, the value of the segment that leaves the point, which the last point of the series has none of.
-    pub color: Option<f64>,
+    pub colour: Option<f64>,
 }
 
 /// The pixel of an image under the pointer, as the viewer reports it.
@@ -278,7 +278,7 @@ pub enum Tip {
     /// A pixel of an image.
     Pixel(PixelDatatip),
     /// A colourbar: its bar, one of its squares or one of its keys.
-    Colorbar(ColorbarTip),
+    Colourbar(ColourbarTip),
     /// A bar of a bar series.
     Bar(BarDatatip),
     /// A step of stairs.
@@ -289,9 +289,9 @@ pub enum Tip {
 
 /// What a colourbar says under the pointer.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ColorbarTip {
+pub struct ColourbarTip {
     /// What holds the bar: a panel, an axes, or a legend whose bar item it is.
-    pub owner: ColorbarOwner,
+    pub owner: ColourbarOwner,
     /// The colour scale the bar shows.
     pub scale: NodeId,
     /// The source text of the scale's title, when it has one.
@@ -303,12 +303,12 @@ pub struct ColorbarTip {
     /// on a continuous bar, which has no pieces.
     pub piece: Option<Rect>,
     /// What the bar reads there.
-    pub reading: ColorbarReading,
+    pub reading: ColourbarReading,
 }
 
 /// What a colourbar reads under the pointer, in the terms of the kind of its scale.
 #[derive(Clone, Debug, PartialEq)]
-pub enum ColorbarReading {
+pub enum ColourbarReading {
     /// The value under the pointer on a continuous bar.
     Value(f64),
     /// The band under the pointer on a discrete bar, from its lower edge to its upper edge; a value on an edge
@@ -320,7 +320,7 @@ pub enum ColorbarReading {
     /// The category of the square under the pointer, with its label's source text.
     Category { index: usize, label: String },
     /// The out-of-range key under the pointer, with the label it is drawn with.
-    Key { key: ColorScaleKey, label: String },
+    Key { key: ColourScaleKey, label: String },
 }
 
 /// What of a colourbar lies under the pointer.
@@ -979,7 +979,7 @@ impl FigureState {
     /// artists unless every one of them is already hidden, in which case it shows them all. The first of the
     /// artists is selected.
     pub fn click(&mut self, hit: &HitMap, at: Point) -> bool {
-        if let Some((bar, part)) = colorbar_under(hit, at) {
+        if let Some((bar, part)) = colourbar_under(hit, at) {
             if part != BarPart::Backdrop {
                 self.select(Some(bar.scale));
             }
@@ -1051,7 +1051,7 @@ impl FigureState {
             x: data(x, coords[0])?,
             y: data(y, coords[1])?,
             z: z.and_then(value),
-            color: series.color_data.and_then(value),
+            colour: series.colour_data.and_then(value),
         })
     }
 
@@ -1075,7 +1075,7 @@ impl FigureState {
             Artist::ScalarImage(image) => (
                 image.values,
                 image.placement,
-                self.mapped_kind(image.color_scale),
+                self.mapped_kind(image.colour_scale),
             ),
             _ => return None,
         };
@@ -1098,11 +1098,11 @@ impl FigureState {
     /// indexed scale, the indices of categories through a categorical one, and values otherwise.
     fn mapped_kind(&self, scale: Option<NodeId>) -> PixelKind<'_> {
         match scale
-            .and_then(|scale| self.composed.color_scale(scale))
+            .and_then(|scale| self.composed.colour_scale(scale))
             .map(|scale| &scale.kind)
         {
-            Some(ColorScaleKind::Indexed(_)) => PixelKind::Index,
-            Some(ColorScaleKind::Categorical(scale)) => PixelKind::Category(scale),
+            Some(ColourScaleKind::Indexed(_)) => PixelKind::Index,
+            Some(ColourScaleKind::Categorical(scale)) => PixelKind::Category(scale),
             _ => PixelKind::Value,
         }
     }
@@ -1123,7 +1123,7 @@ impl FigureState {
         let Artist::Cells(cells) = artist else {
             return None;
         };
-        let kind = self.mapped_kind(cells.color_scale);
+        let kind = self.mapped_kind(cells.colour_scale);
         let array = &self.composed.data_array(cells.values)?.array;
         let value = pixel_value(array, kind, drawn.row, drawn.column)?;
         let centre = |(a, b): (f64, f64)| (a + b) / 2.0;
@@ -1159,12 +1159,12 @@ impl FigureState {
     /// cells are usually drawn over.
     ///
     /// A colourbar is asked first, because a bar inside a plot area is drawn over the artists: over a bar, one of
-    /// its squares or one of its keys the tip is what the bar reads, as [`FigureState::colorbar_tip`] finds it, and
+    /// its squares or one of its keys the tip is what the bar reads, as [`FigureState::colourbar_tip`] finds it, and
     /// over the box behind an inside bar there is no tip, because the box hides what lies beneath it.
     #[must_use]
     pub fn tip_at(&self, hit: &HitMap, at: Point) -> Option<Tip> {
-        if colorbar_under(hit, at).is_some() {
-            return self.colorbar_tip(hit, at).map(Tip::Colorbar);
+        if colourbar_under(hit, at).is_some() {
+            return self.colourbar_tip(hit, at).map(Tip::Colourbar);
         }
         self.datatip(hit, at)
             .map(Tip::Point)
@@ -1234,77 +1234,77 @@ impl FigureState {
     /// Returns what the colourbar under the pointer says, or `None` where no bar, square or key lies.
     ///
     /// The bar is the one painted last under the pointer. A continuous bar reads the value under the pointer, by
-    /// inverting the mapping the bar was drawn with ([`ColorbarHit::map`]); a discrete bar reads the band under it,
+    /// inverting the mapping the bar was drawn with ([`ColourbarHit::map`]); a discrete bar reads the band under it,
     /// from the edges the bar drew, a value on an edge belonging to the upper band; an indexed bar reads the entry
     /// whose block is under it, with the label of an explicitly labelled tick at that entry; a square reads its
     /// category and a key the label it is drawn with. The title, the tick labels and the gaps between pieces read
     /// nothing, and neither does the box behind an inside bar.
     #[must_use]
-    pub fn colorbar_tip(&self, hit: &HitMap, at: Point) -> Option<ColorbarTip> {
-        let (bar, part) = colorbar_under(hit, at)?;
-        let scale = self.composed.color_scale(bar.scale)?;
+    pub fn colourbar_tip(&self, hit: &HitMap, at: Point) -> Option<ColourbarTip> {
+        let (bar, part) = colourbar_under(hit, at)?;
+        let scale = self.composed.colour_scale(bar.scale)?;
         let centre = |r: Rect| Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0);
         let (position, piece, reading) = match part {
             BarPart::Backdrop => return None,
             BarPart::Key(i) => {
                 let key = &bar.keys[i];
-                let reading = ColorbarReading::Key {
+                let reading = ColourbarReading::Key {
                     key: key.key,
                     label: key.label.clone(),
                 };
                 (centre(key.rect), Some(key.rect), reading)
             }
             BarPart::Category(i) => {
-                let ColorScaleKind::Categorical(categorical) = &scale.kind else {
+                let ColourScaleKind::Categorical(categorical) = &scale.kind else {
                     return None;
                 };
                 let label = categorical.categories.get(i)?.label.content.clone();
                 let square = bar.entries[i];
-                let reading = ColorbarReading::Category { index: i, label };
+                let reading = ColourbarReading::Category { index: i, label };
                 (centre(square), Some(square), reading)
             }
             BarPart::Bar => {
                 let map = bar.map?;
-                let vertical = bar.orientation == ColorbarOrientation::Vertical;
+                let vertical = bar.orientation == ColourbarOrientation::Vertical;
                 let value = map.to_data(if vertical { at.y } else { at.x });
                 match &scale.kind {
-                    ColorScaleKind::Continuous(_) => {
+                    ColourScaleKind::Continuous(_) => {
                         let r = bar.bar;
                         let position = if vertical {
                             Point::new(r.x + r.width / 2.0, at.y)
                         } else {
                             Point::new(at.x, r.y + r.height / 2.0)
                         };
-                        (position, None, ColorbarReading::Value(value))
+                        (position, None, ColourbarReading::Value(value))
                     }
-                    ColorScaleKind::Discrete(_) => {
+                    ColourScaleKind::Discrete(_) => {
                         let (low, high) = band_of(&bar.edges, value)?;
                         let piece = span_of(bar, &map, low, high);
                         (
                             centre(piece),
                             Some(piece),
-                            ColorbarReading::Band { low, high },
+                            ColourbarReading::Band { low, high },
                         )
                     }
-                    ColorScaleKind::Indexed(indexed) => {
-                        let count = indexed.colors.len();
+                    ColourScaleKind::Indexed(indexed) => {
+                        let count = indexed.colours.len();
                         if count == 0 || !value.is_finite() {
                             return None;
                         }
                         // Saturating: a value beyond either end of the bar names the entry at that end.
                         let index = (value.round().max(0.0) as usize).min(count - 1);
                         let piece = span_of(bar, &map, index as f64 - 0.5, index as f64 + 0.5);
-                        let reading = ColorbarReading::Entry {
+                        let reading = ColourbarReading::Entry {
                             index,
                             label: tick_label_at(indexed, index),
                         };
                         (centre(piece), Some(piece), reading)
                     }
-                    ColorScaleKind::Categorical(_) => return None,
+                    ColourScaleKind::Categorical(_) => return None,
                 }
             }
         };
-        Some(ColorbarTip {
+        Some(ColourbarTip {
             owner: bar.owner,
             scale: bar.scale,
             title: scale.title.as_ref().map(|title| title.content.clone()),
@@ -1323,21 +1323,21 @@ impl FigureState {
     /// before the latest edit, so that two quick gestures compose; automatic limits are the ones the bar was drawn
     /// with, which the compiler resolved.
     fn bar_gesture(&self, hit: &HitMap, at: Point) -> Option<Option<ScaleTarget>> {
-        let (bar, part) = colorbar_under(hit, at)?;
-        if part != BarPart::Bar || matches!(bar.owner, ColorbarOwner::Legend(_)) {
+        let (bar, part) = colourbar_under(hit, at)?;
+        if part != BarPart::Bar || matches!(bar.owner, ColourbarOwner::Legend(_)) {
             return Some(None);
         }
-        let (Some(drawn), Some(scale)) = (bar.map, self.composed.color_scale(bar.scale)) else {
+        let (Some(drawn), Some(scale)) = (bar.map, self.composed.colour_scale(bar.scale)) else {
             return Some(None);
         };
         let (path, limits, norm) = match &scale.kind {
-            ColorScaleKind::Continuous(continuous) => (
+            ColourScaleKind::Continuous(continuous) => (
                 path(&["kind", "continuous", "limits"]),
                 continuous.limits,
                 continuous.norm,
             ),
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Auto { limits, .. },
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Auto { limits, .. },
                 norm,
                 ..
             }) => (
@@ -1357,10 +1357,10 @@ impl FigureState {
             map: AxisMap {
                 min,
                 max,
-                log: norm == ColorScaleNorm::Log,
+                log: norm == ColourScaleNorm::Log,
                 ..drawn
             },
-            vertical: bar.orientation == ColorbarOrientation::Vertical,
+            vertical: bar.orientation == ColourbarOrientation::Vertical,
         }))
     }
 
@@ -1613,7 +1613,7 @@ enum PixelKind<'a> {
     Index,
     /// A scalar image through a categorical colour scale, whose two-dimensional array holds the indices of its
     /// categories.
-    Category(&'a CategoricalColorScale),
+    Category(&'a CategoricalColourScale),
     /// A scalar image through a continuous or discrete colour scale, whose two-dimensional array holds values.
     Value,
 }
@@ -1642,11 +1642,11 @@ fn pixel_value(array: &NdArray, kind: PixelKind, row: usize, column: usize) -> O
         PixelKind::Index => PixelValue::Index(array.get(start)?),
         PixelKind::Category(scale) => {
             let index = array.get(start)?;
-            let entries = ColorScaleDomain::Entries {
+            let entries = ColourScaleDomain::Entries {
                 count: scale.categories.len(),
             };
             let label = match entries.classify(index) {
-                ColorScaleClass::Inside(ColorScaleSlot::Entry(entry)) => scale
+                ColourScaleClass::Inside(ColourScaleSlot::Entry(entry)) => scale
                     .categories
                     .get(entry)
                     .map(|category| category.label.content.clone()),
@@ -1796,8 +1796,8 @@ fn panned(map: &AxisMap, from: f64, to: f64) -> (f64, f64) {
 ///
 /// The squares of a categorical scale are its geometry, so the gaps between them belong to nothing; an inside bar's
 /// box belongs to its bar, so that what lies beneath stays hidden.
-fn colorbar_under(hit: &HitMap, p: Point) -> Option<(&ColorbarHit, BarPart)> {
-    hit.colorbars.iter().rev().find_map(|bar| {
+fn colourbar_under(hit: &HitMap, p: Point) -> Option<(&ColourbarHit, BarPart)> {
+    hit.colourbars.iter().rev().find_map(|bar| {
         let part = if let Some(i) = bar.keys.iter().position(|key| key.rect.contains(p)) {
             BarPart::Key(i)
         } else if let Some(i) = bar.entries.iter().position(|square| square.contains(p)) {
@@ -1831,10 +1831,10 @@ fn band_of(edges: &[f64], value: f64) -> Option<(f64, f64)> {
 }
 
 /// Returns the rectangle of a bar from `low` to `high` along it, across its whole thickness.
-fn span_of(bar: &ColorbarHit, map: &AxisMap, low: f64, high: f64) -> Rect {
+fn span_of(bar: &ColourbarHit, map: &AxisMap, low: f64, high: f64) -> Rect {
     let (a, b) = (map.to_figure(low), map.to_figure(high));
     let r = bar.bar;
-    if bar.orientation == ColorbarOrientation::Vertical {
+    if bar.orientation == ColourbarOrientation::Vertical {
         Rect::new(r.x, a.min(b), r.width, (a - b).abs())
     } else {
         Rect::new(a.min(b), r.y, (a - b).abs(), r.height)
@@ -1853,7 +1853,7 @@ fn category_name(axis: &Axis, position: f64) -> Option<String> {
 
 /// Returns the source text of the label of the tick an indexed scale places at entry `index`, when its ticks are
 /// explicit values with explicit labels and one of them is that entry.
-fn tick_label_at(scale: &IndexedColorScale, index: usize) -> Option<String> {
+fn tick_label_at(scale: &IndexedColourScale, index: usize) -> Option<String> {
     let (Ticks::Values(values), TickLabels::Text(labels)) = (&scale.ticks, &scale.tick_labels)
     else {
         return None;

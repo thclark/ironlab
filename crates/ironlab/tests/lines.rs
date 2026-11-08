@@ -4,7 +4,7 @@ mod common;
 
 use common::{axes, data, has_error_at, is_3d, parent, series};
 use ironlab::ir::{
-    ColorSpec, DashStyle, Interpreter, IssueKind, LineStyle, MarkerShape, MarkerStyle, NdArray,
+    ColourSpec, DashStyle, Interpreter, IssueKind, LineStyle, MarkerShape, MarkerStyle, NdArray,
     Scale,
 };
 use ironlab::prelude::*;
@@ -34,7 +34,7 @@ fn plot_uses_ir_default_styles_with_automatic_colour() {
     let id = fig.axes(0, 0).plot([1.0, 2.0], [3.0, 4.0]).id();
     let l = series(&fig, id);
     assert_eq!(l.line, LineStyle::default());
-    assert_eq!(l.line.color, ColorSpec::Auto);
+    assert_eq!(l.line.colour, ColourSpec::Auto);
     assert_eq!(l.marker, MarkerStyle::default());
     assert!(l.visible);
     assert_eq!(l.label, None);
@@ -61,51 +61,51 @@ fn plots_are_appended_to_their_axes_in_order() {
 // wrong field (for example marker_face writing the edge).
 #[test]
 fn line_setters_map_to_ir_fields() {
-    let red = Color::rgb(0.8, 0.1, 0.1);
-    let blue = Color::rgb(0.0, 0.2, 0.9);
+    let red = Colour::rgb(0.8, 0.1, 0.1);
+    let blue = Colour::rgb(0.0, 0.2, 0.9);
     let mut fig = Figure::new();
     let id = fig
         .axes(0, 0)
         .plot([0.0, 1.0], [0.0, 1.0])
         .label("measured")
-        .color(red)
+        .colour(red)
         .line_width(1.75)
         .dash(Dash::Dashed)
         .marker(Marker::TriangleUp)
         .marker_size(6.5)
-        .marker_face(Color::WHITE)
+        .marker_face(Colour::WHITE)
         .marker_edge(blue)
         .id();
 
     let l = series(&fig, id);
     assert_eq!(l.label, Some(Text::new("measured")));
-    assert_eq!(l.line.color, ColorSpec::Rgba { color: red });
+    assert_eq!(l.line.colour, ColourSpec::Rgba { colour: red });
     assert_eq!(l.line.width_pt, 1.75);
     assert_eq!(l.line.dash, DashStyle::Dashed);
     assert_eq!(l.marker.shape, MarkerShape::TriangleUp);
     assert_eq!(l.marker.size_pt, 6.5);
     assert_eq!(
         l.marker.face,
-        ColorSpec::Rgba {
-            color: Color::WHITE
+        ColourSpec::Rgba {
+            colour: Colour::WHITE
         }
     );
-    assert_eq!(l.marker.edge, ColorSpec::Rgba { color: blue });
+    assert_eq!(l.marker.edge, ColourSpec::Rgba { colour: blue });
 }
 
 // WHY: setting the line colour must not bake that colour into the marker edge; the
 // edge stays automatic so that it keeps following the line colour if the line colour
 // is later changed (MATLAB's 'auto' marker edge).
 #[test]
-fn line_color_leaves_marker_edge_automatic() {
+fn line_colour_leaves_marker_edge_automatic() {
     let mut fig = Figure::new();
     let id = fig
         .axes(0, 0)
         .plot([0.0, 1.0], [0.0, 1.0])
         .marker(Marker::Circle)
-        .color(Color::BLACK)
+        .colour(Colour::BLACK)
         .id();
-    assert_eq!(series(&fig, id).marker.edge, ColorSpec::Auto);
+    assert_eq!(series(&fig, id).marker.edge, ColourSpec::Auto);
 }
 
 // WHY: legend entries like "$\sin x$" must be typeset as mathematics, so a plain string
@@ -127,20 +127,20 @@ fn label_interpreter_follows_text_conversion() {
     assert_eq!(name(literal).interpreter, Interpreter::None);
 }
 
-// WHY: color() accepts `None` and a ColorSpec as well as a Color, so users can hide the
+// WHY: colour() accepts `None` and a ColourSpec as well as a Colour, so users can hide the
 // line (markers only) or restore the automatic colour without touching IR types.
 #[test]
-fn line_color_accepts_none_and_color_spec() {
+fn line_colour_accepts_none_and_colour_spec() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
-    let hidden = ax.plot([0.0], [0.0]).color(None).id();
+    let hidden = ax.plot([0.0], [0.0]).colour(None).id();
     let reset = ax
         .plot([0.0], [0.0])
-        .color(Color::BLACK)
-        .color(ColorSpec::Auto)
+        .colour(Colour::BLACK)
+        .colour(ColourSpec::Auto)
         .id();
-    assert_eq!(series(&fig, hidden).line.color, ColorSpec::None);
-    assert_eq!(series(&fig, reset).line.color, ColorSpec::Auto);
+    assert_eq!(series(&fig, hidden).line.colour, ColourSpec::None);
+    assert_eq!(series(&fig, reset).line.colour, ColourSpec::Auto);
 }
 
 // WHY: each log-plot function is defined by which axis scales it sets; a mix-up (for
@@ -202,7 +202,7 @@ fn log_plots_create_ordinary_lines() {
     let l = series(&fig, id);
     assert_eq!(data(&fig, l.x), &NdArray::vector(vec![1.0, 10.0]));
     assert_eq!(data(&fig, l.y), &NdArray::vector(vec![2.0, 20.0]));
-    assert_eq!(l.line.color, ColorSpec::Auto);
+    assert_eq!(l.line.colour, ColourSpec::Auto);
 }
 
 // WHY: plot3 is the 3D form of plot; it must store z and, like MATLAB, make the axes 3D

@@ -72,8 +72,8 @@ pub fn figure() -> Figure {
         .tag("cells")
         .tag("contour")
         .tag("subplots")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .tag("aspect")
         .tag("statistics")
         .tag("histogram")
@@ -91,8 +91,8 @@ pub fn figure() -> Figure {
         .range((-LIMIT, LIMIT), (-LIMIT, LIMIT))
         .min_count(1.0);
     let counts = ax
-        .color_scale()
-        .norm(ColorScaleNorm::Log)
+        .colour_scale()
+        .norm(ColourScaleNorm::Log)
         .limits(1.0, 300.0)
         .ticks([1.0, 10.0, 100.0])
         .title("Samples per bin")
@@ -103,14 +103,14 @@ pub fn figure() -> Figure {
         .xlabel(r"$u'/u_\tau$")
         .ylabel(r"$v'/u_\tau$")
         .title("Histogram, logarithmic counts");
-    fig.panel(0, 1).colorbar(counts);
+    fig.panel(0, 1).colourbar(counts);
 
     // The density is banded by a discrete scale whose lowest edge is above zero and which draws nothing below it,
     // so that the contours show where the samples lie and leave the empty plane blank. The filled contour has no
     // levels of its own and takes the band edges of the scale.
     let density = fig
-        .color_scale()
-        .colormap(Colormap::Cividis)
+        .colour_scale()
+        .colourmap(Colourmap::Cividis)
         .discrete([0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08])
         .below(OutOfRange::Transparent)
         .title("Probability density")
@@ -119,15 +119,15 @@ pub fn figure() -> Figure {
     ax.density_contour(&u, &v)
         .bins(Bins::Count(24), Bins::Count(24))
         .range((-LIMIT, LIMIT), (-LIMIT, LIMIT))
-        .normalize(HistNorm::Density)
+        .normalise(HistNorm::Density)
         .filled(true)
-        .color_scale(density);
+        .colour_scale(density);
     ax.xlim(-LIMIT, LIMIT)
         .ylim(-LIMIT, LIMIT)
         .aspect(Aspect::Equal)
         .xlabel(r"$u'/u_\tau$")
         .ylabel(r"$v'/u_\tau$")
         .title("Density contours");
-    fig.panel(0, 3).colorbar(density);
+    fig.panel(0, 3).colourbar(density);
     fig
 }

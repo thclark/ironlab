@@ -9,66 +9,66 @@
 //!
 //! ```text
 //! // crates/ironlab-ir/src/panel.rs
-//! pub enum PanelContent { Legend(PanelLegend), Colorbar(PanelColorbar) }
+//! pub enum PanelContent { Legend(PanelLegend), Colourbar(PanelColourbar) }
 //! #[derive(Debug, Clone, Copy, Default, PartialEq, ...)]
-//! pub struct PanelColorbar { pub scale: NodeId, pub orientation: ColorbarOrientation, ... }
+//! pub struct PanelColourbar { pub scale: NodeId, pub orientation: ColourbarOrientation, ... }
 //! // (`length` and `title`, and the panel's `title` and `title_align`, belong to the layout
-//! // stage; see `colorbar_layout.rs`.)
+//! // stage; see `colourbar_layout.rs`.)
 //! #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, ...)]
 //! #[serde(rename_all = "snake_case")]
-//! pub enum ColorbarOrientation { #[default] Vertical, Horizontal }
+//! pub enum ColourbarOrientation { #[default] Vertical, Horizontal }
 //!
 //! // crates/ironlab-ir/src/axes.rs
-//! pub struct Axes { ..., pub colorbar: Option<InsideColorbar>, ... }   // None by default
+//! pub struct Axes { ..., pub colourbar: Option<InsideColourbar>, ... }   // None by default
 //! #[derive(Debug, Clone, Copy, PartialEq, ...)]
-//! pub struct InsideColorbar { pub scale: NodeId, pub side: InsideColorbarSide, pub length: f64, ... }
-//! impl Default for InsideColorbar      // scale NodeId::default(), side South, length 0.8
+//! pub struct InsideColourbar { pub scale: NodeId, pub side: InsideColourbarSide, pub length: f64, ... }
+//! impl Default for InsideColourbar      // scale NodeId::default(), side South, length 0.8
 //! #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, ...)]
 //! #[serde(rename_all = "snake_case")]
-//! pub enum InsideColorbarSide { #[default] South, North, East, West }
+//! pub enum InsideColourbarSide { #[default] South, North, East, West }
 //!
-//! // crates/ironlab-ir/src/color_scale.rs: not part of the data model, never serialised
+//! // crates/ironlab-ir/src/colour_scale.rs: not part of the data model, never serialised
 //! #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-//! pub enum ColorScaleKey { Below, Above, Outside, NonFinite }
-//! impl ColorScale {
+//! pub enum ColourScaleKey { Below, Above, Outside, NonFinite }
+//! impl ColourScale {
 //!     /// The out-of-range category that a key of this kind shows, or `None` when the kind of
 //!     /// the scale has no such category (below or above on an indexed or categorical scale,
 //!     /// outside on a continuous or discrete one).
-//!     pub fn key(&self, key: ColorScaleKey) -> Option<&ColorScaleOutOfRange>;
+//!     pub fn key(&self, key: ColourScaleKey) -> Option<&ColourScaleOutOfRange>;
 //! }
 //!
 //! // crates/ironlab-ir/src/validate.rs
-//! IssueKind::InvalidColorbarLength   // new: the length of an inside colourbar is not a
+//! IssueKind::InvalidColourbarLength   // new: the length of an inside colourbar is not a
 //!                                    // finite number greater than 0 and at most 1;
 //!                                    // reported against the axes
 //!
-//! // crates/ironlab-ir/src/lib.rs re-exports PanelColorbar, ColorbarOrientation,
-//! // InsideColorbar, InsideColorbarSide and ColorScaleKey at the crate root.
+//! // crates/ironlab-ir/src/lib.rs re-exports PanelColourbar, ColourbarOrientation,
+//! // InsideColourbar, InsideColourbarSide and ColourScaleKey at the crate root.
 //!
-//! // crates/ironlab-ir/src/edit: Value and ValueType gain PanelColorbar,
-//! // ColorbarOrientation, InsideColorbar and InsideColorbarSide; the panel content offers a
+//! // crates/ironlab-ir/src/edit: Value and ValueType gain PanelColourbar,
+//! // ColourbarOrientation, InsideColourbar and InsideColourbarSide; the panel content offers a
 //! // "Colourbar" choice beside "Legend", and both enumerations offer their variants.
 //! ```
 //!
 //! The rules these tests pin:
 //!
 //! - **References.** A colourbar names its scale as an artist does: a reference that names no
-//!   node is `UnknownColorScale`, and one that names a node of another kind is `WrongNodeKind`.
+//!   node is `UnknownColourScale`, and one that names a node of another kind is `WrongNodeKind`.
 //!   Each is reported against the node that holds the reference: the panel for a panel
 //!   colourbar, the axes for an inside colourbar.
 //! - **Removal.** Removing a scale that a colourbar names is refused, as removing a scale that
 //!   an artist names is (stage 2): validation reports the dangling reference against the
 //!   panel or the axes, so the transaction is invalid unless the colourbar goes too.
 //! - **Length.** The length of an inside colourbar is a fraction of the edge it lies along: a
-//!   finite number greater than 0 and at most 1, otherwise `InvalidColorbarLength` against
+//!   finite number greater than 0 and at most 1, otherwise `InvalidColourbarLength` against
 //!   the axes. No existing issue kind covers a fraction of an edge (`InvalidOpacity` and
 //!   `InvalidAspect` each name one property), so the kind is new, as each of those is.
 //! - **Layout.** A colourbar panel is placed, fitted and checked against the layout exactly as
 //!   a legend panel is, but it always has something to draw, so it never raises
 //!   `NothingToDraw`, even for a scale that no artist names.
 //! - **Edits.** A panel's colourbar is reached below its content, as its legend is
-//!   (`content.colorbar.scale`, `content.colorbar.orientation`), and an inside colourbar below
-//!   the axes (`colorbar`, `colorbar.scale`, `colorbar.side`, `colorbar.length`). The panel's
+//!   (`content.colourbar.scale`, `content.colourbar.orientation`), and an inside colourbar below
+//!   the axes (`colourbar`, `colourbar.scale`, `colourbar.side`, `colourbar.length`). The panel's
 //!   `content` itself is settable with choices, as it already is for a legend.
 
 mod common;
@@ -78,8 +78,8 @@ use common::{FigureBuilder, continuous, indexed, kitchen_sink_figure, legend_pan
 use ironlab_ir::*;
 use serde_json::{Value as JsonValue, json};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
 
 /// Returns whether a list of issues holds one of the given kind against the given node.
 fn has(issues: &[ValidationIssue], kind: IssueKind, node: NodeId) -> bool {
@@ -113,7 +113,7 @@ fn bars() -> Bars {
         ..TileLayout::new(2, 2)
     };
     let axes = [b.axes2d(0, 0), b.axes2d(1, 0)];
-    let scale = b.color_scale(continuous(named(ColormapName::Viridis), Limits::Auto));
+    let scale = b.colour_scale(continuous(named(ColourmapName::Viridis), Limits::Auto));
     let data = b.matrix(2, 2, |j, i| (j * 2 + i) as f64);
     let image = b.scalar_image(axes[0], data, Some(scale));
     let panel = b.node();
@@ -125,20 +125,20 @@ fn bars() -> Bars {
             row_span: 2,
             col_span: 1,
         },
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: TitleAlign::Left,
-        content: PanelContent::Colorbar(PanelColorbar {
+        content: PanelContent::Colourbar(PanelColourbar {
             scale,
-            orientation: ColorbarOrientation::Vertical,
-            ..PanelColorbar::default()
+            orientation: ColourbarOrientation::Vertical,
+            ..PanelColourbar::default()
         }),
     });
-    b.axes(axes[1]).colorbar = Some(InsideColorbar {
+    b.axes(axes[1]).colourbar = Some(InsideColourbar {
         scale,
-        side: InsideColorbarSide::South,
+        side: InsideColourbarSide::South,
         length: 0.8,
-        title_placement: ColorbarTitlePlacement::Along,
+        title_placement: ColourbarTitlePlacement::Along,
     });
     Bars {
         fig: b.build(),
@@ -152,25 +152,25 @@ fn bars() -> Bars {
 
 /// Returns the colourbar of the panel with the given identifier, found without the API
 /// under test.
-fn panel_colorbar_mut(fig: &mut Figure, id: NodeId) -> &mut PanelColorbar {
+fn panel_colourbar_mut(fig: &mut Figure, id: NodeId) -> &mut PanelColourbar {
     let panel = fig
         .panels
         .iter_mut()
         .find(|p| p.id == id)
         .expect("the fixture panel exists");
     match &mut panel.content {
-        PanelContent::Colorbar(colorbar) => colorbar,
+        PanelContent::Colourbar(colourbar) => colourbar,
         PanelContent::Legend(_) => panic!("panel {id} holds a legend"),
     }
 }
 
 /// Returns the inside colourbar of the axes with the given identifier, found without the
 /// API under test.
-fn inside_colorbar_mut(fig: &mut Figure, id: NodeId) -> &mut InsideColorbar {
+fn inside_colourbar_mut(fig: &mut Figure, id: NodeId) -> &mut InsideColourbar {
     fig.axes
         .iter_mut()
         .find(|a| a.id == id)
-        .and_then(|a| a.colorbar.as_mut())
+        .and_then(|a| a.colourbar.as_mut())
         .expect("the fixture axes holds a colourbar")
 }
 
@@ -184,18 +184,18 @@ fn inside_colorbar_mut(fig: &mut Figure, id: NodeId) -> &mut InsideColorbar {
 #[test]
 fn colourbars_have_the_defaults_the_model_promises() {
     assert_eq!(
-        ColorbarOrientation::default(),
-        ColorbarOrientation::Vertical
+        ColourbarOrientation::default(),
+        ColourbarOrientation::Vertical
     );
     assert_eq!(
-        PanelColorbar::default().orientation,
-        ColorbarOrientation::Vertical
+        PanelColourbar::default().orientation,
+        ColourbarOrientation::Vertical
     );
-    assert_eq!(InsideColorbarSide::default(), InsideColorbarSide::South);
-    let inside = InsideColorbar::default();
-    assert_eq!(inside.side, InsideColorbarSide::South);
+    assert_eq!(InsideColourbarSide::default(), InsideColourbarSide::South);
+    let inside = InsideColourbar::default();
+    assert_eq!(inside.side, InsideColourbarSide::South);
     assert_eq!(inside.length, 0.8);
-    assert_eq!(Axes::default().colorbar, None);
+    assert_eq!(Axes::default().colourbar, None);
 }
 
 // Why: a saved colourbar must reload as it was, from both formats, in a panel and inside an
@@ -216,21 +216,21 @@ fn colourbars_round_trip_through_json_and_protobuf() {
         align: PanelLocation::SouthWest,
         title: None,
         title_align: TitleAlign::Left,
-        content: PanelContent::Colorbar(PanelColorbar {
-            scale: fig.color_scales[0].id,
-            orientation: ColorbarOrientation::Horizontal,
-            ..PanelColorbar::default()
+        content: PanelContent::Colourbar(PanelColourbar {
+            scale: fig.colour_scales[0].id,
+            orientation: ColourbarOrientation::Horizontal,
+            ..PanelColourbar::default()
         }),
     });
     for side in [
-        InsideColorbarSide::South,
-        InsideColorbarSide::North,
-        InsideColorbarSide::East,
-        InsideColorbarSide::West,
+        InsideColourbarSide::South,
+        InsideColourbarSide::North,
+        InsideColourbarSide::East,
+        InsideColourbarSide::West,
     ] {
         let mut sided = fig.clone();
-        sided.axes[1].colorbar.as_mut().unwrap().side = side;
-        sided.axes[1].colorbar.as_mut().unwrap().length = 0.375;
+        sided.axes[1].colourbar.as_mut().unwrap().side = side;
+        sided.axes[1].colourbar.as_mut().unwrap().length = 0.375;
         let json = Figure::from_json(&sided.to_json()).expect("the JSON form reloads");
         assert_eq!(json, sided, "JSON round trip, {side:?}");
         let binary = Figure::from_protobuf(&sided.to_protobuf()).expect("the binary form reloads");
@@ -244,26 +244,26 @@ fn colourbars_round_trip_through_json_and_protobuf() {
 fn the_kitchen_sink_figure_holds_colourbars_of_every_variant_and_round_trips() {
     let fig = kitchen_sink_figure();
     assert_eq!(fig.validate().errors, vec![]);
-    let orientations: Vec<ColorbarOrientation> = fig
+    let orientations: Vec<ColourbarOrientation> = fig
         .panels
         .iter()
         .filter_map(|p| match &p.content {
-            PanelContent::Colorbar(c) => Some(c.orientation),
+            PanelContent::Colourbar(c) => Some(c.orientation),
             PanelContent::Legend(_) => None,
         })
         .collect();
-    assert!(orientations.contains(&ColorbarOrientation::Vertical));
-    assert!(orientations.contains(&ColorbarOrientation::Horizontal));
-    let sides: Vec<InsideColorbarSide> = fig
+    assert!(orientations.contains(&ColourbarOrientation::Vertical));
+    assert!(orientations.contains(&ColourbarOrientation::Horizontal));
+    let sides: Vec<InsideColourbarSide> = fig
         .axes
         .iter()
-        .filter_map(|a| a.colorbar.map(|c| c.side))
+        .filter_map(|a| a.colourbar.map(|c| c.side))
         .collect();
     for side in [
-        InsideColorbarSide::South,
-        InsideColorbarSide::North,
-        InsideColorbarSide::East,
-        InsideColorbarSide::West,
+        InsideColourbarSide::South,
+        InsideColourbarSide::North,
+        InsideColourbarSide::East,
+        InsideColourbarSide::West,
     ] {
         assert!(sides.contains(&side), "{side:?}");
     }
@@ -281,7 +281,7 @@ fn the_json_form_of_a_colourbar_follows_the_tagged_form_of_panel_content() {
     assert_eq!(
         value["panels"][0]["content"],
         json!({
-            "type": "colorbar",
+            "type": "colourbar",
             "value": {
                 "scale": s.scale.0,
                 "orientation": "vertical",
@@ -291,22 +291,22 @@ fn the_json_form_of_a_colourbar_follows_the_tagged_form_of_panel_content() {
         })
     );
     assert_eq!(
-        value["axes"][1]["colorbar"],
+        value["axes"][1]["colourbar"],
         json!({ "scale": s.scale.0, "side": "south", "length": 0.8, "title_placement": "along" })
     );
     assert!(
-        value["axes"][0]["colorbar"].is_null(),
+        value["axes"][0]["colourbar"].is_null(),
         "an axes without a colourbar writes none"
     );
     for (side, name) in [
-        (InsideColorbarSide::North, "north"),
-        (InsideColorbarSide::East, "east"),
-        (InsideColorbarSide::West, "west"),
+        (InsideColourbarSide::North, "north"),
+        (InsideColourbarSide::East, "east"),
+        (InsideColourbarSide::West, "west"),
     ] {
         assert_eq!(serde_json::to_value(side).unwrap(), json!(name));
     }
     assert_eq!(
-        serde_json::to_value(ColorbarOrientation::Horizontal).unwrap(),
+        serde_json::to_value(ColourbarOrientation::Horizontal).unwrap(),
         json!("horizontal")
     );
 }
@@ -321,37 +321,37 @@ fn the_json_form_of_a_colourbar_follows_the_tagged_form_of_panel_content() {
 // outside values twice.
 #[test]
 fn a_scale_has_exactly_the_keys_of_its_kind() {
-    let continuous_scale = ColorScale {
-        kind: continuous(named(ColormapName::Viridis), Limits::Auto),
-        ..ColorScale::default()
+    let continuous_scale = ColourScale {
+        kind: continuous(named(ColourmapName::Viridis), Limits::Auto),
+        ..ColourScale::default()
     };
     for key in [
-        ColorScaleKey::Below,
-        ColorScaleKey::Above,
-        ColorScaleKey::NonFinite,
+        ColourScaleKey::Below,
+        ColourScaleKey::Above,
+        ColourScaleKey::NonFinite,
     ] {
         assert!(continuous_scale.key(key).is_some(), "{key:?}");
     }
-    assert!(continuous_scale.key(ColorScaleKey::Outside).is_none());
+    assert!(continuous_scale.key(ColourScaleKey::Outside).is_none());
 
-    let indexed_scale = ColorScale {
+    let indexed_scale = ColourScale {
         kind: indexed(vec![RED, GREEN], OutOfRange::Strict),
-        ..ColorScale::default()
+        ..ColourScale::default()
     };
-    for key in [ColorScaleKey::Outside, ColorScaleKey::NonFinite] {
+    for key in [ColourScaleKey::Outside, ColourScaleKey::NonFinite] {
         assert!(indexed_scale.key(key).is_some(), "{key:?}");
     }
-    for key in [ColorScaleKey::Below, ColorScaleKey::Above] {
+    for key in [ColourScaleKey::Below, ColourScaleKey::Above] {
         assert!(indexed_scale.key(key).is_none(), "{key:?}");
     }
 
     // Each key is the category of that name, not a neighbour.
     let mut keyed = continuous_scale.clone();
-    if let ColorScaleKind::Continuous(c) = &mut keyed.kind {
+    if let ColourScaleKind::Continuous(c) = &mut keyed.kind {
         c.above.show_key = true;
     }
-    assert!(keyed.key(ColorScaleKey::Above).unwrap().show_key);
-    assert!(!keyed.key(ColorScaleKey::Below).unwrap().show_key);
+    assert!(keyed.key(ColourScaleKey::Above).unwrap().show_key);
+    assert!(!keyed.key(ColourScaleKey::Below).unwrap().show_key);
 }
 
 // ---------------------------------------------------------------------------------
@@ -383,23 +383,23 @@ fn a_colourbar_of_a_scale_that_no_artist_names_is_valid_without_warnings() {
 // Why: a scale reference that names no node cannot be drawn, so it is reported, and the
 // error points at the node that holds the reference so that the viewer can select it.
 #[test]
-fn a_colourbar_naming_no_node_is_unknown_color_scale_against_its_holder() {
+fn a_colourbar_naming_no_node_is_unknown_colour_scale_against_its_holder() {
     let s = bars();
     let missing = NodeId(4_242);
 
     let mut fig = s.fig.clone();
-    panel_colorbar_mut(&mut fig, s.panel).scale = missing;
+    panel_colourbar_mut(&mut fig, s.panel).scale = missing;
     let report = fig.validate();
     assert!(
-        has(&report.errors, IssueKind::UnknownColorScale, s.panel),
+        has(&report.errors, IssueKind::UnknownColourScale, s.panel),
         "{report:?}"
     );
 
     let mut fig = s.fig.clone();
-    inside_colorbar_mut(&mut fig, s.axes[1]).scale = missing;
+    inside_colourbar_mut(&mut fig, s.axes[1]).scale = missing;
     let report = fig.validate();
     assert!(
-        has(&report.errors, IssueKind::UnknownColorScale, s.axes[1]),
+        has(&report.errors, IssueKind::UnknownColourScale, s.axes[1]),
         "{report:?}"
     );
 }
@@ -417,19 +417,19 @@ fn a_colourbar_naming_a_node_of_another_kind_is_wrong_node_kind() {
         ("an artist", s.image),
     ] {
         let mut fig = s.fig.clone();
-        panel_colorbar_mut(&mut fig, s.panel).scale = target;
+        panel_colourbar_mut(&mut fig, s.panel).scale = target;
         let report = fig.validate();
         assert!(
             has(&report.errors, IssueKind::WrongNodeKind, s.panel),
             "{what} in a panel: {report:?}"
         );
         assert!(
-            !kinds(&report.errors).contains(&IssueKind::UnknownColorScale),
+            !kinds(&report.errors).contains(&IssueKind::UnknownColourScale),
             "{what} in a panel: {report:?}"
         );
 
         let mut fig = s.fig.clone();
-        inside_colorbar_mut(&mut fig, s.axes[1]).scale = target;
+        inside_colourbar_mut(&mut fig, s.axes[1]).scale = target;
         let report = fig.validate();
         assert!(
             has(&report.errors, IssueKind::WrongNodeKind, s.axes[1]),
@@ -445,8 +445,8 @@ fn a_colourbar_naming_a_node_of_another_kind_is_wrong_node_kind() {
 fn an_edit_pointing_a_colourbar_at_an_axes_is_refused() {
     let s = bars();
     for (node, at) in [
-        (s.panel, "content.colorbar.scale"),
-        (s.axes[1], "colorbar.scale"),
+        (s.panel, "content.colourbar.scale"),
+        (s.axes[1], "colourbar.scale"),
     ] {
         let mut edited = s.fig.clone();
         let result = edited.apply(&tx([set(node, at, Value::NodeId(s.axes[0]))]));
@@ -475,11 +475,11 @@ fn removing_a_scale_that_a_colourbar_names_is_refused_unless_the_colourbars_go_t
         panic!("removing the scale was not refused: {result:?}");
     };
     assert!(
-        has(issues, IssueKind::UnknownColorScale, s.panel),
+        has(issues, IssueKind::UnknownColourScale, s.panel),
         "{issues:?}"
     );
     assert!(
-        has(issues, IssueKind::UnknownColorScale, s.axes[1]),
+        has(issues, IssueKind::UnknownColourScale, s.axes[1]),
         "{issues:?}"
     );
     assert_eq!(edited, s.fig, "a refused transaction changes nothing");
@@ -487,13 +487,13 @@ fn removing_a_scale_that_a_colourbar_names_is_refused_unless_the_colourbars_go_t
     // The panel goes in the same transaction, and the inside colourbar is set absent.
     let both = tx([
         Edit::Remove { node: s.panel },
-        set(s.axes[1], "colorbar", Value::Unset),
+        set(s.axes[1], "colourbar", Value::Unset),
         Edit::Remove { node: s.scale },
     ]);
     let (removed, inverse) = applied(&s.fig, &both).unwrap();
-    assert!(removed.color_scales.is_empty());
+    assert!(removed.colour_scales.is_empty());
     assert!(removed.panels.is_empty());
-    assert_eq!(removed.axes[1].colorbar, None);
+    assert_eq!(removed.axes[1].colourbar, None);
     assert_eq!(applied(&removed, &inverse).unwrap().0, s.fig);
 }
 
@@ -510,10 +510,10 @@ fn the_length_of_an_inside_colourbar_is_a_fraction_of_its_edge() {
     let s = bars();
     for length in [1.0, 0.8, 0.5, 1e-3] {
         let mut fig = s.fig.clone();
-        inside_colorbar_mut(&mut fig, s.axes[1]).length = length;
+        inside_colourbar_mut(&mut fig, s.axes[1]).length = length;
         let report = fig.validate();
         assert!(
-            !has(&report.errors, IssueKind::InvalidColorbarLength, s.axes[1]),
+            !has(&report.errors, IssueKind::InvalidColourbarLength, s.axes[1]),
             "{length}: {report:?}"
         );
         assert_eq!(report.errors, vec![], "{length}");
@@ -528,10 +528,10 @@ fn the_length_of_an_inside_colourbar_is_a_fraction_of_its_edge() {
         f64::NEG_INFINITY,
     ] {
         let mut fig = s.fig.clone();
-        inside_colorbar_mut(&mut fig, s.axes[1]).length = length;
+        inside_colourbar_mut(&mut fig, s.axes[1]).length = length;
         let report = fig.validate();
         assert!(
-            has(&report.errors, IssueKind::InvalidColorbarLength, s.axes[1]),
+            has(&report.errors, IssueKind::InvalidColourbarLength, s.axes[1]),
             "{length}: {report:?}"
         );
     }
@@ -543,10 +543,14 @@ fn the_length_of_an_inside_colourbar_is_a_fraction_of_its_edge() {
 fn an_edit_setting_an_unusable_length_is_refused() {
     let s = bars();
     let mut edited = s.fig.clone();
-    let result = edited.apply(&tx([set(s.axes[1], "colorbar.length", Value::Double(1.5))]));
+    let result = edited.apply(&tx([set(
+        s.axes[1],
+        "colourbar.length",
+        Value::Double(1.5),
+    )]));
     assert!(
         matches!(&result, Err(EditError::Invalid(issues))
-            if has(issues, IssueKind::InvalidColorbarLength, s.axes[1])),
+            if has(issues, IssueKind::InvalidColourbarLength, s.axes[1])),
         "{result:?}"
     );
     assert_eq!(edited, s.fig);
@@ -600,8 +604,8 @@ fn a_colourbar_panel_alone_in_a_fitted_column_is_valid() {
         row_weights: vec![TrackSize::Weight(1.0), TrackSize::Fit],
         ..TileLayout::new(2, 3)
     };
-    let scale = b.color_scale(continuous(
-        named(ColormapName::Magma),
+    let scale = b.colour_scale(continuous(
+        named(ColourmapName::Magma),
         Limits::Manual { min: 0.0, max: 1.0 },
     ));
     for col in 0..3 {
@@ -616,13 +620,13 @@ fn a_colourbar_panel_alone_in_a_fitted_column_is_valid() {
             row_span: 1,
             col_span: 3,
         },
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: TitleAlign::Left,
-        content: PanelContent::Colorbar(PanelColorbar {
+        content: PanelContent::Colourbar(PanelColourbar {
             scale,
-            orientation: ColorbarOrientation::Horizontal,
-            ..PanelColorbar::default()
+            orientation: ColourbarOrientation::Horizontal,
+            ..PanelColourbar::default()
         }),
     });
     let report = b.build().validate();
@@ -665,18 +669,18 @@ fn a_panel_s_content_is_switched_between_a_legend_and_a_colourbar_by_one_set() {
         &tx([set(
             NodeId(5_000),
             "content",
-            Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
+            Value::PanelContent(PanelContent::Colourbar(PanelColourbar {
                 scale: s.scale,
-                orientation: ColorbarOrientation::Horizontal,
-                ..PanelColorbar::default()
+                orientation: ColourbarOrientation::Horizontal,
+                ..PanelColourbar::default()
             })),
         )]),
     )
     .unwrap();
     assert!(matches!(
         switched.panels[1].content,
-        PanelContent::Colorbar(PanelColorbar {
-            orientation: ColorbarOrientation::Horizontal,
+        PanelContent::Colourbar(PanelColourbar {
+            orientation: ColourbarOrientation::Horizontal,
             ..
         })
     ));
@@ -700,27 +704,27 @@ fn property(kind: NodeKind, at: &str) -> Property {
 // are, and an inside colourbar's scale, side and length below the axes, with their types.
 #[test]
 fn the_registry_lists_the_properties_of_colourbars() {
-    let scale = property(NodeKind::Panel, "content.colorbar.scale");
+    let scale = property(NodeKind::Panel, "content.colourbar.scale");
     assert_eq!(scale.value_type, ValueType::NodeId);
     assert!(!scale.optional, "a colourbar always names a scale");
     assert_eq!(
-        property(NodeKind::Panel, "content.colorbar.orientation").value_type,
-        ValueType::ColorbarOrientation
+        property(NodeKind::Panel, "content.colourbar.orientation").value_type,
+        ValueType::ColourbarOrientation
     );
 
-    let colorbar = property(NodeKind::Axes, "colorbar");
-    assert_eq!(colorbar.value_type, ValueType::InsideColorbar);
-    assert!(colorbar.optional, "an axes shows no bar unless asked");
+    let colourbar = property(NodeKind::Axes, "colourbar");
+    assert_eq!(colourbar.value_type, ValueType::InsideColourbar);
+    assert!(colourbar.optional, "an axes shows no bar unless asked");
     assert_eq!(
-        property(NodeKind::Axes, "colorbar.scale").value_type,
+        property(NodeKind::Axes, "colourbar.scale").value_type,
         ValueType::NodeId
     );
     assert_eq!(
-        property(NodeKind::Axes, "colorbar.side").value_type,
-        ValueType::InsideColorbarSide
+        property(NodeKind::Axes, "colourbar.side").value_type,
+        ValueType::InsideColourbarSide
     );
     assert_eq!(
-        property(NodeKind::Axes, "colorbar.length").value_type,
+        property(NodeKind::Axes, "colourbar.length").value_type,
         ValueType::Double
     );
 }
@@ -735,31 +739,31 @@ fn the_orientation_side_and_length_are_set_by_path_and_undone() {
         &tx([
             set(
                 s.panel,
-                "content.colorbar.orientation",
-                Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
+                "content.colourbar.orientation",
+                Value::ColourbarOrientation(ColourbarOrientation::Horizontal),
             ),
             set(
                 s.axes[1],
-                "colorbar.side",
-                Value::InsideColorbarSide(InsideColorbarSide::East),
+                "colourbar.side",
+                Value::InsideColourbarSide(InsideColourbarSide::East),
             ),
-            set(s.axes[1], "colorbar.length", Value::Double(0.5)),
+            set(s.axes[1], "colourbar.length", Value::Double(0.5)),
         ]),
     )
     .unwrap();
     assert_eq!(
         edited
-            .get(s.panel, &path("content.colorbar.orientation"))
+            .get(s.panel, &path("content.colourbar.orientation"))
             .unwrap(),
-        Value::ColorbarOrientation(ColorbarOrientation::Horizontal)
+        Value::ColourbarOrientation(ColourbarOrientation::Horizontal)
     );
     assert_eq!(
-        edited.get(s.axes[1], &path("colorbar")).unwrap(),
-        Value::InsideColorbar(InsideColorbar {
+        edited.get(s.axes[1], &path("colourbar")).unwrap(),
+        Value::InsideColourbar(InsideColourbar {
             scale: s.scale,
-            side: InsideColorbarSide::East,
+            side: InsideColourbarSide::East,
             length: 0.5,
-            title_placement: ColorbarTitlePlacement::Along,
+            title_placement: ColourbarTitlePlacement::Along,
         })
     );
     assert_eq!(applied(&edited, &inverse).unwrap().0, s.fig);
@@ -772,22 +776,22 @@ fn an_inside_colourbar_is_added_by_setting_it_and_its_fields_are_absent_until_th
     let s = bars();
     let bare = s.axes[0];
     assert!(matches!(
-        s.fig.get(bare, &path("colorbar.length")),
+        s.fig.get(bare, &path("colourbar.length")),
         Err(EditError::AbsentValue { .. })
     ));
-    assert_eq!(s.fig.get(bare, &path("colorbar")).unwrap(), Value::Unset);
-    let added = InsideColorbar {
+    assert_eq!(s.fig.get(bare, &path("colourbar")).unwrap(), Value::Unset);
+    let added = InsideColourbar {
         scale: s.scale,
-        side: InsideColorbarSide::West,
+        side: InsideColourbarSide::West,
         length: 0.6,
-        title_placement: ColorbarTitlePlacement::Above,
+        title_placement: ColourbarTitlePlacement::Above,
     };
     let (edited, inverse) = applied(
         &s.fig,
-        &tx([set(bare, "colorbar", Value::InsideColorbar(added))]),
+        &tx([set(bare, "colourbar", Value::InsideColourbar(added))]),
     )
     .unwrap();
-    assert_eq!(edited.axes[0].colorbar, Some(added));
+    assert_eq!(edited.axes[0].colourbar, Some(added));
     assert_eq!(edited.validate().errors, vec![]);
     assert_eq!(applied(&edited, &inverse).unwrap().0, s.fig);
 }
@@ -811,8 +815,8 @@ fn a_path_into_the_other_kind_of_content_is_an_inactive_variant() {
         (s.panel, "content.legend.boxed", Value::Bool(true)),
         (
             NodeId(5_000),
-            "content.colorbar.orientation",
-            Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
+            "content.colourbar.orientation",
+            Value::ColourbarOrientation(ColourbarOrientation::Horizontal),
         ),
     ] {
         let mut edited = fig.clone();
@@ -840,18 +844,18 @@ fn the_content_of_a_panel_offers_a_legend_and_a_colourbar() {
     assert!(
         offered
             .iter()
-            .any(|c| matches!(c.value, Value::PanelContent(PanelContent::Colorbar(_))))
+            .any(|c| matches!(c.value, Value::PanelContent(PanelContent::Colourbar(_))))
     );
 
-    let current = Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
+    let current = Value::PanelContent(PanelContent::Colourbar(PanelColourbar {
         scale: NodeId(77),
-        orientation: ColorbarOrientation::Horizontal,
+        orientation: ColourbarOrientation::Horizontal,
         length: Some(0.5),
-        title_placement: ColorbarTitlePlacement::Above,
+        title_placement: ColourbarTitlePlacement::Above,
     }));
     let kept = choices(ValueType::PanelContent, Some(&current))
         .into_iter()
-        .find(|c| matches!(c.value, Value::PanelContent(PanelContent::Colorbar(_))))
+        .find(|c| matches!(c.value, Value::PanelContent(PanelContent::Colourbar(_))))
         .expect("a colourbar is offered");
     assert_eq!(kept.value, current, "the current colourbar is kept");
 }

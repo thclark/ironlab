@@ -298,15 +298,15 @@ impl Leaf {
 
     /// Returns the colours this leaf paints with (fill, stroke or glyph colour, or the face and edge of every
     /// marker instance).
-    pub fn colors(&self) -> Vec<Rgba> {
+    pub fn colours(&self) -> Vec<Rgba> {
         match &self.kind {
             ItemKind::Path(p) => p
                 .fill
-                .map(|f| f.color)
+                .map(|f| f.colour)
                 .into_iter()
-                .chain(p.stroke.as_ref().map(|s| s.color))
+                .chain(p.stroke.as_ref().map(|s| s.colour))
                 .collect(),
-            ItemKind::Glyphs(g) => vec![g.color],
+            ItemKind::Glyphs(g) => vec![g.colour],
             ItemKind::Markers(m) => m
                 .instances
                 .iter()

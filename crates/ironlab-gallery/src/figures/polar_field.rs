@@ -39,23 +39,23 @@ pub fn figure() -> Figure {
         .parameter("data_points", 4186)
         .parameter("has_legend", false);
     let scale = fig
-        .color_scale()
-        .colormap(Colormap::Coolwarm)
+        .colour_scale()
+        .colourmap(Colourmap::Coolwarm)
         .limits(-0.3, 0.3)
         .id();
 
     let mut ax = fig.polar_axes(0, 0);
     ax.contourf(&theta, &r, &field)
         .level_values(linspace(-0.3, 0.3, 13))
-        .color_scale(scale);
+        .colour_scale(scale);
     ax.rlim(0.0, 1.0).title("Filled contours");
 
     let x = Matrix::from_fn(r.len(), theta.len(), |_, col| theta[col]);
     let y = Matrix::from_fn(r.len(), theta.len(), |row, _| r[row]);
     let mut ax = fig.polar_axes(0, 1);
     ax.surface(x, y, &field)
-        .edge_color(None)
-        .color_scale(scale);
+        .edge_colour(None)
+        .colour_scale(scale);
     ax.rlim(0.0, 1.0).title("Surface seen from above");
     fig
 }

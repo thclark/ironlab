@@ -123,14 +123,14 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
     }
     // A scale counts only where the figure shows it, as a colourbar or as an item of a legend: a figure that colours
     // its artists through a scale it never shows is no example of colour scales to a reader.
-    let colorbar = figure.axes.iter().any(|axes| axes.colorbar.is_some())
+    let colourbar = figure.axes.iter().any(|axes| axes.colourbar.is_some())
         || figure
             .panels
             .iter()
-            .any(|panel| matches!(panel.content, PanelContent::Colorbar(_)));
+            .any(|panel| matches!(panel.content, PanelContent::Colourbar(_)));
     let listed = |entries: &LegendEntries| {
         matches!(entries, LegendEntries::Explicit(items)
-            if items.iter().any(|item| matches!(item.content, LegendItemContent::ColorScale { .. })))
+            if items.iter().any(|item| matches!(item.content, LegendItemContent::ColourScale { .. })))
     };
     let keyed = figure.axes.iter().any(|axes| match &axes.legend {
         Some(Legend::Inside(inside)) => listed(&inside.entries),
@@ -139,11 +139,11 @@ fn structural(figure: &Figure) -> BTreeSet<String> {
         PanelContent::Legend(legend) => listed(&legend.entries),
         _ => false,
     });
-    if colorbar {
-        tags.insert("colorbar".to_owned());
+    if colourbar {
+        tags.insert("colourbar".to_owned());
     }
-    if colorbar || keyed {
-        tags.insert("color-scale".to_owned());
+    if colourbar || keyed {
+        tags.insert("colour-scale".to_owned());
     }
     if figure.axes.len() > 1 {
         tags.insert("subplots".to_owned());
@@ -365,8 +365,8 @@ fn the_labels_of_the_gallery_are_the_words_a_reader_would_look_for() {
         "subplots",
         "legend",
         "log",
-        "color-scale",
-        "colorbar",
+        "colour-scale",
+        "colourbar",
     ] {
         assert!(
             values.iter().any(|value| value == wanted),
@@ -721,8 +721,8 @@ fn the_gallery_can_be_put_in_order_of_how_much_data_each_figure_holds() {
 const STRUCTURAL: &[&str] = &[
     "bar",
     "cells",
-    "color-scale",
-    "colorbar",
+    "colour-scale",
+    "colourbar",
     "contour",
     "image",
     "legend",

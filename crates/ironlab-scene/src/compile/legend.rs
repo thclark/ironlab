@@ -12,19 +12,19 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 use ironlab_ir::{
-    Artist, Cells, Color, ColorScaleKind, ColorSpec, DashStyle, Interpreter, Legend, LegendEntries,
-    LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem, LegendItemContent,
-    LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Panel, PanelLegend,
-    PanelLocation, ScalarImage, Series, Text, TitleAlign,
+    Artist, Cells, Colour, ColourScaleKind, ColourSpec, DashStyle, Interpreter, Legend,
+    LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder, LegendItem,
+    LegendItemContent, LegendLocation, LegendSample, LineStyle, MarkerStyle, NodeId, Panel,
+    PanelLegend, PanelLocation, ScalarImage, Series, Text, TitleAlign,
 };
 
 use crate::display::{Item, ItemKind, Point, Rect, Rgba, Stroke};
-use crate::hit::{ColorbarKeyHit, HitMap, LegendHit, LegendOwner};
+use crate::hit::{ColourbarKeyHit, HitMap, LegendHit, LegendOwner};
 use crate::maths::quiver;
 
 use super::artists::AxesInput;
 use super::axes2d;
-use super::colorbar::{self, LegendBar, SWATCH_OUTLINE};
+use super::colourbar::{self, LegendBar, SWATCH_OUTLINE};
 use super::data::{ArtistData, Prepared, SeriesColours};
 use super::decor::TICK_SCALE;
 use super::image;
@@ -105,7 +105,7 @@ enum SampleLook {
 }
 
 /// The colours of a sweep of a colour scale, from its low end at the left to its high end at the right, each over
-/// an equal share of the sample, with the opacity of the artist taken in (see [`colorbar::sweep`]). Two sweeps are
+/// an equal share of the sample, with the opacity of the artist taken in (see [`colourbar::sweep`]). Two sweeps are
 /// equal exactly when they show the same colours, so that a legend panel merges two plots of the same name exactly
 /// when they sweep the same colours.
 #[derive(Clone, Debug, PartialEq)]
@@ -116,7 +116,7 @@ impl Sweep {
     fn of(scale: &ResolvedScale, opacity: f64) -> Self {
         let factor = style::unit_opacity(opacity) as f32;
         Self(
-            colorbar::sweep(scale)
+            colourbar::sweep(scale)
                 .into_iter()
                 .map(|c| c.map(|c| c.with_alpha_factor(factor)))
                 .collect(),
@@ -144,11 +144,11 @@ impl Sweep {
 struct MarkerSample {
     /// The style of the marker, whose size is the size drawn before it is limited to the height of the row.
     style: MarkerStyle,
-    /// The colour that a marker face or edge set to `Auto` or `Colormapped` takes.
+    /// The colour that a marker face or edge set to `Auto` or `Colourmapped` takes.
     auto: Option<Rgba>,
     /// The width of the marker edge, in points.
     edge_width: f64,
-    /// The sweep that a marker following colour data takes its `Auto` and `Colormapped` colours from, at its place
+    /// The sweep that a marker following colour data takes its `Auto` and `Colourmapped` colours from, at its place
     /// across the sample, instead of `auto`.
     sweep: Option<Sweep>,
 }
@@ -481,7 +481,7 @@ fn inside_entries<'a>(
                 LegendItemContent::Custom { label, sample } => {
                     vec![Chosen::Entry(Entry::custom(label, sample, item.full_row))]
                 }
-                LegendItemContent::ColorScale { scale, rows } => {
+                LegendItemContent::ColourScale { scale, rows } => {
                     scale_item(scales, *scale, item.full_row, *rows)
                 }
             })
@@ -504,8 +504,8 @@ fn scale_item<'a>(
         return Vec::new();
     };
     match &scale.scale.kind {
-        ColorScaleKind::Categorical(c) if c.categories.is_empty() => Vec::new(),
-        ColorScaleKind::Categorical(_) => colorbar::category_swatches(scale)
+        ColourScaleKind::Categorical(c) if c.categories.is_empty() => Vec::new(),
+        ColourScaleKind::Categorical(_) => colourbar::category_swatches(scale)
             .into_iter()
             .map(|(fill, name)| {
                 Chosen::Entry(Entry {
@@ -694,7 +694,7 @@ fn explicit_panel_entry<'a>(
         LegendItemContent::Custom { label, sample } => {
             vec![Chosen::Entry(Entry::custom(label, sample, item.full_row))]
         }
-        LegendItemContent::ColorScale { scale, rows } => {
+        LegendItemContent::ColourScale { scale, rows } => {
             scale_item(scales, *scale, item.full_row, *rows)
         }
     }
@@ -783,7 +783,7 @@ pub(super) fn draw_panel(
     );
     let aligned = |lo: f64, hi: f64, inner: f64| match panel.title_align {
         TitleAlign::Left => lo,
-        TitleAlign::Center => lo + (hi - lo - inner) / 2.0,
+        TitleAlign::Centre => lo + (hi - lo - inner) / 2.0,
         TitleAlign::Right => hi - inner,
     };
     let placed = render(
@@ -997,7 +997,7 @@ fn render(
             // centred in its row.
             Listed::Bar(bar) if bar.lying() => {
                 let r = Rect::new(x, y + listing.head, width, bar.height());
-                bars.colorbars.push(bar.draw(ctx, r, &mut items));
+                bars.colourbars.push(bar.draw(ctx, r, &mut items));
                 continue;
             }
             // A standing bar item runs down the rows of its bar, between the rows of the keys above and below it,
@@ -1025,13 +1025,13 @@ fn render(
                     };
                     draw_sample(block.source, &sample, cell, 1.0, &m, &mut items);
                     draw_label(&key.label, cell, 1.0, &m, block.source, &mut items);
-                    hit.keys.push(ColorbarKeyHit {
+                    hit.keys.push(ColourbarKeyHit {
                         key: key.key,
                         rect: swatch_square(cell, &m),
                         label: key.text.clone(),
                     });
                 }
-                bars.colorbars.push(hit);
+                bars.colourbars.push(hit);
                 continue;
             }
         };
@@ -1048,7 +1048,7 @@ fn render(
             });
         }
     }
-    hits.colorbars.extend(bars.colorbars);
+    hits.colourbars.extend(bars.colourbars);
 
     if overflow {
         out.push(Item {
@@ -1131,7 +1131,7 @@ fn spans(listing: &Listing, m: &Metrics) -> Vec<Span> {
             Listed::Bar(bar) => {
                 let (keys, above) = bar.keys();
                 let row =
-                    |key: &colorbar::KeyRow| key.label.total_height().max(m.min_row) + m.row_gap;
+                    |key: &colourbar::KeyRow| key.label.total_height().max(m.min_row) + m.row_gap;
                 let heights = keys[..above]
                     .iter()
                     .map(row)
@@ -1336,10 +1336,10 @@ fn grid(spans: &[Span], columns: usize, order: LegendEntryOrder, m: &Metrics) ->
 fn custom_sample(sample: &LegendSample) -> SampleLook {
     match *sample {
         LegendSample::Line { line, marker } => {
-            let colour = match line.color {
-                ColorSpec::None => None,
-                ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
-                ColorSpec::Auto | ColorSpec::Colormapped => Some(INK),
+            let colour = match line.colour {
+                ColourSpec::None => None,
+                ColourSpec::Rgba { colour } => Some(style::ir_colour(colour)),
+                ColourSpec::Auto | ColourSpec::Colourmapped => Some(INK),
             };
             SampleLook::Line {
                 stroke: sample_stroke(&line, colour),
@@ -1354,8 +1354,8 @@ fn custom_sample(sample: &LegendSample) -> SampleLook {
                 area: None,
             }
         }
-        LegendSample::Swatch { color } => SampleLook::Swatch {
-            fill: Some(style::ir_colour(color)),
+        LegendSample::Swatch { colour } => SampleLook::Swatch {
+            fill: Some(style::ir_colour(colour)),
             outline: Some(SWATCH_OUTLINE),
         },
     }
@@ -1380,7 +1380,7 @@ fn place(
         LegendLocation::South => at(PanelLocation::South),
         LegendLocation::East => at(PanelLocation::East),
         LegendLocation::West => at(PanelLocation::West),
-        LegendLocation::Center => at(PanelLocation::Center),
+        LegendLocation::Centre => at(PanelLocation::Centre),
         LegendLocation::Best => {
             let candidates = [
                 at(PanelLocation::NorthEast),
@@ -1422,8 +1422,8 @@ fn sample(
             let fade = |colour: Rgba, opacity: f64| {
                 Some(colour.with_alpha_factor(style::unit_opacity(opacity) as f32))
             };
-            let explicit = match c.line.color {
-                ColorSpec::Rgba { color } => fade(style::ir_colour(color), c.line_opacity),
+            let explicit = match c.line.colour {
+                ColourSpec::Rgba { colour } => fade(style::ir_colour(colour), c.line_opacity),
                 _ => None,
             };
             if c.fill {
@@ -1438,26 +1438,28 @@ fn sample(
                     },
                 }
             } else {
-                match (c.line.color, scale) {
-                    (ColorSpec::None, _) => SampleLook::Line {
+                match (c.line.colour, scale) {
+                    (ColourSpec::None, _) => SampleLook::Line {
                         stroke: None,
                         sweep: None,
                         marker: None,
                         area: None,
                     },
-                    (ColorSpec::Rgba { .. }, _) => SampleLook::Line {
+                    (ColourSpec::Rgba { .. }, _) => SampleLook::Line {
                         stroke: sample_stroke(&c.line, explicit),
                         sweep: None,
                         marker: None,
                         area: None,
                     },
-                    (ColorSpec::Auto | ColorSpec::Colormapped, Some(scale)) => SampleLook::Line {
-                        stroke: sample_stroke(&c.line, Some(NO_COLOUR)),
-                        sweep: Some(Sweep::of(scale, c.line_opacity)),
-                        marker: None,
-                        area: None,
-                    },
-                    (ColorSpec::Auto | ColorSpec::Colormapped, None) => SampleLook::Line {
+                    (ColourSpec::Auto | ColourSpec::Colourmapped, Some(scale)) => {
+                        SampleLook::Line {
+                            stroke: sample_stroke(&c.line, Some(NO_COLOUR)),
+                            sweep: Some(Sweep::of(scale, c.line_opacity)),
+                            marker: None,
+                            area: None,
+                        }
+                    }
+                    (ColourSpec::Auto | ColourSpec::Colourmapped, None) => SampleLook::Line {
                         stroke: sample_stroke(
                             &c.line,
                             fade(style::viridis_middle(), c.line_opacity),
@@ -1478,22 +1480,22 @@ fn sample(
             let fade = |colour: Option<Rgba>, opacity: f64| {
                 colour.map(|c| c.with_alpha_factor(style::unit_opacity(opacity) as f32))
             };
-            let face = style::resolve(s.face, Paint::Colormapped);
-            let edge = style::resolve(s.edge, Paint::Colormapped);
+            let face = style::resolve(s.face, Paint::Colourmapped);
+            let edge = style::resolve(s.edge, Paint::Colourmapped);
             let fixed_edge = match edge {
                 Paint::Fixed(c) => fade(c, s.edge_opacity),
-                Paint::Colormapped => None,
+                Paint::Colourmapped => None,
             };
             match (face, edge, scale) {
-                (Paint::Colormapped, _, Some(scale)) => SampleLook::Sweep {
+                (Paint::Colourmapped, _, Some(scale)) => SampleLook::Sweep {
                     sweep: Sweep::of(scale, s.face_opacity),
                     edge: fixed_edge,
                 },
-                (Paint::Colormapped, _, None) => SampleLook::Swatch {
+                (Paint::Colourmapped, _, None) => SampleLook::Swatch {
                     fill: fade(Some(style::viridis_middle()), s.face_opacity),
                     outline: fixed_edge,
                 },
-                (Paint::Fixed(None), Paint::Colormapped, Some(scale)) => SampleLook::Line {
+                (Paint::Fixed(None), Paint::Colourmapped, Some(scale)) => SampleLook::Line {
                     stroke: sample_stroke(
                         &LineStyle {
                             width_pt: s.edge_width_pt,
@@ -1540,23 +1542,23 @@ fn sample(
         },
         // A swatch filled with the face and outlined by the edge, as a small bar; faces coloured by data sweep the
         // scale they are coloured through, as the faces of a surface do. A colour that colour data varies has no one
-        // colour, so a colormapped outline with colour data outlines nothing.
+        // colour, so a colourmapped outline with colour data outlines nothing.
         Artist::Bar(b) => {
             let fade = |colour: Option<Rgba>, opacity: f64| {
                 colour.map(|c| c.with_alpha_factor(style::unit_opacity(opacity) as f32))
             };
-            let mapped = b.color_data.is_some();
-            let single = |spec: ColorSpec| match spec {
-                ColorSpec::Colormapped if mapped => None,
+            let mapped = b.colour_data.is_some();
+            let single = |spec: ColourSpec| match spec {
+                ColourSpec::Colourmapped if mapped => None,
                 other => match style::resolve(other, Paint::Fixed(colour)) {
                     Paint::Fixed(c) => c,
-                    Paint::Colormapped => colour,
+                    Paint::Colourmapped => colour,
                 },
             };
-            let edge = fade(single(b.edge.color), b.edge_opacity)
+            let edge = fade(single(b.edge.colour), b.edge_opacity)
                 .filter(|_| b.edge.dash != DashStyle::None);
             match (b.face, scale) {
-                (ColorSpec::Colormapped, Some(scale)) if mapped => SampleLook::Sweep {
+                (ColourSpec::Colourmapped, Some(scale)) if mapped => SampleLook::Sweep {
                     sweep: Sweep::of(scale, b.face_opacity),
                     edge,
                 },
@@ -1571,11 +1573,11 @@ fn sample(
             let fade = |colour: Option<Rgba>, opacity: f64| {
                 colour.map(|c| c.with_alpha_factor(style::unit_opacity(opacity) as f32))
             };
-            let resolved = |spec: ColorSpec| match style::resolve(spec, Paint::Fixed(colour)) {
+            let resolved = |spec: ColourSpec| match style::resolve(spec, Paint::Fixed(colour)) {
                 Paint::Fixed(c) => c,
-                Paint::Colormapped => colour,
+                Paint::Colourmapped => colour,
             };
-            let line = fade(resolved(s.line.color), s.line_opacity);
+            let line = fade(resolved(s.line.colour), s.line_opacity);
             let fill = fade(resolved(s.fill), s.fill_opacity).filter(|_| s.base.is_some());
             match fill {
                 Some(fill) => SampleLook::Patch {
@@ -1617,19 +1619,19 @@ fn series_sample(
         }
     );
     let sweep = scale.map(|scale| Sweep::of(scale, 1.0));
-    let mapped_line = series.line.color == ColorSpec::Colormapped;
+    let mapped_line = series.line.colour == ColourSpec::Colourmapped;
     let line_sweep = sweep.clone().filter(|_| mapped_line);
     let follows = per_point && sweep.is_some();
     let fixed = |colour: Option<Rgba>| match colour {
-        Some(c) => ColorSpec::Rgba {
-            color: Color::rgba(c.r, c.g, c.b, c.a),
+        Some(c) => ColourSpec::Rgba {
+            colour: Colour::rgba(c.r, c.g, c.b, c.a),
         },
-        None => ColorSpec::None,
+        None => ColourSpec::None,
     };
-    let part = |spec: ColorSpec| match spec {
-        ColorSpec::Auto if mapped_line && follows => ColorSpec::Colormapped,
-        ColorSpec::Colormapped if follows => ColorSpec::Colormapped,
-        ColorSpec::Auto | ColorSpec::Colormapped => fixed(colour),
+    let part = |spec: ColourSpec| match spec {
+        ColourSpec::Auto if mapped_line && follows => ColourSpec::Colourmapped,
+        ColourSpec::Colourmapped if follows => ColourSpec::Colourmapped,
+        ColourSpec::Auto | ColourSpec::Colourmapped => fixed(colour),
         other => other,
     };
     let marker = MarkerStyle {
@@ -1637,15 +1639,16 @@ fn series_sample(
         edge: part(series.marker.edge),
         ..series.marker
     };
-    let marker_sweep = sweep
-        .filter(|_| marker.face == ColorSpec::Colormapped || marker.edge == ColorSpec::Colormapped);
+    let marker_sweep = sweep.filter(|_| {
+        marker.face == ColourSpec::Colourmapped || marker.edge == ColourSpec::Colourmapped
+    });
     // A filled series is an area under its line, so its sample is a band of the fill behind the line, as filled
-    // stairs are keyed by a patch of their fill. A colormapped fill is invalid and drawn as an automatic one.
+    // stairs are keyed by a patch of their fill. A colourmapped fill is invalid and drawn as an automatic one.
     let area = series.fill_base().and_then(|_| {
         let fill = match series.fill {
-            ColorSpec::Rgba { color } => Some(style::ir_colour(color)),
-            ColorSpec::None => None,
-            ColorSpec::Auto | ColorSpec::Colormapped => colour,
+            ColourSpec::Rgba { colour } => Some(style::ir_colour(colour)),
+            ColourSpec::None => None,
+            ColourSpec::Auto | ColourSpec::Colourmapped => colour,
         };
         fill.map(|c| c.with_alpha_factor(style::unit_opacity(series.fill_opacity) as f32))
     });
@@ -1716,7 +1719,7 @@ fn draw_sample(
 ) {
     let fade = |c: Rgba| c.with_alpha_factor(alpha);
     let fade_stroke = |s: &Stroke| Stroke {
-        color: fade(s.color),
+        colour: fade(s.colour),
         ..s.clone()
     };
     let cy = cell.y + cell.height / 2.0;
@@ -1797,7 +1800,7 @@ fn draw_sample(
                         if let Some(colour) = sweep.at((from + to) / 2.0) {
                             // The dashes run on across the segments, as along one line.
                             let s = Stroke {
-                                color: colour,
+                                colour,
                                 dash_offset: stroke.dash_offset + from * cell.width,
                                 ..stroke.clone()
                             };
@@ -1849,12 +1852,12 @@ fn draw_sample(
             out.extend(paths::item(source, b.finish(), fill, stroke));
         }
         SampleLook::Sweep { sweep, edge } => {
-            out.extend(colorbar::colour_row(source, band, &sweep.faded(alpha)));
+            out.extend(colourbar::colour_row(source, band, &sweep.faded(alpha)));
             outline(band, edge, out);
         }
         SampleLook::Swatch { fill, outline } => {
             let square = swatch_square(cell, m);
-            out.extend(colorbar::swatch(
+            out.extend(colourbar::swatch(
                 source,
                 square,
                 fill.map(fade),

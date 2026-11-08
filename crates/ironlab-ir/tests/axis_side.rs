@@ -135,8 +135,10 @@ fn each_side_is_written_in_snake_case_on_its_own_axis() {
     assert!(axes["z"].get("side").is_none(), "{}", axes["z"]);
     assert_eq!(Figure::from_json(&text).expect("own output parses"), fig);
 
-    let explicit_low = text.replacen("\"centre\"", "\"low\"", 1);
-    let reread = Figure::from_json(&explicit_low).expect("an explicit low side parses");
+    // The title alignment is also written "centre", so the side is replaced where it stands.
+    let mut explicit_low = value.clone();
+    explicit_low["axes"][0]["y"]["side"] = json!("low");
+    let reread = Figure::from_json(&explicit_low.to_string()).expect("an explicit low side parses");
     assert_eq!(reread.axes[0].y.side, AxisSide::Low);
 }
 

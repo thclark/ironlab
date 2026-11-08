@@ -7,11 +7,11 @@ pub const DESCRIPTION: &str = "The displacement thickness of the boundary layer 
      markers once, with items that stand for no plot: a grey shape for each kind of point, and a colour swatch for \
      each surface, however many markers are drawn. Both keys sit in a row fitted to the taller of them.";
 
-const UPPER: Color = Color::rgb(0.85, 0.55, 0.0);
-const LOWER: Color = Color::rgb(0.0, 0.55, 0.40);
-const GREY: Color = Color::rgb(0.45, 0.45, 0.45);
-const SECTION: Color = Color::rgb(0.0, 0.0, 0.0);
-const THICKNESS: Color = Color::rgb(0.10, 0.35, 0.75);
+const UPPER: Colour = Colour::rgb(0.85, 0.55, 0.0);
+const LOWER: Colour = Colour::rgb(0.0, 0.55, 0.40);
+const GREY: Colour = Colour::rgb(0.45, 0.45, 0.45);
+const SECTION: Colour = Colour::rgb(0.0, 0.0, 0.0);
+const THICKNESS: Colour = Colour::rgb(0.10, 0.35, 0.75);
 /// The size of the markers of the points of transition and separation, in points.
 const POINT_SIZE: f64 = 6.0;
 
@@ -88,9 +88,9 @@ pub fn figure() -> Figure {
     let lower: Vec<f64> = upper.iter().map(|y| -y).collect();
     ax.plot(&x, &upper)
         .label("Section")
-        .color(SECTION)
+        .colour(SECTION)
         .line_width(1.0);
-    ax.plot(&x, &lower).color(SECTION).line_width(1.0);
+    ax.plot(&x, &lower).colour(SECTION).line_width(1.0);
 
     // One curve per design point: the same hue for the same quantity, a dash for each angle of attack. The points of
     // transition and separation are marked by shape and coloured by surface, and none of them has a display name, so
@@ -106,7 +106,7 @@ pub fn figure() -> Figure {
         ] {
             let (ox, oy) = offset(&x, side, transition);
             let mut curve = ax.plot(&ox, &oy);
-            curve.color(THICKNESS).dash(dash);
+            curve.colour(THICKNESS).dash(dash);
             if side > 0.0 {
                 curve.label(name.as_str());
             }
@@ -114,7 +114,7 @@ pub fn figure() -> Figure {
                 let y = side * half_thickness(at);
                 ax.scatter([at], [y])
                     .marker(shape)
-                    .color(colour)
+                    .colour(colour)
                     .marker_size(POINT_SIZE)
                     .filled();
             }

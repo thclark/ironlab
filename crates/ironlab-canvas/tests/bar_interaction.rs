@@ -10,7 +10,7 @@
 //!
 //! ```text
 //! // crates/ironlab-canvas/src/interaction.rs
-//! pub enum Tip { Point(Datatip), Pixel(PixelDatatip), Colorbar(ColorbarTip), Bar(BarDatatip), Step(StepDatatip),
+//! pub enum Tip { Point(Datatip), Pixel(PixelDatatip), Colourbar(ColourbarTip), Bar(BarDatatip), Step(StepDatatip),
 //!     Cell(CellDatatip) }
 //!
 //! /// The bar under the pointer, as the viewer reports it.
@@ -419,7 +419,7 @@ fn record(norm: HistNorm, edges: NodeId) -> Binning {
         bins: Bins::Edges(EDGES.to_vec()),
         edges,
         range: None,
-        normalization: norm,
+        normalisation: norm,
         total: TOTAL,
         excluded_non_finite: 0,
         excluded_out_of_range: 0,

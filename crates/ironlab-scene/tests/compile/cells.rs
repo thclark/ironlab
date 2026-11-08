@@ -10,13 +10,13 @@
 //! worked out here from the colours of the scale and the arithmetic of the schema, not taken from the compiler.
 
 use ironlab_ir::{
-    CategoricalColorScale, CellEdges, CellGap, Color, ColorCategory, ColorScaleKind,
-    ColorScaleLevels, ColorSpec, Colormap, ContinuousColorScale, DiscreteColorScale,
-    IndexedColorScale, Limits, NodeId, OutOfRange, Scale, Text, View3d,
+    CategoricalColourScale, CellEdges, CellGap, Colour, ColourCategory, ColourScaleKind,
+    ColourScaleLevels, ColourSpec, Colourmap, ContinuousColourScale, DiscreteColourScale,
+    IndexedColourScale, Limits, NodeId, OutOfRange, Scale, Text, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::{Item, ItemKind, Rect, Rgba, Stroke};
-use ironlab_scene::maths::colormap::VIRIDIS;
+use ironlab_scene::maths::colourmap::VIRIDIS;
 
 use crate::common::{Fx, compile_figure, nearest_lut_index, out_of_range, rgb8, rgba};
 use crate::probe::{assert_close, axis_maps, bbox_of, from_source, leaves};
@@ -24,17 +24,17 @@ use crate::probe::{assert_close, axis_maps, bbox_of, from_source, leaves};
 /// Agreement expected of a rectangle mapped from data to the page and back.
 const TOL: f64 = 1e-9;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
-const YELLOW: Color = Color::rgb(1.0, 1.0, 0.0);
-const CYAN: Color = Color::rgb(0.0, 1.0, 1.0);
-const MAGENTA: Color = Color::rgb(1.0, 0.0, 1.0);
-const GREY: Color = Color::rgb(0.5, 0.5, 0.5);
-const BLACK: Color = Color::rgb(0.0, 0.0, 0.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
+const YELLOW: Colour = Colour::rgb(1.0, 1.0, 0.0);
+const CYAN: Colour = Colour::rgb(0.0, 1.0, 1.0);
+const MAGENTA: Colour = Colour::rgb(1.0, 0.0, 1.0);
+const GREY: Colour = Colour::rgb(0.5, 0.5, 0.5);
+const BLACK: Colour = Colour::rgb(0.0, 0.0, 0.0);
 
 /// Six distinct colours, one per cell of a 2 × 3 grid, so that a drawn cell can be told by its colour.
-const DISTINCT: [Color; 6] = [RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA];
+const DISTINCT: [Colour; 6] = [RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA];
 
 // ---------------------------------------------------------------------------------------------------------------
 // Probes
@@ -76,8 +76,8 @@ fn drawn(scene: &Scene, ax: NodeId, cells: NodeId) -> Vec<Drawn> {
         let Some(path) = leaf.path() else {
             panic!("cells are drawn as paths, found {:?}", leaf.kind);
         };
-        let fill = path.fill.map(|f| f.color).filter(|c| c.a > 0.0);
-        let stroke = path.stroke.clone().filter(|s| s.color.a > 0.0);
+        let fill = path.fill.map(|f| f.colour).filter(|c| c.a > 0.0);
+        let stroke = path.stroke.clone().filter(|s| s.colour.a > 0.0);
         if fill.is_none() && stroke.is_none() {
             continue;
         }
@@ -127,7 +127,7 @@ fn contains(d: &Drawn, x: f64, y: f64) -> bool {
 
 /// Returns the one cell filled in `colour`, or a panic naming the colour.
 #[track_caller]
-fn filled_in(cells: &[Drawn], colour: Color) -> &Drawn {
+fn filled_in(cells: &[Drawn], colour: Colour) -> &Drawn {
     let found: Vec<&Drawn> = cells
         .iter()
         .filter(|d| d.fill.is_some_and(|f| rgb8(f) == rgb8(rgba(colour))))
@@ -162,8 +162,8 @@ fn assert_colour(actual: Option<Rgba>, expected: [u8; 3], slack: u8, what: &str)
 }
 
 /// The 8-bit colour of an IR colour.
-fn rgb8_of(color: Color) -> [u8; 3] {
-    rgb8(rgba(color))
+fn rgb8_of(colour: Colour) -> [u8; 3] {
+    rgb8(rgba(colour))
 }
 
 /// The messages of the warnings that name `id`.
@@ -197,21 +197,21 @@ fn dense_groups(scene: &Scene) -> Vec<(Option<NodeId>, u64)> {
 // ---------------------------------------------------------------------------------------------------------------
 
 /// An indexed scale of the given colours, strict outside them.
-fn palette(colors: &[Color]) -> ColorScaleKind {
-    ColorScaleKind::Indexed(IndexedColorScale {
-        colors: colors.to_vec(),
-        ..IndexedColorScale::default()
+fn palette(colours: &[Colour]) -> ColourScaleKind {
+    ColourScaleKind::Indexed(IndexedColourScale {
+        colours: colours.to_vec(),
+        ..IndexedColourScale::default()
     })
 }
 
 /// A categorical scale of the given colours, the category of entry `k` labelled "status k", strict outside them.
-fn statuses(colors: &[Color]) -> ColorScaleKind {
-    ColorScaleKind::Categorical(CategoricalColorScale {
-        categories: colors
+fn statuses(colours: &[Colour]) -> ColourScaleKind {
+    ColourScaleKind::Categorical(CategoricalColourScale {
+        categories: colours
             .iter()
             .enumerate()
-            .map(|(k, &color)| ColorCategory {
-                color,
+            .map(|(k, &colour)| ColourCategory {
+                colour,
                 label: Text::plain(format!("status {k}")),
             })
             .collect(),
@@ -220,17 +220,17 @@ fn statuses(colors: &[Color]) -> ColorScaleKind {
 }
 
 /// A continuous scale interpolating linearly in sRGB from red at 0 to blue at 1, whose ends are unmistakable.
-fn red_to_blue() -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, BLUE],
+fn red_to_blue() -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     })
 }
 
-/// The colour of the red-to-blue colormap at the normalised position `t`, computed independently: a linear
+/// The colour of the red-to-blue colourmap at the normalised position `t`, computed independently: a linear
 /// interpolation in sRGB.
 fn red_to_blue_at(t: f64) -> [u8; 3] {
     [
@@ -251,7 +251,7 @@ fn axes() -> (Fx, NodeId) {
 /// of [`DISTINCT`], edited by `edit`. Returns the scene, the axes and the cells.
 fn distinct_grid(edit: impl FnOnce(&mut ironlab_ir::Cells, &mut Fx)) -> (Scene, NodeId, NodeId) {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(palette(&DISTINCT));
+    let scale = fx.colour_scale(palette(&DISTINCT));
     let cells = fx.cells(
         ax,
         vec![2, 3],
@@ -375,7 +375,7 @@ fn on_logarithmic_axes_the_gap_is_symmetric_on_the_page() {
     let (mut fx, ax) = axes();
     fx.ax(ax).x.scale = Scale::Log;
     fx.ax(ax).y.scale = Scale::Log;
-    let scale = fx.color_scale(palette(&DISTINCT));
+    let scale = fx.colour_scale(palette(&DISTINCT));
     let cells = fx.cells(ax, vec![1, 2], vec![0.0, 1.0], Some(scale), |c, fx| {
         c.columns = CellEdges::Edges(fx.vector(&columns));
         c.rows = CellEdges::Edges(fx.vector(&rows));
@@ -413,7 +413,7 @@ fn on_reversed_axes_cells_keep_their_spans_and_the_gap_stays_an_inset() {
     let (mut fx, ax_reversed) = axes();
     fx.ax(ax_reversed).x.reverse = true;
     fx.ax(ax_reversed).y.reverse = true;
-    let scale = fx.color_scale(palette(&DISTINCT));
+    let scale = fx.colour_scale(palette(&DISTINCT));
     let reversed = fx.cells(
         ax_reversed,
         vec![2, 3],
@@ -455,7 +455,7 @@ fn on_a_logarithmic_axis_a_cell_bounded_by_an_edge_that_is_not_positive_is_not_d
     let columns = [-1.0, 1.0, 10.0, 100.0];
     let (mut fx, ax) = axes();
     fx.ax(ax).x.scale = Scale::Log;
-    let scale = fx.color_scale(palette(&DISTINCT));
+    let scale = fx.colour_scale(palette(&DISTINCT));
     let cells = fx.cells(ax, vec![1, 3], vec![0.0, 1.0, 2.0], Some(scale), |c, fx| {
         c.columns = CellEdges::Edges(fx.vector(&columns));
     });
@@ -485,7 +485,7 @@ fn on_a_logarithmic_axis_a_cell_bounded_by_an_edge_that_is_not_positive_is_not_d
 
     let (mut fx, ax) = axes();
     fx.ax(ax).x.scale = Scale::Log;
-    let scale = fx.color_scale(palette(&DISTINCT));
+    let scale = fx.colour_scale(palette(&DISTINCT));
     let cells = fx.cells(ax, vec![1, 3], vec![0.0, 1.0, 2.0], Some(scale), |_, _| {});
     let scene = compile_figure(&fx.build());
     let drawn_cells = drawn(&scene, ax, cells);
@@ -511,12 +511,12 @@ fn on_a_logarithmic_axis_a_cell_bounded_by_an_edge_that_is_not_positive_is_not_d
 // ---------------------------------------------------------------------------------------------------------------
 
 // Why: the colour of a cell is its value, so it must be exactly the colour the scale gives that value: through a
-// continuous scale, the colormap at the value's place between the limits. Red to blue between 0 and 1 is linear in
-// sRGB, so 0.5 is an even purple; the named colormap of the default scale must agree with its own table entry.
+// continuous scale, the colourmap at the value's place between the limits. Red to blue between 0 and 1 is linear in
+// sRGB, so 0.5 is an even purple; the named colourmap of the default scale must agree with its own table entry.
 #[test]
 fn through_a_continuous_scale_each_cell_takes_the_colour_of_its_value() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let cells = fx.cells(ax, vec![1, 3], vec![0.0, 0.5, 1.0], Some(scale), |_, _| {});
     let scene = compile_figure(&fx.build());
     let drawn_cells = drawn(&scene, ax, cells);
@@ -530,9 +530,9 @@ fn through_a_continuous_scale_each_cell_takes_the_colour_of_its_value() {
     }
 
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
+    let scale = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
         limits: Limits::Manual { min: 0.0, max: 8.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     }));
     let cells = fx.cells(ax, vec![1, 3], vec![0.0, 2.0, 8.0], Some(scale), |_, _| {});
     let scene = compile_figure(&fx.build());
@@ -553,14 +553,14 @@ fn through_a_continuous_scale_each_cell_takes_the_colour_of_its_value() {
 #[test]
 fn through_a_discrete_scale_each_cell_takes_the_single_colour_of_its_band() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(ColorScaleKind::Discrete(DiscreteColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, BLUE],
+    let scale = fx.colour_scale(ColourScaleKind::Discrete(DiscreteColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
-        levels: ColorScaleLevels::Explicit {
+        levels: ColourScaleLevels::Explicit {
             values: vec![0.0, 1.0, 2.0, 3.0],
         },
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     }));
     let cells = fx.cells(
         ax,
@@ -593,7 +593,7 @@ fn through_an_indexed_or_categorical_scale_each_cell_takes_the_entry_its_value_n
     for kind in [palette(&[RED, GREEN, BLUE]), statuses(&[RED, GREEN, BLUE])] {
         for bytes in [false, true] {
             let (mut fx, ax) = axes();
-            let scale = fx.color_scale(kind.clone());
+            let scale = fx.colour_scale(kind.clone());
             let cells = if bytes {
                 fx.cells(ax, vec![1, 4], vec![2u8, 0, 1, 2], Some(scale), |_, _| {})
             } else {
@@ -635,7 +635,7 @@ fn through_an_indexed_or_categorical_scale_each_cell_takes_the_entry_its_value_n
 #[test]
 fn the_nan_padding_of_ragged_rows_draws_nothing_even_when_cells_are_outlined() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(statuses(&[RED, GREEN, BLUE]));
+    let scale = fx.colour_scale(statuses(&[RED, GREEN, BLUE]));
     let nan = f64::NAN;
     let cells = fx.cells(
         ax,
@@ -644,7 +644,7 @@ fn the_nan_padding_of_ragged_rows_draws_nothing_even_when_cells_are_outlined() {
         Some(scale),
         |c, _| {
             c.gap = CellGap { x: 0.2, y: 0.2 };
-            c.edge.color = ColorSpec::Rgba { color: BLACK };
+            c.edge.colour = ColourSpec::Rgba { colour: BLACK };
         },
     );
     let scene = compile_figure(&fx.build());
@@ -689,7 +689,7 @@ fn the_nan_padding_of_ragged_rows_draws_nothing_even_when_cells_are_outlined() {
 #[test]
 fn a_value_the_scale_cannot_place_follows_the_policy_of_its_category() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let cells = fx.cells(
         ax,
         vec![1, 5],
@@ -698,10 +698,10 @@ fn a_value_the_scale_cannot_place_follows_the_policy_of_its_category() {
         |_, _| {},
     );
     let s = fx.scale_mut(scale);
-    s.non_finite = out_of_range(OutOfRange::Rgba { color: GREY });
-    if let ColorScaleKind::Continuous(c) = &mut s.kind {
+    s.non_finite = out_of_range(OutOfRange::Rgba { colour: GREY });
+    if let ColourScaleKind::Continuous(c) = &mut s.kind {
         c.below = out_of_range(OutOfRange::Clamp);
-        c.above = out_of_range(OutOfRange::Rgba { color: GREEN });
+        c.above = out_of_range(OutOfRange::Rgba { colour: GREEN });
     }
     let scene = compile_figure(&fx.build());
     assert!(
@@ -727,9 +727,9 @@ fn a_value_the_scale_cannot_place_follows_the_policy_of_its_category() {
     assert_colour(fill(3), red_to_blue_at(0.5), 2, "0.5 keeps its own colour");
 
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let cells = fx.cells(ax, vec![1, 2], vec![-1.0, 0.5], Some(scale), |_, _| {});
-    if let ColorScaleKind::Continuous(c) = &mut fx.scale_mut(scale).kind {
+    if let ColourScaleKind::Continuous(c) = &mut fx.scale_mut(scale).kind {
         c.below = out_of_range(OutOfRange::Transparent);
     }
     let scene = compile_figure(&fx.build());
@@ -753,7 +753,7 @@ fn a_strict_policy_with_an_offending_value_leaves_the_cells_out_with_one_warning
  {
     let (mut fx, ax) = axes();
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
-    let scale = fx.color_scale(statuses(&[RED, GREEN]));
+    let scale = fx.colour_scale(statuses(&[RED, GREEN]));
     let offending = fx.cells(ax, vec![1, 2], vec![0.0, 2.0], Some(scale), |_, _| {});
     let scene = compile_figure(&fx.build());
     assert!(
@@ -779,7 +779,7 @@ fn a_strict_policy_with_an_offending_value_leaves_the_cells_out_with_one_warning
     );
 
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(statuses(&[RED, GREEN]));
+    let scale = fx.colour_scale(statuses(&[RED, GREEN]));
     fx.scale_mut(scale).non_finite = out_of_range(OutOfRange::Strict);
     let clean = fx.cells(ax, vec![1, 2], vec![0.0, 1.0], Some(scale), |_, _| {});
     let scene = compile_figure(&fx.build());
@@ -806,9 +806,9 @@ fn a_strict_policy_with_an_offending_value_leaves_the_cells_out_with_one_warning
 #[test]
 fn the_alpha_of_each_cell_multiplies_its_colour_and_the_face_opacity() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     fx.scale_mut(scale).non_finite = out_of_range(OutOfRange::Rgba {
-        color: Color::rgba(0.5, 0.5, 0.5, 0.8),
+        colour: Colour::rgba(0.5, 0.5, 0.5, 0.8),
     });
     let cells = fx.cells(
         ax,
@@ -833,7 +833,7 @@ fn the_alpha_of_each_cell_multiplies_its_colour_and_the_face_opacity() {
     assert_close(alpha(4), 0.8 * 0.5 * 0.5, 1e-3);
 
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(palette(&[RED]));
+    let scale = fx.colour_scale(palette(&[RED]));
     let cells = fx.cells(ax, vec![1, 2], vec![0u8, 0], Some(scale), |c, fx| {
         c.alpha = Some(fx.bytes(vec![1, 2], vec![51, 255]));
     });
@@ -863,7 +863,7 @@ fn cells_have_no_outline_by_default_and_a_fixed_edge_outlines_every_cell() {
     );
 
     let (scene, ax, cells) = distinct_grid(|c, _| {
-        c.edge.color = ColorSpec::Rgba { color: BLACK };
+        c.edge.colour = ColourSpec::Rgba { colour: BLACK };
         c.edge.width_pt = 1.5;
         c.edge_opacity = 0.5;
         c.face_opacity = 0.75;
@@ -872,33 +872,33 @@ fn cells_have_no_outline_by_default_and_a_fixed_edge_outlines_every_cell() {
     assert_eq!(drawn_cells.len(), 6);
     for d in &drawn_cells {
         let stroke = d.stroke.as_ref().expect("every cell is outlined");
-        assert_colour(Some(stroke.color), [0, 0, 0], 0, "a black outline");
+        assert_colour(Some(stroke.colour), [0, 0, 0], 0, "a black outline");
         assert_close(stroke.width, 1.5, 1e-12);
-        assert_close(f64::from(stroke.color.a), 0.5, 1e-6);
+        assert_close(f64::from(stroke.colour.a), 0.5, 1e-6);
         assert_close(f64::from(d.fill.expect("filled").a), 0.75, 1e-6);
     }
 }
 
-// Why: a colormapped outline gives each outline the colour of its own cell, as a colormapped bar outline does, so
+// Why: a colourmapped outline gives each outline the colour of its own cell, as a colourmapped bar outline does, so
 // that an outlined matrix reads as one colour per cell rather than as faces framed in a colour of their own.
 #[test]
-fn a_colormapped_edge_gives_each_outline_the_colour_of_its_cell() {
+fn a_colourmapped_edge_gives_each_outline_the_colour_of_its_cell() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let cells = fx.cells(ax, vec![1, 2], vec![0.0, 1.0], Some(scale), |c, _| {
-        c.edge.color = ColorSpec::Colormapped;
+        c.edge.colour = ColourSpec::Colourmapped;
         c.edge.width_pt = 1.0;
     });
     let scene = compile_figure(&fx.build());
     let drawn_cells = drawn(&scene, ax, cells);
     assert_colour(
-        at(&drawn_cells, 0.0, 0.0).stroke.as_ref().map(|s| s.color),
+        at(&drawn_cells, 0.0, 0.0).stroke.as_ref().map(|s| s.colour),
         rgb8_of(RED),
         1,
         "the outline of the cell holding 0",
     );
     assert_colour(
-        at(&drawn_cells, 1.0, 0.0).stroke.as_ref().map(|s| s.color),
+        at(&drawn_cells, 1.0, 0.0).stroke.as_ref().map(|s| s.colour),
         rgb8_of(BLUE),
         1,
         "the outline of the cell holding 1",
@@ -906,26 +906,26 @@ fn a_colormapped_edge_gives_each_outline_the_colour_of_its_cell() {
 }
 
 // Why: an automatic outline colour follows the colour of what it outlines, as the automatic edge colour of a surface
-// follows the colour of each face; for cells that is the cell's own colour, so that `auto` and `colormapped` agree
+// follows the colour of each face; for cells that is the cell's own colour, so that `auto` and `colourmapped` agree
 // and an outlined matrix still reads as one colour per cell rather than as faces framed in a colour of the order.
 #[test]
 fn an_automatic_edge_gives_each_outline_the_colour_of_its_cell() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let cells = fx.cells(ax, vec![1, 2], vec![0.0, 1.0], Some(scale), |c, _| {
-        c.edge.color = ColorSpec::Auto;
+        c.edge.colour = ColourSpec::Auto;
         c.edge.width_pt = 1.0;
     });
     let scene = compile_figure(&fx.build());
     let drawn_cells = drawn(&scene, ax, cells);
     assert_colour(
-        at(&drawn_cells, 0.0, 0.0).stroke.as_ref().map(|s| s.color),
+        at(&drawn_cells, 0.0, 0.0).stroke.as_ref().map(|s| s.colour),
         rgb8_of(RED),
         1,
         "the automatic outline of the cell holding 0",
     );
     assert_colour(
-        at(&drawn_cells, 1.0, 0.0).stroke.as_ref().map(|s| s.color),
+        at(&drawn_cells, 1.0, 0.0).stroke.as_ref().map(|s| s.colour),
         rgb8_of(BLUE),
         1,
         "the automatic outline of the cell holding 1",
@@ -978,7 +978,7 @@ fn automatic_limits_end_exactly_at_the_outer_edges_of_the_cells() {
 #[test]
 fn cells_are_counted_as_dense_content_by_the_number_drawn() {
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let cells = fx.cells(
         ax,
         vec![2, 3],
@@ -990,7 +990,7 @@ fn cells_are_counted_as_dense_content_by_the_number_drawn() {
     assert_eq!(dense_groups(&scene), vec![(Some(cells), 5)]);
 
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let values: Vec<f64> = (0..100 * 100).map(|k| (k % 97) as f64 / 96.0).collect();
     let histogram = fx.cells(ax, vec![100, 100], values, Some(scale), |_, _| {});
     let scene = compile_figure(&fx.build());
@@ -1008,7 +1008,7 @@ fn a_hundred_by_hundred_grid_compiles_in_about_the_time_of_a_surface_of_as_many_
 
     let n = 100;
     let (mut fx, ax) = axes();
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let values: Vec<f64> = (0..n * n).map(|k| (k % 97) as f64 / 96.0).collect();
     fx.cells(ax, vec![n, n], values, Some(scale), |_, _| {});
     let cells_figure = fx.build();
@@ -1045,7 +1045,7 @@ fn a_hundred_by_hundred_grid_compiles_in_about_the_time_of_a_surface_of_as_many_
 fn cells_with_no_rows_or_no_columns_draw_nothing_and_the_axes_is_still_drawn() {
     for shape in [vec![0, 3], vec![2, 0], vec![0, 0]] {
         let (mut fx, ax) = axes();
-        let scale = fx.color_scale(red_to_blue());
+        let scale = fx.colour_scale(red_to_blue());
         let empty = fx.cells(ax, shape.clone(), Vec::<f64>::new(), Some(scale), |_, _| {});
         let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], None, |_| {});
         let scene = compile_figure(&fx.build());
@@ -1064,7 +1064,7 @@ fn cells_with_no_rows_or_no_columns_draw_nothing_and_the_axes_is_still_drawn() {
 fn cells_in_a_three_dimensional_axes_are_left_out_with_a_warning() {
     let mut fx = Fx::new();
     let ax = fx.axes3d(0, 0, View3d::default());
-    let scale = fx.color_scale(red_to_blue());
+    let scale = fx.colour_scale(red_to_blue());
     let cells = fx.cells(ax, vec![1, 2], vec![0.0, 1.0], Some(scale), |_, _| {});
     let line = fx.line(ax, &[0.0, 1.0], &[0.0, 1.0], Some(&[0.0, 1.0]), |_| {});
     let scene = compile_figure(&fx.build());

@@ -16,7 +16,7 @@ use super::layout::{Margins, page_padding};
 use super::paths::{self, PathBuilder};
 use super::style::{self, GRID, INK};
 use super::text::TextBlock;
-use super::{colorbar, legend};
+use super::{colourbar, legend};
 
 /// Returns the side on which axis `dim` of an axes is drawn: its own side where the projection honours it (every axis
 /// of a Cartesian axes, and z of a cylindrical axes), and the low side where it is ignored.
@@ -248,7 +248,7 @@ pub(super) fn emit(
     });
 
     draw_labels(ctx, input, &projector, out);
-    colorbar::draw_inside(ctx, axes, input.plot, input.scales, out, hits);
+    colourbar::draw_inside(ctx, axes, input.plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &[], out, hits);
     hits.axes.push(AxesHit {
         id: axes.id,

@@ -2,7 +2,7 @@
 //! are merged, how entries fill columns, where the block of entries sits, and what happens when they do not fit.
 
 use ironlab_ir::{
-    Color, ColorSpec, DashStyle, InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout,
+    Colour, ColourSpec, DashStyle, InsideLegend, Legend, LegendEntryColumns, LegendEntryLayout,
     LegendEntryOrder, NodeId, PanelLocation, Projection, Series, TrackSize, View3d,
 };
 use ironlab_scene::display::Rect;
@@ -15,8 +15,8 @@ use crate::probe::{
     inside, leaves, outlines, panel_entries, panel_rect, union,
 };
 
-const RED: Color = Color::rgb(0.8, 0.1, 0.1);
-const BLUE: Color = Color::rgb(0.1, 0.2, 0.8);
+const RED: Colour = Colour::rgb(0.8, 0.1, 0.1);
+const BLUE: Colour = Colour::rgb(0.1, 0.2, 0.8);
 
 /// Positions closer than this, in points, are taken to be the same row or column of entries.
 const SAME: f64 = 0.5;
@@ -34,8 +34,8 @@ fn two_axes_and_a_panel() -> (Fx, [NodeId; 2], NodeId) {
 }
 
 /// Sets the colour of a line.
-fn coloured(color: Color) -> impl FnOnce(&mut Series) {
-    move |l| l.line.color = ColorSpec::Rgba { color }
+fn coloured(colour: Colour) -> impl FnOnce(&mut Series) {
+    move |l| l.line.colour = ColourSpec::Rgba { colour }
 }
 
 /// Returns the targets of every entry of a panel, in the order the entries are listed.
@@ -190,10 +190,10 @@ fn entries_with_the_same_name_and_look_from_two_axes_merge_into_one() {
 #[test]
 fn entries_with_the_same_name_but_a_different_look_are_both_listed_and_reported() {
     fn red(l: &mut Series) {
-        l.line.color = ColorSpec::Rgba { color: RED };
+        l.line.colour = ColourSpec::Rgba { colour: RED };
     }
     fn blue(l: &mut Series) {
-        l.line.color = ColorSpec::Rgba { color: BLUE };
+        l.line.colour = ColourSpec::Rgba { colour: BLUE };
     }
     fn red_dashed(l: &mut Series) {
         red(l);
@@ -391,7 +391,7 @@ fn a_three_dimensional_axes_lists_its_entries_in_a_panel() {
     let flat = fx.named_line(left, "Profile", coloured(RED));
     let raised = fx.line(solid, &[0.0, 1.0], &[0.0, 1.0], Some(&[0.0, 1.0]), |l| {
         l.label = Some(ironlab_ir::Text::new("Profile"));
-        l.line.color = ColorSpec::Rgba { color: RED };
+        l.line.colour = ColourSpec::Rgba { colour: RED };
     });
     fx.legend_in(left, panel);
     fx.legend_in(solid, panel);
@@ -691,7 +691,7 @@ fn a_north_west_panel_puts_its_entries_at_the_top_left() {
 // the centre of the block must be the centre of the panel.
 #[test]
 fn a_centred_panel_centres_its_entries() {
-    let (block, area, _) = aligned(PanelLocation::Center);
+    let (block, area, _) = aligned(PanelLocation::Centre);
     let (b, a) = (centre(block), centre(area));
     assert_close(b.x, a.x, 1.0);
     assert_close(b.y, a.y, 1.0);
@@ -714,11 +714,11 @@ fn a_merged_entry_is_greyed_only_when_every_artist_it_stands_for_is_hidden() {
     ] {
         let (mut fx, [left, right], panel) = two_axes_and_a_panel();
         let a = fx.named_line(left, "Shared", |l| {
-            l.line.color = ColorSpec::Rgba { color: RED };
+            l.line.colour = ColourSpec::Rgba { colour: RED };
             l.visible = !hide_left;
         });
         let b = fx.named_line(right, "Shared", |l| {
-            l.line.color = ColorSpec::Rgba { color: RED };
+            l.line.colour = ColourSpec::Rgba { colour: RED };
             l.visible = !hide_right;
         });
         fx.legend_in(left, panel);
@@ -733,7 +733,7 @@ fn a_merged_entry_is_greyed_only_when_every_artist_it_stands_for_is_hidden() {
         let colours: Vec<f32> = from_source(&leaves(&scene), panel)
             .iter()
             .filter(|l| l.bbox().is_some_and(|b| inside(b, entries[0].rect, 0.5)))
-            .flat_map(|l| l.colors())
+            .flat_map(|l| l.colours())
             .map(|c| c.a)
             .collect();
         assert!(!colours.is_empty(), "the entry is drawn");
@@ -826,7 +826,7 @@ fn entries_keep_a_gap_from_the_border_at_every_alignment() {
         PanelLocation::North,
         PanelLocation::NorthEast,
         PanelLocation::West,
-        PanelLocation::Center,
+        PanelLocation::Centre,
         PanelLocation::East,
         PanelLocation::SouthWest,
         PanelLocation::South,

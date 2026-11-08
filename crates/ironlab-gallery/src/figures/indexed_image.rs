@@ -46,21 +46,21 @@ pub fn figure() -> Figure {
     // Both images name one palette. Every index of the frame is a whole number, so it names no entry only because it
     // lies beyond the last, and the scale draws such a value in grey rather than refusing it.
     let palette = fig
-        .indexed_scale(Colormap::Viridis.sample(256))
-        .outside(Color::rgb(0.8, 0.8, 0.8))
+        .indexed_scale(Colourmap::Viridis.sample(256))
+        .outside(Colour::rgb(0.8, 0.8, 0.8))
         .id();
     let mut ax = fig.axes(0, 0);
     ax.scalar_image(&classes)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)
         .pixel_rows(DOMAIN_MIN, DOMAIN_MAX)
-        .color_scale(palette);
+        .colour_scale(palette);
     ax.title("Byte indices").xlabel("$x$").ylabel("$y$");
 
     let mut ax = fig.axes(0, 1);
     ax.scalar_image(&framed)
         .pixel_columns(DOMAIN_MIN, DOMAIN_MAX)
         .pixel_rows(DOMAIN_MIN, DOMAIN_MAX)
-        .color_scale(palette);
+        .colour_scale(palette);
     ax.title("Floating-point indices, framed at 300")
         .xlabel("$x$")
         .ylabel("$y$");

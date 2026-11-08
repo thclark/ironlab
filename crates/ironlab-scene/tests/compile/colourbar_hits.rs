@@ -7,11 +7,11 @@
 //! limits resolved to, the span a scale of one value is drawn over, the edges the compiler chose for automatic bands,
 //! and the default text of a key label, which is formatted as the bar's ticks are.
 //!
-//! The scene API these tests assume, beyond `crates/ironlab-scene/tests/compile/colorbars.rs`:
+//! The scene API these tests assume, beyond `crates/ironlab-scene/tests/compile/colourbars.rs`:
 //!
 //! ```text
 //! // crates/ironlab-scene/src/hit.rs
-//! pub struct ColorbarHit {
+//! pub struct ColourbarHit {
 //!     ...,
 //!     /// How scale values lie along the bar: `min` at `start` and `max` at `end`, which is the low end of the bar
 //!     /// (its bottom when it stands, its left when it lies), in base-10 logarithms under a logarithmic norm. The
@@ -25,25 +25,25 @@
 //!     pub edges: Vec<f64>,
 //! }
 //!
-//! pub struct ColorbarKeyHit {
-//!     pub key: ColorScaleKey,
+//! pub struct ColourbarKeyHit {
+//!     pub key: ColourScaleKey,
 //!     pub rect: Rect,
 //!     /// The source text of the label drawn beside the key: the author's label, or the default label as drawn.
 //!     pub label: String,
 //! }
 //! ```
 //!
-//! `ColorbarKeyHit` is no longer `Copy`, because it carries a `String`.
+//! `ColourbarKeyHit` is no longer `Copy`, because it carries a `String`.
 
 use ironlab_ir::{
-    CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKey, ColorScaleKind,
-    ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColorbarOrientation,
-    ContinuousColorScale, DiscreteColorScale, IndexedColorScale, InsideColorbar,
-    InsideColorbarSide, LegendEntries, LegendItem, Limits, NodeId, OutOfRange, Panel,
-    PanelColorbar, PanelContent, PanelLocation, Text, TrackSize,
+    CategoricalColourScale, Cell, Colour, ColourCategory, ColourScaleKey, ColourScaleKind,
+    ColourScaleLevels, ColourScaleNorm, ColourScaleOutOfRange, ColourbarOrientation,
+    ContinuousColourScale, DiscreteColourScale, IndexedColourScale, InsideColourbar,
+    InsideColourbarSide, LegendEntries, LegendItem, Limits, NodeId, OutOfRange, Panel,
+    PanelColourbar, PanelContent, PanelLocation, Text, TrackSize,
 };
 use ironlab_scene::Scene;
-use ironlab_scene::hit::{AxisMap, ColorbarHit, ColorbarOwner, LegendOwner};
+use ironlab_scene::hit::{AxisMap, ColourbarHit, ColourbarOwner, LegendOwner};
 
 use crate::common::{Fx, cell, compile_figure, out_of_range, xy};
 
@@ -58,36 +58,36 @@ fn manual(min: f64, max: f64) -> Limits {
     Limits::Manual { min, max }
 }
 
-fn continuous(limits: Limits, norm: ColorScaleNorm) -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale {
+fn continuous(limits: Limits, norm: ColourScaleNorm) -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale {
         limits,
         norm,
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     })
 }
 
-fn discrete(levels: ColorScaleLevels) -> ColorScaleKind {
-    ColorScaleKind::Discrete(DiscreteColorScale {
+fn discrete(levels: ColourScaleLevels) -> ColourScaleKind {
+    ColourScaleKind::Discrete(DiscreteColourScale {
         levels,
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     })
 }
 
-fn indexed(n: usize) -> ColorScaleKind {
-    ColorScaleKind::Indexed(IndexedColorScale {
-        colors: (0..n)
-            .map(|k| Color::rgb(k as f32 / n as f32, 0.5, 0.5))
+fn indexed(n: usize) -> ColourScaleKind {
+    ColourScaleKind::Indexed(IndexedColourScale {
+        colours: (0..n)
+            .map(|k| Colour::rgb(k as f32 / n as f32, 0.5, 0.5))
             .collect(),
-        ..IndexedColorScale::default()
+        ..IndexedColourScale::default()
     })
 }
 
-fn categorical(labels: &[&str]) -> ColorScaleKind {
-    ColorScaleKind::Categorical(CategoricalColorScale {
+fn categorical(labels: &[&str]) -> ColourScaleKind {
+    ColourScaleKind::Categorical(CategoricalColourScale {
         categories: labels
             .iter()
-            .map(|label| ColorCategory {
-                color: Color::rgb(0.2, 0.4, 0.6),
+            .map(|label| ColourCategory {
+                colour: Colour::rgb(0.2, 0.4, 0.6),
                 label: Text::plain(*label),
             })
             .collect(),
@@ -95,8 +95,8 @@ fn categorical(labels: &[&str]) -> ColorScaleKind {
     })
 }
 
-fn keyed(policy: OutOfRange, label: Option<&str>) -> ColorScaleOutOfRange {
-    ColorScaleOutOfRange {
+fn keyed(policy: OutOfRange, label: Option<&str>) -> ColourScaleOutOfRange {
+    ColourScaleOutOfRange {
         policy,
         show_key: true,
         label: label.map(Text::plain),
@@ -104,23 +104,23 @@ fn keyed(policy: OutOfRange, label: Option<&str>) -> ColorScaleOutOfRange {
 }
 
 /// Adds a colourbar panel of `scale` in `cell` with the given orientation, centred, and returns its identifier.
-fn colorbar_panel(
+fn colourbar_panel(
     fx: &mut Fx,
     cell: Cell,
     scale: NodeId,
-    orientation: ColorbarOrientation,
+    orientation: ColourbarOrientation,
 ) -> NodeId {
     let id = fx.node();
     fx.fig.panels.push(Panel {
         id,
         cell,
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: ironlab_ir::TitleAlign::Left,
-        content: PanelContent::Colorbar(PanelColorbar {
+        content: PanelContent::Colourbar(PanelColourbar {
             scale,
             orientation,
-            ..PanelColorbar::default()
+            ..PanelColourbar::default()
         }),
     });
     id
@@ -128,12 +128,12 @@ fn colorbar_panel(
 
 /// One 2D axes beside a fitted column holding a vertical colourbar panel of a scale of the given kind, with an image
 /// of `values` (one row) through the scale when there are any. Returns the figure, the axes, the scale and the panel.
-fn bar_beside(kind: ColorScaleKind, values: &[f64]) -> (Fx, NodeId, NodeId, NodeId) {
+fn bar_beside(kind: ColourScaleKind, values: &[f64]) -> (Fx, NodeId, NodeId, NodeId) {
     let mut fx = Fx::new();
     fx.fig.layout.cols = 2;
     fx.fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(kind);
+    let scale = fx.colour_scale(kind);
     if !values.is_empty() {
         fx.scalar_image(
             ax,
@@ -144,20 +144,20 @@ fn bar_beside(kind: ColorScaleKind, values: &[f64]) -> (Fx, NodeId, NodeId, Node
             |_| {},
         );
     }
-    let panel = colorbar_panel(
+    let panel = colourbar_panel(
         &mut fx,
         cell(0, 1, 1, 1),
         scale,
-        ColorbarOrientation::Vertical,
+        ColourbarOrientation::Vertical,
     );
     (fx, ax, scale, panel)
 }
 
 #[track_caller]
-fn bar_of(scene: &Scene, owner: ColorbarOwner) -> ColorbarHit {
-    let found: Vec<&ColorbarHit> = scene
+fn bar_of(scene: &Scene, owner: ColourbarOwner) -> ColourbarHit {
+    let found: Vec<&ColourbarHit> = scene
         .hit_map
-        .colorbars
+        .colourbars
         .iter()
         .filter(|c| c.owner == owner)
         .collect();
@@ -165,13 +165,13 @@ fn bar_of(scene: &Scene, owner: ColorbarOwner) -> ColorbarHit {
         found.len(),
         1,
         "one colourbar of {owner:?}: {:?}",
-        scene.hit_map.colorbars
+        scene.hit_map.colourbars
     );
     found[0].clone()
 }
 
 #[track_caller]
-fn map_of(hit: &ColorbarHit) -> AxisMap {
+fn map_of(hit: &ColourbarHit) -> AxisMap {
     hit.map.unwrap_or_else(|| {
         panic!(
             "the bar of {:?} publishes how values lie along it",
@@ -195,9 +195,9 @@ fn close(a: f64, b: f64, tol: f64, what: &str) {
 // rectangle the hit map publishes, or a reading would be off by however far the two disagree.
 #[test]
 fn a_bar_publishes_its_limits_from_its_low_end_to_its_high_end_over_the_bar_itself() {
-    let (fx, _, _, panel) = bar_beside(continuous(manual(2.0, 8.0), ColorScaleNorm::Linear), &[]);
+    let (fx, _, _, panel) = bar_beside(continuous(manual(2.0, 8.0), ColourScaleNorm::Linear), &[]);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     let map = map_of(&hit);
     assert_eq!((map.min, map.max, map.log), (2.0, 8.0, false));
     close(
@@ -212,15 +212,15 @@ fn a_bar_publishes_its_limits_from_its_low_end_to_its_high_end_over_the_bar_itse
     fx.fig.layout.rows = 2;
     fx.fig.layout.row_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     fx.axes2d(0, 0);
-    let scale = fx.color_scale(continuous(manual(2.0, 8.0), ColorScaleNorm::Linear));
-    let lying = colorbar_panel(
+    let scale = fx.colour_scale(continuous(manual(2.0, 8.0), ColourScaleNorm::Linear));
+    let lying = colourbar_panel(
         &mut fx,
         cell(1, 0, 1, 1),
         scale,
-        ColorbarOrientation::Horizontal,
+        ColourbarOrientation::Horizontal,
     );
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(lying));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(lying));
     let map = map_of(&hit);
     close(
         map.start,
@@ -242,15 +242,15 @@ fn a_bar_publishes_its_limits_from_its_low_end_to_its_high_end_over_the_bar_itse
 #[test]
 fn a_bar_of_automatic_limits_publishes_the_limits_they_resolved_to() {
     let (fx, _, scale, panel) = bar_beside(
-        continuous(Limits::Auto, ColorScaleNorm::Linear),
+        continuous(Limits::Auto, ColourScaleNorm::Linear),
         &[3.0, -1.0, 7.5],
     );
     let figure = fx.build();
     let scene = compile_figure(&figure);
-    let map = map_of(&bar_of(&scene, ColorbarOwner::Panel(panel)));
+    let map = map_of(&bar_of(&scene, ColourbarOwner::Panel(panel)));
     assert_eq!(
         Some((map.min, map.max)),
-        figure.automatic_color_limits(scale),
+        figure.automatic_colour_limits(scale),
         "the bar runs over the automatic limits the IR defines"
     );
     assert_eq!((map.min, map.max), (-1.0, 7.5));
@@ -260,9 +260,9 @@ fn a_bar_of_automatic_limits_publishes_the_limits_they_resolved_to() {
 // must be computed in logarithms; the bar says so, as an axis map does for a logarithmic axis.
 #[test]
 fn a_bar_of_a_logarithmic_scale_publishes_a_logarithmic_mapping() {
-    let (fx, _, _, panel) = bar_beside(continuous(manual(1.0, 1000.0), ColorScaleNorm::Log), &[]);
+    let (fx, _, _, panel) = bar_beside(continuous(manual(1.0, 1000.0), ColourScaleNorm::Log), &[]);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     let map = map_of(&hit);
     assert!(map.log, "the mapping is logarithmic");
     assert_eq!((map.min, map.max), (1.0, 1000.0));
@@ -280,11 +280,11 @@ fn a_bar_of_a_logarithmic_scale_publishes_a_logarithmic_mapping() {
 #[test]
 fn a_bar_of_one_value_publishes_the_span_it_is_drawn_over() {
     let (fx, _, _, panel) = bar_beside(
-        continuous(Limits::Auto, ColorScaleNorm::Linear),
+        continuous(Limits::Auto, ColourScaleNorm::Linear),
         &[5.0, 5.0],
     );
     let scene = compile_figure(&fx.build());
-    let map = map_of(&bar_of(&scene, ColorbarOwner::Panel(panel)));
+    let map = map_of(&bar_of(&scene, ColourbarOwner::Panel(panel)));
     assert!(
         map.min < 5.0 && 5.0 < map.max && map.max - map.min > 0.0,
         "the bar is drawn over a span about the one value: {map:?}"
@@ -297,14 +297,14 @@ fn a_bar_of_one_value_publishes_the_span_it_is_drawn_over() {
 #[test]
 fn a_discrete_bar_publishes_the_edges_it_drew_from_one_end_of_the_bar_to_the_other() {
     let (fx, _, _, panel) = bar_beside(
-        discrete(ColorScaleLevels::Auto {
+        discrete(ColourScaleLevels::Auto {
             count: 5,
             limits: manual(0.0, 10.0),
         }),
         &[],
     );
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     let map = map_of(&hit);
     assert!(
         hit.edges.len() >= 3,
@@ -329,13 +329,13 @@ fn a_discrete_bar_publishes_the_edges_it_drew_from_one_end_of_the_bar_to_the_oth
 
     let explicit = [0.0, 0.5, 1.0, 2.0];
     let (fx, _, _, panel) = bar_beside(
-        discrete(ColorScaleLevels::Explicit {
+        discrete(ColourScaleLevels::Explicit {
             values: explicit.to_vec(),
         }),
         &[],
     );
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     assert_eq!(hit.edges, explicit, "explicit edges are drawn as given");
     let map = map_of(&hit);
     assert_eq!((map.min, map.max), (0.0, 2.0));
@@ -348,7 +348,7 @@ fn a_discrete_bar_publishes_the_edges_it_drew_from_one_end_of_the_bar_to_the_oth
 fn an_indexed_bar_maps_every_entry_to_the_centre_of_its_block() {
     let (fx, _, _, panel) = bar_beside(indexed(6), &[]);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     let map = map_of(&hit);
     assert_eq!((map.min, map.max, map.log), (-0.5, 5.5, false));
     assert!(hit.edges.is_empty(), "an indexed bar has no band edges");
@@ -360,7 +360,7 @@ fn an_indexed_bar_maps_every_entry_to_the_centre_of_its_block() {
 fn a_categorical_key_publishes_no_mapping_and_no_edges() {
     let (fx, _, _, panel) = bar_beside(categorical(&["Water", "Forest", "Rock"]), &[]);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     assert_eq!(hit.map, None);
     assert!(hit.edges.is_empty());
     assert_eq!(hit.entries.len(), 3);
@@ -375,16 +375,16 @@ fn a_categorical_key_publishes_no_mapping_and_no_edges() {
 // is one.
 #[test]
 fn every_key_publishes_the_label_it_drew() {
-    let mut kind = continuous(manual(0.0, 10.0), ColorScaleNorm::Linear);
-    if let ColorScaleKind::Continuous(scale) = &mut kind {
+    let mut kind = continuous(manual(0.0, 10.0), ColourScaleNorm::Linear);
+    if let ColourScaleKind::Continuous(scale) = &mut kind {
         scale.below = keyed(OutOfRange::Clamp, None);
         scale.above = keyed(OutOfRange::Clamp, Some("Saturated"));
     }
     let (mut fx, _, scale, panel) = bar_beside(kind, &[]);
     fx.scale_mut(scale).non_finite = keyed(OutOfRange::Transparent, None);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
-    let label = |key: ColorScaleKey| -> String {
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
+    let label = |key: ColourScaleKey| -> String {
         hit.keys
             .iter()
             .find(|k| k.key == key)
@@ -393,24 +393,24 @@ fn every_key_publishes_the_label_it_drew() {
             .clone()
     };
     assert_eq!(
-        label(ColorScaleKey::Below),
+        label(ColourScaleKey::Below),
         "< 0",
         "the lower limit as its tick writes it"
     );
     assert_eq!(
-        label(ColorScaleKey::Above),
+        label(ColourScaleKey::Above),
         "Saturated",
         "the author's label verbatim"
     );
-    assert_eq!(label(ColorScaleKey::NonFinite), "NaN / Inf");
+    assert_eq!(label(ColourScaleKey::NonFinite), "NaN / Inf");
 
     let mut kind = indexed(3);
-    if let ColorScaleKind::Indexed(scale) = &mut kind {
+    if let ColourScaleKind::Indexed(scale) = &mut kind {
         scale.outside = keyed(OutOfRange::Clamp, None);
     }
     let (fx, _, _, panel) = bar_beside(kind, &[]);
     let scene = compile_figure(&fx.build());
-    let hit = bar_of(&scene, ColorbarOwner::Panel(panel));
+    let hit = bar_of(&scene, ColourbarOwner::Panel(panel));
     assert_eq!(
         hit.keys
             .iter()
@@ -433,7 +433,7 @@ fn every_bar_of_one_scale_publishes_the_same_limits_and_edges() {
     fx.fig.layout.cols = 3;
     fx.fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit, TrackSize::Fit];
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(discrete(ColorScaleLevels::Auto {
+    let scale = fx.colour_scale(discrete(ColourScaleLevels::Auto {
         count: 4,
         limits: Limits::Auto,
     }));
@@ -445,26 +445,26 @@ fn every_bar_of_one_scale_publishes_the_same_limits_and_edges() {
         xy(None, None),
         |_| {},
     );
-    fx.ax(ax).colorbar = Some(InsideColorbar {
+    fx.ax(ax).colourbar = Some(InsideColourbar {
         scale,
-        side: InsideColorbarSide::East,
+        side: InsideColourbarSide::East,
         length: 0.8,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
-    let bar_panel = colorbar_panel(
+    let bar_panel = colourbar_panel(
         &mut fx,
         cell(0, 1, 1, 1),
         scale,
-        ColorbarOrientation::Vertical,
+        ColourbarOrientation::Vertical,
     );
     let legend = fx.panel(cell(0, 2, 1, 1));
-    fx.legend_mut(legend).entries = LegendEntries::Explicit(vec![LegendItem::color_scale(scale)]);
+    fx.legend_mut(legend).entries = LegendEntries::Explicit(vec![LegendItem::colour_scale(scale)]);
     let scene = compile_figure(&fx.build());
 
-    let bars: Vec<ColorbarHit> = [
-        ColorbarOwner::Panel(bar_panel),
-        ColorbarOwner::Axes(ax),
-        ColorbarOwner::Legend(LegendOwner::Panel(legend)),
+    let bars: Vec<ColourbarHit> = [
+        ColourbarOwner::Panel(bar_panel),
+        ColourbarOwner::Axes(ax),
+        ColourbarOwner::Legend(LegendOwner::Panel(legend)),
     ]
     .into_iter()
     .map(|owner| bar_of(&scene, owner))

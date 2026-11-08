@@ -143,12 +143,12 @@ fn circle_segments(cx: f64, cy: f64, r: f64) -> Vec<PathSegment> {
     ]
 }
 
-fn filled(segments: Vec<PathSegment>, color: Rgba, rule: FillRule) -> Item {
+fn filled(segments: Vec<PathSegment>, colour: Rgba, rule: FillRule) -> Item {
     Item {
         source: None,
         kind: ItemKind::Path(PathItem {
             segments,
-            fill: Some(Fill { color, rule }),
+            fill: Some(Fill { colour, rule }),
             stroke: None,
             depth: None,
         }),
@@ -169,7 +169,7 @@ fn group(clip: Option<Rect>, transform: Option<Transform>, items: Vec<Item>) -> 
 /// A solid black stroke of `width` with butt caps and miter joins.
 fn black_stroke(width: f64) -> Stroke {
     Stroke {
-        color: Rgba::BLACK,
+        colour: Rgba::BLACK,
         width,
         dash: Vec::new(),
         dash_offset: 0.0,
@@ -178,10 +178,10 @@ fn black_stroke(width: f64) -> Stroke {
     }
 }
 
-/// A stroke of `width` in `color` along `segments`, dashed by `dash` from `dash_offset`, with `cap` and `join`.
+/// A stroke of `width` in `colour` along `segments`, dashed by `dash` from `dash_offset`, with `cap` and `join`.
 fn stroked(
     segments: Vec<PathSegment>,
-    color: Rgba,
+    colour: Rgba,
     width: f64,
     dash: Vec<f64>,
     dash_offset: f64,
@@ -194,7 +194,7 @@ fn stroked(
             segments,
             fill: None,
             stroke: Some(Stroke {
-                color,
+                colour,
                 width,
                 dash,
                 dash_offset,
@@ -219,14 +219,14 @@ fn solid(segments: Vec<PathSegment>) -> Item {
     )
 }
 
-/// A path filled in `color` with the non-zero rule and stroked by `stroke`.
-fn filled_and_stroked(segments: Vec<PathSegment>, color: Rgba, stroke: Stroke) -> Item {
+/// A path filled in `colour` with the non-zero rule and stroked by `stroke`.
+fn filled_and_stroked(segments: Vec<PathSegment>, colour: Rgba, stroke: Stroke) -> Item {
     Item {
         source: None,
         kind: ItemKind::Path(PathItem {
             segments,
             fill: Some(Fill {
-                color,
+                colour,
                 rule: FillRule::NonZero,
             }),
             stroke: Some(stroke),
@@ -266,9 +266,9 @@ fn hairline() -> Item {
     )
 }
 
-/// A run of the glyphs of `text` at `size` points in `color`, laid out by the text engine so that the glyph ids,
+/// A run of the glyphs of `text` at `size` points in `colour`, laid out by the text engine so that the glyph ids,
 /// the font and the advances are real, with the pen origin of the layout at `origin`.
-fn glyph_run(text: &str, origin: Point, size: f64, color: Rgba) -> Item {
+fn glyph_run(text: &str, origin: Point, size: f64, colour: Rgba) -> Item {
     let layout = TEXT.layout(text, false, size);
     let run = layout
         .items
@@ -284,7 +284,7 @@ fn glyph_run(text: &str, origin: Point, size: f64, color: Rgba) -> Item {
             stroke_em: 0.0,
             font: run.font,
             size_pt: run.size_pt,
-            color,
+            colour,
             text: run.text.clone(),
             glyphs: run
                 .glyphs
@@ -325,9 +325,9 @@ fn sourced(mut item: Item, id: u64) -> Item {
 }
 
 /// A filled square of side `size` with its top-left corner at `(x, y)`, lying at `plane`.
-fn square_at(x: f64, y: f64, size: f64, color: Rgba, plane: DepthPlane) -> Item {
+fn square_at(x: f64, y: f64, size: f64, colour: Rgba, plane: DepthPlane) -> Item {
     with_depth(
-        filled(rect_segments(x, y, size, size), color, FillRule::NonZero),
+        filled(rect_segments(x, y, size, size), colour, FillRule::NonZero),
         Depth::Plane(plane),
     )
 }
@@ -718,7 +718,7 @@ fn laid_out(list: &DrawList, draw: &Draw, size: f32, slot: u32) -> Vec<[Vertex; 
                 pos: [size * v.pos[0] + v.offset[0], size * v.pos[1] + v.offset[1]],
                 z: 0.0,
                 uv: [0.0, 0.0],
-                color: [0; 4],
+                colour: [0; 4],
             })
         })
         .collect()
@@ -768,7 +768,7 @@ fn premultiplied_fractions(r: u8, g: u8, b: u8, a: u8) -> [f32; 4] {
 
 /// Asserts that every channel of `actual` lies within one byte step of `expected`.
 #[track_caller]
-fn assert_color_close(actual: [f32; 4], expected: [f32; 4], what: &str) {
+fn assert_colour_close(actual: [f32; 4], expected: [f32; 4], what: &str) {
     assert!(
         actual
             .iter()
@@ -1102,7 +1102,7 @@ fn assert_well_formed(list: &DrawList) {
     }
     for (k, m) in list.markers.iter().enumerate() {
         assert!(
-            m.center
+            m.centre
                 .iter()
                 .chain([&m.z, &m.size])
                 .all(|c| c.is_finite()),
@@ -1196,7 +1196,7 @@ fn assert_well_formed(list: &DrawList) {
             p.linear
                 .iter()
                 .chain(&p.offset)
-                .chain(&p.color)
+                .chain(&p.colour)
                 .chain([&p.width, &p.dash_offset, &p.period, &p.z])
                 .chain(&p.dashes[..count])
                 .all(|v| v.is_finite()),
@@ -1301,7 +1301,7 @@ fn assert_textured_quad(
             "vertex {k}, with texture coordinate ({u}, {v}), lies at {expected:?}: {vertex:?}"
         );
         assert_eq!(
-            vertex.color,
+            vertex.colour,
             [255, 255, 255, 255],
             "the texture is drawn unmodulated: {vertex:?}"
         );
@@ -1579,7 +1579,7 @@ fn a_leaf_beneath_an_empty_clip_or_a_degenerate_transform_draws_nothing() {
 // does, or the two would differ in brightness.
 #[test]
 fn colours_are_premultiplied_as_egui_premultiplies_them_for_fills_and_strokes_alike() {
-    for (color, expected) in [
+    for (colour, expected) in [
         (Rgba::new(1.0, 0.0, 0.0, 0.5), premultiplied(255, 0, 0, 128)),
         (
             Rgba::new(0.2, 0.4, 0.6, 0.4),
@@ -1590,12 +1590,12 @@ fn colours_are_premultiplied_as_egui_premultiplies_them_for_fills_and_strokes_al
         let drawn = draw_list(&list(vec![
             filled(
                 rect_segments(0.0, 0.0, 10.0, 10.0),
-                color,
+                colour,
                 FillRule::NonZero,
             ),
             stroked(
                 line_segments(),
-                color,
+                colour,
                 4.0,
                 Vec::new(),
                 0.0,
@@ -1614,18 +1614,18 @@ fn colours_are_premultiplied_as_egui_premultiplies_them_for_fills_and_strokes_al
         assert!(!vertices.is_empty());
         for v in vertices {
             assert!(
-                v.color
+                v.colour
                     .iter()
                     .zip(expected)
                     .all(|(&got, want)| got.abs_diff(want) <= 1),
-                "expected premultiplied {expected:?} for {color:?}, got {:?}",
-                v.color
+                "expected premultiplied {expected:?} for {colour:?}, got {:?}",
+                v.colour
             );
         }
-        assert_color_close(
-            params_of(&drawn, &drawn.draws[1]).color,
+        assert_colour_close(
+            params_of(&drawn, &drawn.draws[1]).colour,
             expected.map(|c| f32::from(c) / 255.0),
-            &format!("the stroke's params carry the same premultiplied colour for {color:?}"),
+            &format!("the stroke's params carry the same premultiplied colour for {colour:?}"),
         );
     }
 }
@@ -1666,7 +1666,7 @@ fn draws_follow_the_paint_order_of_the_leaves() {
     let colours: Vec<[u8; 4]> = drawn
         .draws
         .iter()
-        .map(|draw| vertices_of_draw(&drawn, draw)[0].color)
+        .map(|draw| vertices_of_draw(&drawn, draw)[0].colour)
         .collect();
     assert_eq!(
         colours,
@@ -1682,7 +1682,7 @@ fn draws_follow_the_paint_order_of_the_leaves() {
     for draw in &drawn.draws {
         let vertices = vertices_of_draw(&drawn, draw);
         assert!(
-            vertices.iter().all(|v| v.color == vertices[0].color),
+            vertices.iter().all(|v| v.colour == vertices[0].colour),
             "a draw holds one leaf's colour: {vertices:?}"
         );
     }
@@ -1694,10 +1694,10 @@ fn draws_follow_the_paint_order_of_the_leaves() {
 #[test]
 fn invalid_items_are_skipped_without_panicking_and_valid_items_still_draw() {
     let along = || polyline(&[(0.0, 200.0), (100.0, 200.0)]);
-    let bad_stroke = |color: Rgba, width: f64, dash: Vec<f64>| {
+    let bad_stroke = |colour: Rgba, width: f64, dash: Vec<f64>| {
         stroked(
             along(),
-            color,
+            colour,
             width,
             dash,
             0.0,
@@ -1779,7 +1779,7 @@ fn invalid_items_are_skipped_without_panicking_and_valid_items_still_draw() {
         ),
         with_run(
             sourced(glyph_h(Point::new(0.0, 0.0), 10.0, Rgba::BLACK), 12),
-            |run| run.color = nan_colour,
+            |run| run.colour = nan_colour,
         ),
         sourced(
             filled(
@@ -2336,7 +2336,7 @@ fn a_stroke_draws_params_carry_the_leafs_transform_colour_width_cap_and_join() {
         e: 100.0,
         f: 200.0,
     };
-    let color = Rgba::new(0.2, 0.4, 0.6, 0.4);
+    let colour = Rgba::new(0.2, 0.4, 0.6, 0.4);
     for (cap, join) in [
         (LineCap::Butt, LineJoin::Miter),
         (LineCap::Round, LineJoin::Round),
@@ -2351,7 +2351,7 @@ fn a_stroke_draws_params_carry_the_leafs_transform_colour_width_cap_and_join() {
                 vec![sourced(
                     stroked(
                         polyline(&[(0.0, 0.0), (30.0, 0.0), (30.0, 40.0)]),
-                        color,
+                        colour,
                         3.5,
                         Vec::new(),
                         0.0,
@@ -2382,8 +2382,8 @@ fn a_stroke_draws_params_carry_the_leafs_transform_colour_width_cap_and_join() {
             [108.75, 217.5, 0.0, 0.0],
             "the translation is [e, f, 0, 0] of the composed transform: {params:?}"
         );
-        assert_color_close(
-            params.color,
+        assert_colour_close(
+            params.colour,
             premultiplied_fractions(51, 102, 153, 102),
             "the colour is premultiplied as a fill's vertices are",
         );
@@ -2674,13 +2674,13 @@ fn an_invalid_stroke_gives_no_stroke_draw_while_the_fill_of_the_same_path_still_
             0.0,
         ),
     ];
-    for (what, color, width, dash, dash_offset) in cases {
+    for (what, colour, width, dash, dash_offset) in cases {
         let drawn = draw_list(&list(vec![sourced(
             filled_and_stroked(
                 rect_segments(30.0, 40.0, 50.0, 20.0),
                 red,
                 Stroke {
-                    color,
+                    colour,
                     width,
                     dash,
                     dash_offset,
@@ -3155,14 +3155,14 @@ fn each_instance_carries_its_centre_size_and_premultiplied_colours_with_transpar
         instances_of(&drawn, draw),
         &[
             MarkerGpu {
-                center: [10.5, 20.25],
+                centre: [10.5, 20.25],
                 z: 0.0,
                 size: 7.5,
                 face: premultiplied(51, 102, 153, 102),
                 edge: [0, 0, 0, 0],
             },
             MarkerGpu {
-                center: [-3.0, 4.0],
+                centre: [-3.0, 4.0],
                 z: 0.0,
                 size: 3.0,
                 face: [0, 0, 0, 0],
@@ -3245,7 +3245,7 @@ fn the_params_of_a_markers_draw_carry_the_leafs_transform_and_take_the_depth_fro
             "{what}, the params carry no depth of their own: {params:?}"
         );
         assert_eq!(
-            instances_of(&drawn, draw)[0].center,
+            instances_of(&drawn, draw)[0].centre,
             [1.0, 2.0],
             "{what}, the centre stays in item space"
         );
@@ -3475,7 +3475,7 @@ fn a_markers_draw_keeps_its_place_in_the_paint_order_with_the_leafs_clip_and_sou
         params_of(&drawn, draw)
     );
     assert_eq!(
-        instances_of(&drawn, draw)[0].center,
+        instances_of(&drawn, draw)[0].centre,
         [5.0, 5.0],
         "the centre stays in item space: {:?}",
         instances_of(&drawn, draw)
@@ -3561,7 +3561,7 @@ fn a_glyph_is_drawn_at_its_size_above_its_baseline_origin() {
     assert!(
         vertices_of_draw(&drawn, draw)
             .iter()
-            .all(|v| v.color == [0, 0, 255, 255]),
+            .all(|v| v.colour == [0, 0, 255, 255]),
         "the glyph is drawn in the run colour"
     );
     assert_outside_depth_groups(&drawn);
@@ -4416,7 +4416,7 @@ fn a_depth_group_gives_depth_tested_draws_in_paint_order_with_z_normalised_over_
         "the nearer square lies at z = 0: {near_vertices:?}"
     );
     assert!(
-        near_vertices.iter().all(|v| v.color == [255, 0, 0, 255]),
+        near_vertices.iter().all(|v| v.colour == [255, 0, 0, 255]),
         "colours are premultiplied sRGB bytes: {near_vertices:?}"
     );
     assert_span(
@@ -5149,7 +5149,7 @@ fn a_mesh_image_is_textured_triangles_on_its_piecewise_affine_map_cut_at_tile_bo
                 "the vertex sampling ({pu}, {pv}) lies at {expected:?}: {vertex:?}"
             );
             assert_eq!(
-                vertex.color,
+                vertex.colour,
                 [255, 255, 255, 255],
                 "the texture is drawn unmodulated"
             );

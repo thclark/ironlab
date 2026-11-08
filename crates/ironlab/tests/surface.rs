@@ -3,22 +3,22 @@
 mod common;
 
 use common::{axes, data, has_error_at, is_3d, parent, small_grid, surface};
-use ironlab::ir::{ColorSpec, Grid, IssueKind, NdArray, Projection, View3d};
+use ironlab::ir::{ColourSpec, Grid, IssueKind, NdArray, Projection, View3d};
 use ironlab::prelude::*;
 
-// WHY: surf's look is defined by colormapped faces with black edges (MATLAB `shading
+// WHY: surf's look is defined by colourmapped faces with black edges (MATLAB `shading
 // faceted`); these defaults are what the gallery and users rely on.
 #[test]
-fn surf_defaults_to_colormapped_faces_and_black_edges() {
+fn surf_defaults_to_colourmapped_faces_and_black_edges() {
     let (x, y, z) = small_grid();
     let mut fig = Figure::new();
     let id = fig.axes(0, 0).surf(&x, &y, &z).id();
     let s = surface(&fig, id);
-    assert_eq!(s.face, ColorSpec::Colormapped);
+    assert_eq!(s.face, ColourSpec::Colourmapped);
     assert_eq!(
         s.edge,
-        ColorSpec::Rgba {
-            color: Color::BLACK
+        ColourSpec::Rgba {
+            colour: Colour::BLACK
         }
     );
     assert_eq!(s.c, None);
@@ -29,33 +29,33 @@ fn surf_defaults_to_colormapped_faces_and_black_edges() {
 }
 
 // WHY: mesh differs from surf only in colours: faces take the figure background (so
-// they occlude hidden edges) and edges are colormapped. This must use the figure's
+// they occlude hidden edges) and edges are colourmapped. This must use the figure's
 // actual background, which is white by default.
 #[test]
-fn mesh_has_background_faces_and_colormapped_edges() {
+fn mesh_has_background_faces_and_colourmapped_edges() {
     let (x, y, z) = small_grid();
     let mut fig = Figure::new();
     let id = fig.axes(0, 0).mesh(&x, &y, &z).id();
     let s = surface(&fig, id);
     assert_eq!(
         s.face,
-        ColorSpec::Rgba {
-            color: Color::WHITE
+        ColourSpec::Rgba {
+            colour: Colour::WHITE
         }
     );
-    assert_eq!(s.edge, ColorSpec::Colormapped);
+    assert_eq!(s.edge, ColourSpec::Colourmapped);
 }
 
-// WHY: see mesh_has_background_faces_and_colormapped_edges; a non-white background
+// WHY: see mesh_has_background_faces_and_colourmapped_edges; a non-white background
 // must be honoured, or meshes on dark figures show white faces.
 #[test]
 fn mesh_faces_follow_a_non_default_background() {
     let (x, y, z) = small_grid();
-    let dark = Color::rgb(0.1, 0.1, 0.1);
+    let dark = Colour::rgb(0.1, 0.1, 0.1);
     let mut fig = Figure::new();
     fig.ir_mut().background = dark;
     let id = fig.axes(0, 0).mesh(&x, &y, &z).id();
-    assert_eq!(surface(&fig, id).face, ColorSpec::Rgba { color: dark });
+    assert_eq!(surface(&fig, id).face, ColourSpec::Rgba { colour: dark });
 }
 
 // WHY: surf and mesh are the 3D plots of MATLAB; like MATLAB they must convert a 2D
@@ -82,22 +82,22 @@ fn surface_setters_map_to_ir_fields() {
     let id = fig
         .axes(0, 0)
         .surf(&x, &y, &z)
-        .edge_color(None)
-        .face_color(Color::rgb(0.5, 0.5, 0.5))
+        .edge_colour(None)
+        .face_colour(Colour::rgb(0.5, 0.5, 0.5))
         .edge_width(1.25)
-        .color_data(&c)
+        .colour_data(&c)
         .label("field")
         .id();
     let s = surface(&fig, id);
-    assert_eq!(s.edge, ColorSpec::None);
+    assert_eq!(s.edge, ColourSpec::None);
     assert_eq!(
         s.face,
-        ColorSpec::Rgba {
-            color: Color::rgb(0.5, 0.5, 0.5)
+        ColourSpec::Rgba {
+            colour: Colour::rgb(0.5, 0.5, 0.5)
         }
     );
     assert_eq!(s.edge_width_pt, 1.25);
-    let stored = data(&fig, s.c.expect("color_data stores c"));
+    let stored = data(&fig, s.c.expect("colour_data stores c"));
     assert_eq!(
         stored,
         &NdArray::from_shape(vec![3, 4], c.into_values()).unwrap()
@@ -201,8 +201,8 @@ fn surface_with_coordinate_matrices_and_flat_shading_stays_two_dimensional() {
     let id = fig
         .axes(0, 0)
         .surface(xs.clone(), ys.clone(), &z)
-        .edge_color(None)
-        .color_data(&c)
+        .edge_colour(None)
+        .colour_data(&c)
         .id();
     let s = surface(&fig, id);
     let Grid::Curvilinear { x, y } = s.grid else {
@@ -211,8 +211,8 @@ fn surface_with_coordinate_matrices_and_flat_shading_stays_two_dimensional() {
     assert_eq!(data(&fig, x).shape, vec![3, 4]);
     assert_eq!(data(&fig, x).as_f64(), Some(xs.values()));
     assert_eq!(data(&fig, y).as_f64(), Some(ys.values()));
-    assert_eq!(s.edge, ColorSpec::None);
-    assert_eq!(s.face, ColorSpec::Colormapped);
+    assert_eq!(s.edge, ColourSpec::None);
+    assert_eq!(s.face, ColourSpec::Colourmapped);
     assert!(s.c.is_some());
     assert!(!is_3d(parent(&fig, id)));
     let report = fig.validate();

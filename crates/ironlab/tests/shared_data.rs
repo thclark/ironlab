@@ -22,7 +22,7 @@
 //! - A `NodeId` that names a node other than a data array, or no node at all, is stored as
 //!   given, without a panic or an error from the plotting call, and reported by
 //!   `Figure::validate` (see the test of that case for why).
-//! - The setters that give an artist an array (`size_data`, `color_data`,
+//! - The setters that give an artist an array (`size_data`, `colour_data`,
 //!   `face_alpha`, `edge_alpha` and `alpha`) also take `impl Into<DataSource>`. A setter
 //!   deletes the array it replaces only when no artist refers to it any more and the
 //!   array has no name, which records in the IR that the facade copied it from values:

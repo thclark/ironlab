@@ -5,23 +5,23 @@
 //!
 //! Positions are asserted as relationships (one column, five rows, above, beside, equal to the bar of a panel
 //! colourbar of the same scale) rather than as numbers of points, so that the tests survive a change of style
-//! constants; colours are worked out from the scale (a red-to-blue listed colormap, the public viridis table) rather
+//! constants; colours are worked out from the scale (a red-to-blue listed colourmap, the public viridis table) rather
 //! than from the compiler's own mapping.
 //!
-//! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/legend_color_keys.rs`
-//! (`LegendItemContent::ColorScale { scale, rows }` and `LegendItem::color_scale(NodeId)`) and the colourbar hit geometry of
-//! `colorbars.rs`:
+//! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/legend_colour_keys.rs`
+//! (`LegendItemContent::ColourScale { scale, rows }` and `LegendItem::colour_scale(NodeId)`) and the colourbar hit geometry of
+//! `colourbars.rs`:
 //!
 //! ```text
 //! // crates/ironlab-scene/src/hit.rs
-//! pub enum ColorbarOwner {
+//! pub enum ColourbarOwner {
 //!     Panel(NodeId),
 //!     Axes(NodeId),
 //!     /// A bar item of a legend: inside the plot area of an axes or in a legend panel. A legend may hold several
-//!     /// bar items, which `ColorbarHit::scale` tells apart.
+//!     /// bar items, which `ColourbarHit::scale` tells apart.
 //!     Legend(LegendOwner),                       // new
 //! }
-//! // A bar item records one `ColorbarHit` in `HitMap::colorbars`, with `orientation: Vertical`, `entries` empty,
+//! // A bar item records one `ColourbarHit` in `HitMap::colourbars`, with `orientation: Vertical`, `entries` empty,
 //! // its `keys`, and `backdrop: None` (the box of an inside legend is the legend's, not the bar's). It records no
 //! // `LegendHit`, because it stands for no artist. A category entry records no `LegendHit` either, unless it is
 //! // merged with an artist entry, whose artists it then stands for.
@@ -37,7 +37,7 @@
 //!   label. Its bar is centred on the sample column, as the samples of the other entries of the column are, and its
 //!   tick labels lie to its right, on the side of the labels of the other entries; its width (bar, ticks and tick
 //!   labels) sets the width of its column as a label does. Other row counts, the title along
-//!   the bar and the keys as entry rows of their own are the layout stage's, in `colorbar_layout.rs`.
+//!   the bar and the keys as entry rows of their own are the layout stage's, in `colourbar_layout.rs`.
 //! - **Drawn as a colourbar.** The bar, its ticks and its tick labels are those of a vertical colourbar of the same
 //!   scale: the same thickness, the same colours at the same fractions of the length and the same explicit ticks.
 //! - **Merging.** A category entry is merged with any other entry of the same legend panel that has the same label
@@ -59,16 +59,17 @@
 //!   already reports the scale or the reference.
 
 use ironlab_ir::{
-    CategoricalColorScale, Cell, Color, ColorCategory, ColorScaleKind, ColorScaleLevels,
-    ColorScaleNorm, ColorScaleOutOfRange, ColorSpec, ColorbarOrientation, Colormap, ColormapName,
-    ContinuousColorScale, DashStyle, DiscreteColorScale, FigureSize, IndexedColorScale,
-    InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout, LegendEntryOrder,
-    LegendItem, LegendLocation, LegendSample, Limits, MarkerShape, NodeId, OutOfRange, Panel,
-    PanelColorbar, PanelContent, PanelLocation, Text, Ticks, TitleAlign, TrackSize,
+    CategoricalColourScale, Cell, Colour, ColourCategory, ColourScaleKind, ColourScaleLevels,
+    ColourScaleNorm, ColourScaleOutOfRange, ColourSpec, ColourbarOrientation, Colourmap,
+    ColourmapName, ContinuousColourScale, DashStyle, DiscreteColourScale, FigureSize,
+    IndexedColourScale, InsideLegend, Legend, LegendEntries, LegendEntryColumns, LegendEntryLayout,
+    LegendEntryOrder, LegendItem, LegendLocation, LegendSample, Limits, MarkerShape, NodeId,
+    OutOfRange, Panel, PanelColourbar, PanelContent, PanelLocation, Text, Ticks, TitleAlign,
+    TrackSize,
 };
 use ironlab_scene::display::{Point, Rect, Rgba};
-use ironlab_scene::hit::{ColorbarHit, ColorbarOwner, LegendOwner};
-use ironlab_scene::maths::colormap::VIRIDIS;
+use ironlab_scene::hit::{ColourbarHit, ColourbarOwner, LegendOwner};
+use ironlab_scene::maths::colourmap::VIRIDIS;
 use ironlab_scene::{Scene, SceneWarningKind};
 use ironlab_text::FontId;
 
@@ -78,11 +79,11 @@ use crate::probe::{
     panel_entries, panel_rect, parse_number, pixel, text_bbox,
 };
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
-const GREY: Color = Color::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0);
-const AMBER: Color = Color::rgb(0.9, 0.6, 0.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
+const GREY: Colour = Colour::rgb(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0);
+const AMBER: Colour = Colour::rgb(0.9, 0.6, 0.0);
 
 /// Positions closer than this, in points, are taken to be the same row or column of entries.
 const SAME: f64 = 0.5;
@@ -99,52 +100,52 @@ fn manual(min: f64, max: f64) -> Limits {
 }
 
 /// A continuous scale of viridis with manual limits [0, 10].
-fn viridis() -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale {
+fn viridis() -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale {
         limits: manual(0.0, 10.0),
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     })
 }
 
 /// A continuous scale interpolating from red at 0 to blue at 1, whose two ends are unmistakable.
-fn red_to_blue() -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, BLUE],
+fn red_to_blue() -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
         limits: manual(0.0, 1.0),
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     })
 }
 
-/// A discrete scale of the red-to-blue colormap with the given band edges.
-fn red_to_blue_bands(edges: &[f64]) -> ColorScaleKind {
-    ColorScaleKind::Discrete(DiscreteColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, BLUE],
+/// A discrete scale of the red-to-blue colourmap with the given band edges.
+fn red_to_blue_bands(edges: &[f64]) -> ColourScaleKind {
+    ColourScaleKind::Discrete(DiscreteColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
-        levels: ColorScaleLevels::Explicit {
+        levels: ColourScaleLevels::Explicit {
             values: edges.to_vec(),
         },
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     })
 }
 
 /// An indexed scale of the given colours, strict outside them.
-fn palette(colors: Vec<Color>) -> ColorScaleKind {
-    ColorScaleKind::Indexed(IndexedColorScale {
-        colors,
-        ..IndexedColorScale::default()
+fn palette(colours: Vec<Colour>) -> ColourScaleKind {
+    ColourScaleKind::Indexed(IndexedColourScale {
+        colours,
+        ..IndexedColourScale::default()
     })
 }
 
 /// A categorical scale of the given colours and plain labels, strict outside them, without keys.
-fn categories(entries: &[(Color, &str)]) -> ColorScaleKind {
-    ColorScaleKind::Categorical(CategoricalColorScale {
+fn categories(entries: &[(Colour, &str)]) -> ColourScaleKind {
+    ColourScaleKind::Categorical(CategoricalColourScale {
         categories: entries
             .iter()
-            .map(|&(color, label)| ColorCategory {
-                color,
+            .map(|&(colour, label)| ColourCategory {
+                colour,
                 label: Text::plain(label),
             })
             .collect(),
@@ -153,8 +154,8 @@ fn categories(entries: &[(Color, &str)]) -> ColorScaleKind {
 }
 
 /// An out-of-range category with the given policy whose key is shown with the default label.
-fn keyed(policy: OutOfRange) -> ColorScaleOutOfRange {
-    ColorScaleOutOfRange {
+fn keyed(policy: OutOfRange) -> ColourScaleOutOfRange {
+    ColourScaleOutOfRange {
         policy,
         show_key: true,
         label: None,
@@ -162,9 +163,9 @@ fn keyed(policy: OutOfRange) -> ColorScaleOutOfRange {
 }
 
 /// Returns the continuous scale with the given identifier for modification.
-fn continuous_mut(fx: &mut Fx, id: NodeId) -> &mut ContinuousColorScale {
+fn continuous_mut(fx: &mut Fx, id: NodeId) -> &mut ContinuousColourScale {
     match &mut fx.scale_mut(id).kind {
-        ColorScaleKind::Continuous(scale) => scale,
+        ColourScaleKind::Continuous(scale) => scale,
         other => panic!("the scale is continuous, found {other:?}"),
     }
 }
@@ -211,17 +212,17 @@ struct Between {
     after: NodeId,
 }
 
-fn between(kind: ColorScaleKind) -> Between {
+fn between(kind: ColourScaleKind) -> Between {
     let (mut fx, ax, panel) = axes_over_key();
     let before = fx.named_line(ax, "Before", |_| {});
     let after = fx.named_line(ax, "After", |_| {});
-    let scale = fx.color_scale(kind);
+    let scale = fx.colour_scale(kind);
     explicit(
         &mut fx,
         panel,
         vec![
             LegendItem::artist(before),
-            LegendItem::color_scale(scale),
+            LegendItem::colour_scale(scale),
             LegendItem::artist(after),
         ],
     );
@@ -235,18 +236,18 @@ fn between(kind: ColorScaleKind) -> Between {
 }
 
 /// Adds a vertical colourbar panel of `scale` in `cell` and returns its identifier.
-fn colorbar_panel(fx: &mut Fx, cell: Cell, scale: NodeId) -> NodeId {
+fn colourbar_panel(fx: &mut Fx, cell: Cell, scale: NodeId) -> NodeId {
     let id = fx.node();
     fx.fig.panels.push(Panel {
         id,
         cell,
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: TitleAlign::Left,
-        content: PanelContent::Colorbar(PanelColorbar {
+        content: PanelContent::Colourbar(PanelColourbar {
             scale,
-            orientation: ColorbarOrientation::Vertical,
-            ..PanelColorbar::default()
+            orientation: ColourbarOrientation::Vertical,
+            ..PanelColourbar::default()
         }),
     });
     id
@@ -336,7 +337,7 @@ fn filled_rects(leaves: &[Leaf]) -> Vec<(Rect, Rgba)> {
     leaves
         .iter()
         .filter(|l| is_rectangle(l))
-        .filter_map(|l| Some((l.bbox()?, l.path()?.fill?.color)))
+        .filter_map(|l| Some((l.bbox()?, l.path()?.fill?.colour)))
         .collect()
 }
 
@@ -347,7 +348,7 @@ fn stroked_rects(leaves: &[Leaf]) -> Vec<(Rect, Rgba, f64)> {
         .filter(|l| is_rectangle(l))
         .filter_map(|l| {
             let stroke = l.path()?.stroke.as_ref()?;
-            Some((l.bbox()?, stroke.color, stroke.width))
+            Some((l.bbox()?, stroke.colour, stroke.width))
         })
         .collect()
 }
@@ -419,7 +420,7 @@ fn fill_under(leaves: &[Leaf], p: Point) -> Option<Rgba> {
             ));
         }
         let fill = l.path()?.fill?;
-        l.bbox().filter(|b| b.contains(p)).map(|_| fill.color)
+        l.bbox().filter(|b| b.contains(p)).map(|_| fill.colour)
     })
 }
 
@@ -435,7 +436,7 @@ fn stroke_under(leaves: &[Leaf], p: Point) -> Option<Rgba> {
         l.line_segments()
             .iter()
             .any(|&(a, b)| distance_to_segment(p, a, b) <= reach)
-            .then_some(stroke.color)
+            .then_some(stroke.colour)
     })
 }
 
@@ -486,8 +487,8 @@ fn distance(a: [u8; 3], b: [u8; 3]) -> f64 {
 }
 
 /// The 8-bit colour of an IR colour.
-fn rgb8_of(color: Color) -> [u8; 3] {
-    [color.r, color.g, color.b].map(|c| (c * 255.0).round() as u8)
+fn rgb8_of(colour: Colour) -> [u8; 3] {
+    [colour.r, colour.g, colour.b].map(|c| (c * 255.0).round() as u8)
 }
 
 /// Asserts that a colour is nearer to `near` than to `far`, naming what is compared.
@@ -514,51 +515,51 @@ fn centre(r: Rect) -> Point {
 }
 
 /// Returns the bar items of a legend, in paint order.
-fn legend_bars(scene: &Scene, legend: LegendOwner) -> Vec<ColorbarHit> {
+fn legend_bars(scene: &Scene, legend: LegendOwner) -> Vec<ColourbarHit> {
     scene
         .hit_map
-        .colorbars
+        .colourbars
         .iter()
-        .filter(|c| c.owner == ColorbarOwner::Legend(legend))
+        .filter(|c| c.owner == ColourbarOwner::Legend(legend))
         .cloned()
         .collect()
 }
 
 /// Returns the one bar item of a legend.
 #[track_caller]
-fn legend_bar(scene: &Scene, legend: LegendOwner) -> ColorbarHit {
+fn legend_bar(scene: &Scene, legend: LegendOwner) -> ColourbarHit {
     let bars = legend_bars(scene, legend);
     assert_eq!(
         bars.len(),
         1,
         "one bar item in {legend:?}: {:?}",
-        scene.hit_map.colorbars
+        scene.hit_map.colourbars
     );
     bars[0].clone()
 }
 
 /// Returns the one colourbar of a colourbar panel.
 #[track_caller]
-fn panel_bar(scene: &Scene, panel: NodeId) -> ColorbarHit {
-    let found: Vec<&ColorbarHit> = scene
+fn panel_bar(scene: &Scene, panel: NodeId) -> ColourbarHit {
+    let found: Vec<&ColourbarHit> = scene
         .hit_map
-        .colorbars
+        .colourbars
         .iter()
-        .filter(|c| c.owner == ColorbarOwner::Panel(panel))
+        .filter(|c| c.owner == ColourbarOwner::Panel(panel))
         .collect();
     assert_eq!(found.len(), 1, "one colourbar of panel {panel}");
     found[0].clone()
 }
 
 /// Returns the point on the centre line of a vertical bar at the fraction `f` of its length from its bottom.
-fn along(hit: &ColorbarHit, f: f64) -> Point {
+fn along(hit: &ColourbarHit, f: f64) -> Point {
     let b = hit.bar;
     Point::new(b.x + b.width / 2.0, b.bottom() - f * b.height)
 }
 
 /// Returns the colour a bar paints at the fraction `f` of its length from its bottom.
 #[track_caller]
-fn bar_paint(leaves: &[Leaf], hit: &ColorbarHit, f: f64) -> [u8; 3] {
+fn bar_paint(leaves: &[Leaf], hit: &ColourbarHit, f: f64) -> [u8; 3] {
     rgb8(fill_under(leaves, along(hit, f)).unwrap_or_else(|| panic!("the bar is painted at {f}")))
 }
 
@@ -573,7 +574,7 @@ fn numeric(leaves: &[Leaf]) -> Vec<(f64, Rect, String)> {
 
 /// Returns the numeric labels that a bar's ticks carry: those to the right of the bar whose centre lies within its
 /// length, give or take half a label.
-fn tick_labels(leaves: &[Leaf], hit: &ColorbarHit) -> Vec<(f64, Rect, String)> {
+fn tick_labels(leaves: &[Leaf], hit: &ColourbarHit) -> Vec<(f64, Rect, String)> {
     numeric(leaves)
         .into_iter()
         .filter(|(_, b, _)| {
@@ -586,7 +587,7 @@ fn tick_labels(leaves: &[Leaf], hit: &ColorbarHit) -> Vec<(f64, Rect, String)> {
 }
 
 /// Returns the y coordinate of the value `v` on a linear vertical bar from `min` to `max`.
-fn place(hit: &ColorbarHit, v: f64, min: f64, max: f64) -> f64 {
+fn place(hit: &ColourbarHit, v: f64, min: f64, max: f64) -> f64 {
     along(hit, (v - min) / (max - min)).y
 }
 
@@ -609,8 +610,8 @@ fn overflows(scene: &Scene, legend: LegendOwner) -> bool {
 fn a_categorical_item_lists_one_entry_per_category_in_category_order() {
     let (mut fx, _, panel) = axes_over_key();
     let entries = [(RED, "taken"), (GREEN, "skipped"), (BLUE, "failed")];
-    let status = fx.color_scale(categories(&entries));
-    explicit(&mut fx, panel, vec![LegendItem::color_scale(status)]);
+    let status = fx.colour_scale(categories(&entries));
+    explicit(&mut fx, panel, vec![LegendItem::colour_scale(status)]);
     let scene = compile_figure(&fx.build());
     let mut previous: Option<Rect> = None;
     for (colour, name) in entries {
@@ -643,7 +644,7 @@ fn a_categorical_item_lists_one_entry_per_category_in_category_order() {
 fn category_entries_are_ordered_and_wrapped_into_columns_like_any_other_entry() {
     let (mut fx, ax, panel) = axes_over_key();
     let first = fx.named_line(ax, "First", |_| {});
-    let status = fx.color_scale(categories(&[
+    let status = fx.colour_scale(categories(&[
         (RED, "a"),
         (GREEN, "b"),
         (BLUE, "c"),
@@ -655,7 +656,7 @@ fn category_entries_are_ordered_and_wrapped_into_columns_like_any_other_entry() 
         panel,
         vec![
             LegendItem::artist(first),
-            LegendItem::color_scale(status),
+            LegendItem::colour_scale(status),
             LegendItem::custom(LegendSample::swatch(GREY), "Last"),
         ],
     );
@@ -680,13 +681,13 @@ fn category_entries_are_ordered_and_wrapped_into_columns_like_any_other_entry() 
 #[test]
 fn a_custom_swatch_and_a_category_entry_draw_the_same_outlined_square() {
     let (mut fx, _, panel) = axes_over_key();
-    let status = fx.color_scale(categories(&[(AMBER, "Category"), (GREEN, "Next")]));
+    let status = fx.colour_scale(categories(&[(AMBER, "Category"), (GREEN, "Next")]));
     explicit(
         &mut fx,
         panel,
         vec![
             LegendItem::custom(LegendSample::swatch(AMBER), "Hand-written"),
-            LegendItem::color_scale(status),
+            LegendItem::colour_scale(status),
         ],
     );
     let scene = compile_figure(&fx.build());
@@ -732,15 +733,15 @@ fn a_custom_swatch_and_a_category_entry_draw_the_same_outlined_square() {
 fn a_custom_swatch_of_the_same_label_and_colour_merges_with_a_category_entry() {
     let build = |items: fn(NodeId) -> Vec<LegendItem>| {
         let (mut fx, _, panel) = axes_over_key();
-        let status = fx.color_scale(categories(&[(RED, "alpha"), (GREEN, "beta")]));
+        let status = fx.colour_scale(categories(&[(RED, "alpha"), (GREEN, "beta")]));
         explicit(&mut fx, panel, items(status));
         compile_figure(&fx.build())
     };
 
     let custom_first = build(|s| {
         vec![
-            LegendItem::custom(LegendSample::Swatch { color: RED }, Text::plain("alpha")),
-            LegendItem::color_scale(s),
+            LegendItem::custom(LegendSample::Swatch { colour: RED }, Text::plain("alpha")),
+            LegendItem::colour_scale(s),
         ]
     });
     assert_eq!(
@@ -752,8 +753,8 @@ fn a_custom_swatch_of_the_same_label_and_colour_merges_with_a_category_entry() {
 
     let category_first = build(|s| {
         vec![
-            LegendItem::color_scale(s),
-            LegendItem::custom(LegendSample::Swatch { color: GREEN }, Text::plain("beta")),
+            LegendItem::colour_scale(s),
+            LegendItem::custom(LegendSample::Swatch { colour: GREEN }, Text::plain("beta")),
         ]
     });
     assert_eq!(label_count(&category_first, "beta"), 1);
@@ -767,8 +768,8 @@ fn a_custom_swatch_of_the_same_label_and_colour_merges_with_a_category_entry() {
     // place of the custom swatch, ahead of the first category, which dropping the custom swatch would not.
     let custom_before_second = build(|s| {
         vec![
-            LegendItem::custom(LegendSample::Swatch { color: GREEN }, Text::plain("beta")),
-            LegendItem::color_scale(s),
+            LegendItem::custom(LegendSample::Swatch { colour: GREEN }, Text::plain("beta")),
+            LegendItem::colour_scale(s),
         ]
     });
     assert_eq!(label_count(&custom_before_second, "beta"), 1);
@@ -779,8 +780,8 @@ fn a_custom_swatch_of_the_same_label_and_colour_merges_with_a_category_entry() {
 
     let other_colour = build(|s| {
         vec![
-            LegendItem::custom(LegendSample::Swatch { color: BLUE }, Text::plain("alpha")),
-            LegendItem::color_scale(s),
+            LegendItem::custom(LegendSample::Swatch { colour: BLUE }, Text::plain("alpha")),
+            LegendItem::colour_scale(s),
         ]
     });
     assert_eq!(
@@ -796,7 +797,7 @@ fn a_custom_swatch_of_the_same_label_and_colour_merges_with_a_category_entry() {
 #[test]
 fn a_category_entry_merges_with_an_artist_entry_of_the_same_label_and_look() {
     let (mut fx, ax, panel) = axes_over_key();
-    let status = fx.color_scale(categories(&[(RED, "alpha"), (GREEN, "beta")]));
+    let status = fx.colour_scale(categories(&[(RED, "alpha"), (GREEN, "beta")]));
     // A surface of one fixed colour with the default thin black edges draws exactly the swatch.
     let surface = fx.surface(
         ax,
@@ -805,13 +806,16 @@ fn a_category_entry_merges_with_an_artist_entry_of_the_same_label_and_look() {
         |x, y| x + y,
         |s| {
             s.label = Some(Text::plain("alpha"));
-            s.face = ColorSpec::Rgba { color: RED };
+            s.face = ColourSpec::Rgba { colour: RED };
         },
     );
     explicit(
         &mut fx,
         panel,
-        vec![LegendItem::color_scale(status), LegendItem::artist(surface)],
+        vec![
+            LegendItem::colour_scale(status),
+            LegendItem::artist(surface),
+        ],
     );
     let scene = compile_figure(&fx.build());
     assert_eq!(
@@ -847,16 +851,16 @@ fn a_category_entry_merges_with_an_artist_entry_of_the_same_label_and_look() {
 fn the_keys_of_a_categorical_item_are_further_entries_after_its_categories() {
     let (mut fx, _, panel) = axes_over_key();
     let mut kind = categories(&[(RED, "taken"), (GREEN, "skipped")]);
-    if let ColorScaleKind::Categorical(c) = &mut kind {
-        c.outside = keyed(OutOfRange::Rgba { color: GREY });
+    if let ColourScaleKind::Categorical(c) = &mut kind {
+        c.outside = keyed(OutOfRange::Rgba { colour: GREY });
     }
-    let status = fx.color_scale(kind);
-    fx.scale_mut(status).non_finite = ColorScaleOutOfRange {
+    let status = fx.colour_scale(kind);
+    fx.scale_mut(status).non_finite = ColourScaleOutOfRange {
         policy: OutOfRange::Transparent,
         show_key: true,
         label: Some(Text::plain("not entered")),
     };
-    explicit(&mut fx, panel, vec![LegendItem::color_scale(status)]);
+    explicit(&mut fx, panel, vec![LegendItem::colour_scale(status)]);
     let scene = compile_figure(&fx.build());
     let order = ["taken", "skipped", "Out of range", "not entered"];
     for pair in order.windows(2) {
@@ -903,7 +907,7 @@ fn a_categorical_item_on_a_row_of_its_own_puts_each_category_on_a_row_of_its_own
         .iter()
         .map(|n| fx.named_line(ax, n, |_| {}))
         .collect();
-    let status = fx.color_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
+    let status = fx.colour_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
     fx.legend_mut(panel).layout = fixed(2, LegendEntryOrder::RowMajor);
     explicit(
         &mut fx,
@@ -913,7 +917,7 @@ fn a_categorical_item_on_a_row_of_its_own_puts_each_category_on_a_row_of_its_own
             LegendItem::artist(lines[1]),
             LegendItem {
                 full_row: true,
-                ..LegendItem::color_scale(status)
+                ..LegendItem::colour_scale(status)
             },
             LegendItem::artist(lines[2]),
             LegendItem::artist(lines[3]),
@@ -941,9 +945,9 @@ fn a_categorical_item_on_a_row_of_its_own_puts_each_category_on_a_row_of_its_own
 #[test]
 fn a_categorical_non_finite_key_without_a_label_takes_the_default_label() {
     let (mut fx, _, panel) = axes_over_key();
-    let status = fx.color_scale(categories(&[(RED, "taken")]));
+    let status = fx.colour_scale(categories(&[(RED, "taken")]));
     fx.scale_mut(status).non_finite = keyed(OutOfRange::Transparent);
-    explicit(&mut fx, panel, vec![LegendItem::color_scale(status)]);
+    explicit(&mut fx, panel, vec![LegendItem::colour_scale(status)]);
     let scene = compile_figure(&fx.build());
     assert!(label(&scene, "taken").y < label(&scene, "NaN / Inf").y);
 }
@@ -954,13 +958,13 @@ fn a_categorical_non_finite_key_without_a_label_takes_the_default_label() {
 #[test]
 fn an_empty_categorical_item_draws_nothing_and_the_rest_of_the_key_is_drawn() {
     let (mut fx, _, panel) = axes_over_key();
-    let empty = fx.color_scale(categories(&[]));
+    let empty = fx.colour_scale(categories(&[]));
     explicit(
         &mut fx,
         panel,
         vec![
-            LegendItem::color_scale(empty),
-            LegendItem::color_scale(NodeId(9_999)),
+            LegendItem::colour_scale(empty),
+            LegendItem::colour_scale(NodeId(9_999)),
             LegendItem::custom(LegendSample::swatch(AMBER), "Survivor"),
         ],
     );
@@ -994,9 +998,9 @@ fn an_empty_categorical_item_draws_nothing_and_the_rest_of_the_key_is_drawn() {
 fn an_inside_legend_lists_the_categories_of_a_scale() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let status = fx.color_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
+    let status = fx.colour_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
     fx.ax(ax).legend = Some(Legend::Inside(InsideLegend {
-        entries: LegendEntries::Explicit(vec![LegendItem::color_scale(status)]),
+        entries: LegendEntries::Explicit(vec![LegendItem::colour_scale(status)]),
         ..InsideLegend::default()
     }));
     let scene = compile_figure(&fx.build());
@@ -1019,11 +1023,11 @@ fn an_inside_legend_lists_the_categories_of_a_scale() {
 fn an_inside_legend_lists_a_custom_swatch_and_a_category_of_the_same_label_and_colour() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let status = fx.color_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
+    let status = fx.colour_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
     fx.ax(ax).legend = Some(Legend::Inside(InsideLegend {
         entries: LegendEntries::Explicit(vec![
-            LegendItem::custom(LegendSample::Swatch { color: RED }, Text::plain("taken")),
-            LegendItem::color_scale(status),
+            LegendItem::custom(LegendSample::Swatch { colour: RED }, Text::plain("taken")),
+            LegendItem::colour_scale(status),
         ]),
         ..InsideLegend::default()
     }));
@@ -1051,7 +1055,7 @@ fn a_bar_item_is_a_vertical_bar_five_entry_rows_long_in_its_column() {
     let owner = LegendOwner::Panel(b.panel);
     let bar = legend_bar(&scene, owner);
     assert_eq!(bar.scale, b.scale);
-    assert_eq!(bar.orientation, ColorbarOrientation::Vertical);
+    assert_eq!(bar.orientation, ColourbarOrientation::Vertical);
     assert!(bar.entries.is_empty() && bar.keys.is_empty() && bar.backdrop.is_none());
 
     let entries = panel_entries(&scene, b.panel);
@@ -1119,7 +1123,7 @@ fn a_bar_item_is_ticked_on_its_label_side_at_the_places_of_the_values() {
 }
 
 // The title of a bar item, which reads along the bar, and its out-of-range keys, which are entry rows of their own,
-// are tested in `colorbar_layout.rs`, beside the other choices of where a scale's title and keys are drawn.
+// are tested in `colourbar_layout.rs`, beside the other choices of where a scale's title and keys are drawn.
 
 // Why: a bar item holds no colours, limits or ticks of its own: it is a vertical colourbar of its scale, so a bar in
 // a legend and a bar in a panel of the same scale must agree on thickness, colours at every fraction of their
@@ -1129,31 +1133,31 @@ fn a_bar_item_agrees_with_a_panel_colourbar_of_the_same_scale() {
     let kinds = [
         (
             "continuous",
-            ColorScaleKind::Continuous(ContinuousColorScale {
+            ColourScaleKind::Continuous(ContinuousColourScale {
                 limits: manual(0.0, 10.0),
                 ticks: Ticks::Values(vec![0.0, 5.0, 10.0]),
-                ..ContinuousColorScale::default()
+                ..ContinuousColourScale::default()
             }),
             // Within samples of the 256 of a continuous bar, not on the boundary between two, where rounding decides.
             vec![0.1, 0.55, 0.9],
         ),
         (
             "discrete",
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Explicit {
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Explicit {
                     values: vec![0.0, 1.0, 5.0, 10.0],
                 },
                 ticks: Ticks::Values(vec![0.0, 1.0, 5.0, 10.0]),
-                ..DiscreteColorScale::default()
+                ..DiscreteColourScale::default()
             }),
             vec![0.05, 0.3, 0.75],
         ),
         (
             "indexed",
-            ColorScaleKind::Indexed(IndexedColorScale {
-                colors: vec![RED, GREEN, BLUE],
+            ColourScaleKind::Indexed(IndexedColourScale {
+                colours: vec![RED, GREEN, BLUE],
                 ticks: Ticks::Values(vec![0.0, 1.0, 2.0]),
-                ..IndexedColorScale::default()
+                ..IndexedColourScale::default()
             }),
             vec![1.0 / 6.0, 0.5, 5.0 / 6.0],
         ),
@@ -1168,10 +1172,10 @@ fn a_bar_item_agrees_with_a_panel_colourbar_of_the_same_scale() {
         fx.fig.layout.cols = 2;
         fx.fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
         fx.axes2d(0, 0);
-        let scale = fx.color_scale(kind);
-        let bar_panel = colorbar_panel(&mut fx, cell(0, 1, 1, 1), scale);
+        let scale = fx.colour_scale(kind);
+        let bar_panel = colourbar_panel(&mut fx, cell(0, 1, 1, 1), scale);
         let key = fx.panel(cell(1, 0, 1, 1));
-        explicit(&mut fx, key, vec![LegendItem::color_scale(scale)]);
+        explicit(&mut fx, key, vec![LegendItem::colour_scale(scale)]);
         let scene = compile_figure(&fx.build());
         let in_panel = panel_bar(&scene, bar_panel);
         let in_legend = legend_bar(&scene, LegendOwner::Panel(key));
@@ -1186,7 +1190,7 @@ fn a_bar_item_agrees_with_a_panel_colourbar_of_the_same_scale() {
                 "{what}: the colour at {f} of the bar"
             );
         }
-        let texts = |leaves: &[Leaf], hit: &ColorbarHit| {
+        let texts = |leaves: &[Leaf], hit: &ColourbarHit| {
             let mut t: Vec<String> = tick_labels(leaves, hit).into_iter().map(|t| t.2).collect();
             t.sort();
             t
@@ -1207,9 +1211,9 @@ fn a_bar_item_occupies_one_column_of_a_multi_column_legend() {
     let (mut fx, ax, panel) = axes_over_key();
     let names = ["A", "B", "C", "D", "E"];
     let lines: Vec<NodeId> = names.iter().map(|n| fx.named_line(ax, n, |_| {})).collect();
-    let scale = fx.color_scale(viridis());
+    let scale = fx.colour_scale(viridis());
     fx.legend_mut(panel).layout = fixed(2, LegendEntryOrder::ColumnMajor);
-    let mut items = vec![LegendItem::color_scale(scale)];
+    let mut items = vec![LegendItem::colour_scale(scale)];
     items.extend(lines.iter().map(|&l| LegendItem::artist(l)));
     explicit(&mut fx, panel, items);
     let scene = compile_figure(&fx.build());
@@ -1247,10 +1251,10 @@ fn a_bar_item_occupies_one_column_of_a_multi_column_legend() {
 // the five rows of a bar item have room for three labels, which over three decades would label 1 and 100 only.
 #[test]
 fn a_logarithmic_bar_item_places_decades_evenly_and_labels_them_as_decades() {
-    let b = between(ColorScaleKind::Continuous(ContinuousColorScale {
+    let b = between(ColourScaleKind::Continuous(ContinuousColourScale {
         limits: manual(1.0, 10_000.0),
-        norm: ColorScaleNorm::Log,
-        ..ContinuousColorScale::default()
+        norm: ColourScaleNorm::Log,
+        ..ContinuousColourScale::default()
     }));
     let scene = compile_figure(&b.fx.build());
     let hit = legend_bar(&scene, LegendOwner::Panel(b.panel));
@@ -1319,12 +1323,12 @@ fn a_bar_item_is_drawn_inside_the_box_of_an_inside_legend() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
     let line = fx.named_line(ax, "Curve", |_| {});
-    let scale = fx.color_scale(viridis());
+    let scale = fx.colour_scale(viridis());
     fx.ax(ax).legend = Some(Legend::Inside(InsideLegend {
         location: LegendLocation::NorthWest,
         entries: LegendEntries::Explicit(vec![
             LegendItem::artist(line),
-            LegendItem::color_scale(scale),
+            LegendItem::colour_scale(scale),
         ]),
         ..InsideLegend::default()
     }));
@@ -1365,10 +1369,10 @@ fn a_bar_item_on_a_row_of_its_own_lies_across_the_width_of_the_legend() {
     .iter()
     .map(|n| fx.named_line(ax, n, |_| {}))
     .collect();
-    let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
+    let scale = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
         limits: manual(0.0, 10.0),
         ticks: Ticks::Values(vec![0.0, 5.0, 10.0]),
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     }));
     fx.legend_mut(panel).layout = fixed(2, LegendEntryOrder::RowMajor);
     explicit(
@@ -1379,7 +1383,7 @@ fn a_bar_item_on_a_row_of_its_own_lies_across_the_width_of_the_legend() {
             LegendItem::artist(lines[1]),
             LegendItem {
                 full_row: true,
-                ..LegendItem::color_scale(scale)
+                ..LegendItem::colour_scale(scale)
             },
             LegendItem::artist(lines[2]),
             LegendItem::artist(lines[3]),
@@ -1387,7 +1391,7 @@ fn a_bar_item_on_a_row_of_its_own_lies_across_the_width_of_the_legend() {
     );
     let scene = compile_figure(&fx.build());
     let bar = legend_bar(&scene, LegendOwner::Panel(panel));
-    assert_eq!(bar.orientation, ColorbarOrientation::Horizontal);
+    assert_eq!(bar.orientation, ColourbarOrientation::Horizontal);
     let entries = panel_entries(&scene, panel);
     assert_eq!(entries.len(), 4, "only the series are click targets");
     let left = entries
@@ -1448,10 +1452,10 @@ fn a_fitted_column_holds_a_bar_item_and_its_tick_labels() {
     fx.fig.layout.cols = 2;
     fx.fig.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit];
     fx.axes2d(0, 0);
-    let scale = fx.color_scale(viridis());
+    let scale = fx.colour_scale(viridis());
     fx.scale_mut(scale).title = Some(Text::plain("Speed"));
     let panel = fx.panel(cell(0, 1, 1, 1));
-    explicit(&mut fx, panel, vec![LegendItem::color_scale(scale)]);
+    explicit(&mut fx, panel, vec![LegendItem::colour_scale(scale)]);
     let scene = compile_figure(&fx.build());
     assert!(
         !overflows(&scene, LegendOwner::Panel(panel)),
@@ -1479,14 +1483,14 @@ fn a_fitted_column_holds_a_bar_item_and_its_tick_labels() {
 fn scale_items_toggle_nothing_and_artist_entries_still_toggle_their_artists() {
     let (mut fx, ax, panel) = axes_over_key();
     let line = fx.named_line(ax, "Curve", |_| {});
-    let speed = fx.color_scale(viridis());
-    let status = fx.color_scale(categories(&[(RED, "taken")]));
+    let speed = fx.colour_scale(viridis());
+    let status = fx.colour_scale(categories(&[(RED, "taken")]));
     explicit(
         &mut fx,
         panel,
         vec![
-            LegendItem::color_scale(speed),
-            LegendItem::color_scale(status),
+            LegendItem::colour_scale(speed),
+            LegendItem::colour_scale(status),
             LegendItem::artist(line),
         ],
     );
@@ -1511,8 +1515,8 @@ fn automatic_legends_list_artists_and_never_scales() {
     fx.fig.layout.rows = 3;
     let ax = fx.axes2d(0, 0);
     let other = fx.axes2d(1, 0);
-    let status = fx.color_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
-    let speed = fx.color_scale(viridis());
+    let status = fx.colour_scale(categories(&[(RED, "taken"), (GREEN, "skipped")]));
+    let speed = fx.colour_scale(viridis());
     let codes = fx.scalar_image(
         ax,
         vec![1, 2],
@@ -1553,7 +1557,7 @@ fn automatic_legends_list_artists_and_never_scales() {
 #[test]
 fn the_sample_of_a_colour_mapped_image_is_a_gradient_from_the_low_to_the_high_end() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(red_to_blue());
+        let scale = fx.colour_scale(red_to_blue());
         fx.scalar_image(
             ax,
             vec![1, 2],
@@ -1584,18 +1588,18 @@ fn the_sample_of_a_colour_mapped_image_is_a_gradient_from_the_low_to_the_high_en
     );
 }
 
-// Why: a reversed colormap reverses the colours of the sweep, never the direction of the values: the low end of the
-// scale stays at the left, so the sweep starts with the last colour of the colormap.
+// Why: a reversed colourmap reverses the colours of the sweep, never the direction of the values: the low end of the
+// scale stays at the left, so the sweep starts with the last colour of the colourmap.
 #[test]
-fn the_sweep_of_a_reversed_colormap_starts_with_its_last_colour() {
+fn the_sweep_of_a_reversed_colourmap_starts_with_its_last_colour() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-            colormap: Colormap::Named {
-                name: ColormapName::Viridis,
+        let scale = fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+            colourmap: Colourmap::Named {
+                name: ColourmapName::Viridis,
                 reverse: true,
             },
             limits: manual(0.0, 10.0),
-            ..ContinuousColorScale::default()
+            ..ContinuousColourScale::default()
         }));
         fx.scalar_image(
             ax,
@@ -1626,7 +1630,7 @@ fn the_sweep_of_a_reversed_colormap_starts_with_its_last_colour() {
 #[test]
 fn the_sweep_of_a_discrete_scale_is_a_row_of_its_bands() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(red_to_blue_bands(&[0.0, 1.0, 2.0, 3.0]));
+        let scale = fx.colour_scale(red_to_blue_bands(&[0.0, 1.0, 2.0, 3.0]));
         fx.scalar_image(
             ax,
             vec![1, 2],
@@ -1660,12 +1664,12 @@ fn the_sweep_of_a_discrete_scale_is_a_row_of_its_bands() {
     assert_eq!(
         first,
         rgb8_of(RED),
-        "the first band takes the low end of the colormap"
+        "the first band takes the low end of the colourmap"
     );
     assert_eq!(
         last,
         rgb8_of(BLUE),
-        "the last band takes the high end of the colormap"
+        "the last band takes the high end of the colourmap"
     );
 }
 
@@ -1678,7 +1682,7 @@ fn the_sweep_of_an_indexed_or_categorical_scale_is_its_entry_colours_side_by_sid
         categories(&[(RED, "r"), (GREEN, "g"), (BLUE, "b")]),
     ] {
         let (scene, panel) = swept(|fx, ax| {
-            let scale = fx.color_scale(kind);
+            let scale = fx.colour_scale(kind);
             fx.scalar_image(
                 ax,
                 vec![1, 3],
@@ -1704,7 +1708,7 @@ fn the_sweep_of_an_indexed_or_categorical_scale_is_its_entry_colours_side_by_sid
 #[test]
 fn contours_and_surfaces_sweep_their_scales() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(red_to_blue());
+        let scale = fx.colour_scale(red_to_blue());
         fx.contour(
             ax,
             &GRID_X,
@@ -1713,7 +1717,7 @@ fn contours_and_surfaces_sweep_their_scales() {
             |c| {
                 c.label = text("Bands");
                 c.fill = true;
-                c.color_scale = Some(scale);
+                c.colour_scale = Some(scale);
             },
         );
         fx.contour(
@@ -1724,8 +1728,8 @@ fn contours_and_surfaces_sweep_their_scales() {
             |c| {
                 c.label = text("Isolines");
                 c.fill = false;
-                c.line.color = ColorSpec::Colormapped;
-                c.color_scale = Some(scale);
+                c.line.colour = ColourSpec::Colourmapped;
+                c.colour_scale = Some(scale);
             },
         );
         fx.surface(
@@ -1735,7 +1739,7 @@ fn contours_and_surfaces_sweep_their_scales() {
             |x, y| (x + y) / 3.0,
             |s| {
                 s.label = text("Surface");
-                s.color_scale = Some(scale);
+                s.colour_scale = Some(scale);
             },
         );
     });
@@ -1772,12 +1776,12 @@ fn contours_and_surfaces_sweep_their_scales() {
 #[test]
 fn a_series_coloured_per_point_sweeps_its_line_and_colours_its_marker_where_it_sits() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(red_to_blue());
+        let scale = fx.colour_scale(red_to_blue());
         fx.series(ax, &[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0], None, |s, fx| {
             s.label = text("Mapped");
-            s.color_data = Some(fx.vector(&[0.0, 0.5, 1.0]));
-            s.color_scale = Some(scale);
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(fx.vector(&[0.0, 0.5, 1.0]));
+            s.colour_scale = Some(scale);
+            s.line.colour = ColourSpec::Colourmapped;
             s.marker.shape = MarkerShape::Circle;
         });
     });
@@ -1816,12 +1820,12 @@ fn a_series_coloured_per_point_sweeps_its_line_and_colours_its_marker_where_it_s
 #[test]
 fn a_series_coloured_per_segment_sweeps_its_whole_scale_and_not_its_data() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(red_to_blue());
+        let scale = fx.colour_scale(red_to_blue());
         fx.series(ax, &[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0], None, |s, fx| {
             s.label = text("Mapped");
-            s.color_data = Some(fx.vector(&[0.4, 0.6]));
-            s.color_scale = Some(scale);
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(fx.vector(&[0.4, 0.6]));
+            s.colour_scale = Some(scale);
+            s.line.colour = ColourSpec::Colourmapped;
         });
     });
     let near_low = [
@@ -1849,15 +1853,15 @@ fn a_series_coloured_per_segment_sweeps_its_whole_scale_and_not_its_data() {
 #[test]
 fn a_series_of_markers_coloured_by_data_draws_a_row_of_markers_in_the_sweep() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(red_to_blue());
+        let scale = fx.colour_scale(red_to_blue());
         fx.series(ax, &[0.0, 1.0, 2.0], &[0.0, 1.0, 0.0], None, |s, fx| {
             s.label = text("Mapped");
-            s.color_data = Some(fx.vector(&[0.0, 0.5, 1.0]));
-            s.color_scale = Some(scale);
+            s.colour_data = Some(fx.vector(&[0.0, 0.5, 1.0]));
+            s.colour_scale = Some(scale);
             s.line.dash = DashStyle::None;
             s.marker.shape = MarkerShape::Circle;
-            s.marker.face = ColorSpec::Colormapped;
-            s.marker.edge = ColorSpec::Colormapped;
+            s.marker.face = ColourSpec::Colourmapped;
+            s.marker.edge = ColourSpec::Colourmapped;
         });
     });
     let mut markers: Vec<_> = sample_beside(&scene, panel, "Mapped")
@@ -1880,7 +1884,7 @@ fn a_series_of_markers_coloured_by_data_draws_a_row_of_markers_in_the_sweep() {
 #[test]
 fn a_sweep_takes_the_artist_s_opacity_but_not_its_alpha() {
     let (scene, panel) = swept(|fx, ax| {
-        let scale = fx.color_scale(red_to_blue());
+        let scale = fx.colour_scale(red_to_blue());
         let alpha = fx.matrix(1, 2, vec![0.2, 0.2]);
         fx.scalar_image(
             ax,
@@ -1902,7 +1906,7 @@ fn a_sweep_takes_the_artist_s_opacity_but_not_its_alpha() {
             |x, y| (x + y) / 3.0,
             |s| {
                 s.label = text("Surface");
-                s.color_scale = Some(scale);
+                s.colour_scale = Some(scale);
                 s.face_opacity = 0.4;
                 s.face_alpha = Some(face_alpha);
             },
@@ -1930,16 +1934,16 @@ fn a_panel_merges_colour_mapped_entries_exactly_when_they_sweep_the_same_colours
         let top = fx.axes2d(0, 0);
         let bottom = fx.axes2d(1, 0);
         let panel = fx.panel(cell(2, 0, 1, 1));
-        let first = fx.color_scale(red_to_blue());
+        let first = fx.colour_scale(red_to_blue());
         let second = if shared {
             first
         } else {
-            fx.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-                colormap: Colormap::Listed {
-                    colors: vec![BLUE, RED],
+            fx.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+                colourmap: Colourmap::Listed {
+                    colours: vec![BLUE, RED],
                 },
                 limits: manual(0.0, 1.0),
-                ..ContinuousColorScale::default()
+                ..ContinuousColourScale::default()
             }))
         };
         let a = fx.scalar_image(

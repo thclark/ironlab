@@ -50,14 +50,14 @@ pub fn figure() -> Figure {
     let mut ax = fig.axes3(0, 0);
     ax.surf(&grid, &grid, &saddle).edge_width(0.25);
     ax.surf(&grid, &grid, &plane)
-        .face_color(Color::rgb(0.85, 0.85, 0.85))
-        .edge_color(Color::rgb(0.55, 0.55, 0.55))
+        .face_colour(Colour::rgb(0.85, 0.85, 0.85))
+        .edge_colour(Colour::rgb(0.55, 0.55, 0.55))
         .edge_width(0.25);
     ax.plot3(&helix_x, &helix_y, &helix_z)
-        .color(Color::rgb(0.75, 0.1, 0.1))
+        .colour(Colour::rgb(0.75, 0.1, 0.1))
         .line_width(1.2);
     ax.scatter3(&points_x, &points_y, &points_z)
-        .color(Color::rgb(0.1, 0.1, 0.5))
+        .colour(Colour::rgb(0.1, 0.1, 0.5))
         .marker_size(3.0)
         .filled();
     ax.xlabel("$x$").ylabel("$y$").zlabel("$z$");

@@ -40,10 +40,10 @@ fn decay_figure() -> Figure {
         font_set: FontSetId::StixTwo,
         font_size_pt: 9.0,
         embolden: Embolden::Regular,
-        background: Color::WHITE,
+        background: Colour::WHITE,
         layout: TileLayout::new(1, 1),
         data,
-        color_scales: Vec::new(),
+        colour_scales: Vec::new(),
         axes: vec![Axes {
             id: NodeId(2),
             cell: Cell {
@@ -89,7 +89,7 @@ fn decay_figure() -> Figure {
             z: Axis::default(),
             aspect: Aspect::Ratio { y: 0.5, z: 2.0 },
             aspect_adjust: AspectAdjust::Limits,
-            colorbar: None,
+            colourbar: None,
             box_: true,
             legend: Some(Legend::Inside(InsideLegend {
                 location: LegendLocation::NorthEast,
@@ -108,8 +108,8 @@ fn decay_figure() -> Figure {
                 y: NodeId(7),
                 z: None,
                 line: LineStyle {
-                    color: ColorSpec::Rgba {
-                        color: Color::rgba(0.0, 114.0 / 255.0, 178.0 / 255.0, 204.0 / 255.0),
+                    colour: ColourSpec::Rgba {
+                        colour: Colour::rgba(0.0, 114.0 / 255.0, 178.0 / 255.0, 204.0 / 255.0),
                     },
                     width_pt: 0.75,
                     dash: DashStyle::DashDot,
@@ -117,18 +117,18 @@ fn decay_figure() -> Figure {
                 marker: MarkerStyle {
                     shape: MarkerShape::TriangleUp,
                     size_pt: 4.0,
-                    face: ColorSpec::None,
-                    edge: ColorSpec::Auto,
+                    face: ColourSpec::None,
+                    edge: ColourSpec::Auto,
                 },
                 size_data: None,
-                color_data: None,
-                color_scale: None,
+                colour_data: None,
+                colour_scale: None,
                 x_coords: Coords::Data,
                 y_coords: Coords::Data,
                 clip: true,
                 // The fixture predates the fill of a series, so it reads as unfilled.
                 base: None,
-                fill: ColorSpec::None,
+                fill: ColourSpec::None,
                 fill_opacity: 1.0,
             })],
         }],
@@ -389,7 +389,7 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
         json!({ "type": "explicit", "values": [0.5] })
     );
     assert_eq!(contour["placement"], json!({ "type": "at_level" }));
-    assert_eq!(contour["line"]["color"], json!({ "type": "colormapped" }));
+    assert_eq!(contour["line"]["colour"], json!({ "type": "colourmapped" }));
     assert_eq!(value["links"][0]["dimension"], "z");
     assert_eq!(value["font_set"], "stix_two");
 }
@@ -405,13 +405,13 @@ fn enum_variants_use_snake_case_names_and_a_type_tag() {
 #[test]
 fn image_artists_are_written_in_the_documented_json_form() {
     let (mut fig, _, _) = single_line_figure();
-    fig.color_scales.extend([
-        ColorScale {
+    fig.colour_scales.extend([
+        ColourScale {
             id: NodeId(20),
             title: None,
-            kind: ColorScaleKind::Indexed(IndexedColorScale {
-                colors: vec![Color::BLACK, Color::WHITE],
-                outside: ColorScaleOutOfRange {
+            kind: ColourScaleKind::Indexed(IndexedColourScale {
+                colours: vec![Colour::BLACK, Colour::WHITE],
+                outside: ColourScaleOutOfRange {
                     policy: OutOfRange::Strict,
                     show_key: false,
                     label: None,
@@ -419,31 +419,31 @@ fn image_artists_are_written_in_the_documented_json_form() {
                 ticks: Ticks::Auto,
                 tick_labels: TickLabels::Auto,
             }),
-            non_finite: ColorScaleOutOfRange {
+            non_finite: ColourScaleOutOfRange {
                 policy: OutOfRange::Transparent,
                 show_key: false,
                 label: None,
             },
         },
-        ColorScale {
+        ColourScale {
             id: NodeId(21),
             title: None,
-            kind: ColorScaleKind::Continuous(ContinuousColorScale {
-                below: ColorScaleOutOfRange {
+            kind: ColourScaleKind::Continuous(ContinuousColourScale {
+                below: ColourScaleOutOfRange {
                     policy: OutOfRange::Transparent,
                     show_key: false,
                     label: None,
                 },
-                above: ColorScaleOutOfRange {
+                above: ColourScaleOutOfRange {
                     policy: OutOfRange::Clamp,
                     show_key: true,
                     label: Some(Text::plain("hot")),
                 },
-                ..ContinuousColorScale::default()
+                ..ContinuousColourScale::default()
             }),
-            non_finite: ColorScaleOutOfRange {
+            non_finite: ColourScaleOutOfRange {
                 policy: OutOfRange::Rgba {
-                    color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+                    colour: Colour::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
                 },
                 show_key: false,
                 label: None,
@@ -471,7 +471,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
             label: None,
             visible: true,
             values: NodeId(11),
-            color_scale: Some(NodeId(20)),
+            colour_scale: Some(NodeId(20)),
             placement: ImagePlacement {
                 plane: ImagePlane::Yz { x: None },
                 columns: None,
@@ -485,7 +485,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
             label: None,
             visible: true,
             values: NodeId(12),
-            color_scale: Some(NodeId(21)),
+            colour_scale: Some(NodeId(21)),
             placement: ImagePlacement {
                 plane: ImagePlane::Xy { z: None },
                 columns: Some(PixelRange {
@@ -525,7 +525,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
             "label": null,
             "visible": true,
             "values": 11,
-            "color_scale": 20,
+            "colour_scale": 20,
             "placement": {
                 "plane": {"type": "yz", "x": null},
                 "columns": null,
@@ -542,7 +542,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
             "label": null,
             "visible": true,
             "values": 12,
-            "color_scale": 21,
+            "colour_scale": 21,
             "placement": {
                 "plane": {"type": "xy", "z": null},
                 "columns": {"first": -1.5, "last": 1.5},
@@ -551,7 +551,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
             "opacity": 0.0
         })
     );
-    let scales = &value["color_scales"];
+    let scales = &value["colour_scales"];
     let category = |policy: Value, show_key: bool, label: Value| json!({"policy": policy, "show_key": show_key, "label": label});
     assert_eq!(
         scales[0]["kind"]["value"]["outside"],
@@ -576,7 +576,7 @@ fn image_artists_are_written_in_the_documented_json_form() {
     assert_eq!(
         scales[1]["non_finite"],
         category(
-            json!({"type": "rgba", "color": "#ff000080"}),
+            json!({"type": "rgba", "colour": "#ff000080"}),
             false,
             Value::Null
         )
@@ -595,9 +595,9 @@ fn image_artists_are_written_in_the_documented_json_form() {
 #[test]
 fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_policies() {
     let (mut fig, _, _) = single_line_figure();
-    fig.color_scales.push(ColorScale {
+    fig.colour_scales.push(ColourScale {
         id: NodeId(20),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     fig.axes[0].artists.extend([
         Artist::Image(Image {
@@ -637,13 +637,13 @@ fn image_artists_default_to_visible_unnamed_on_the_floor_with_transparent_polici
             "label": null,
             "visible": true,
             "values": 11,
-            "color_scale": null,
+            "colour_scale": null,
             "placement": placement
         })
     );
     let category =
         |policy: &str| json!({"policy": {"type": policy}, "show_key": false, "label": null});
-    let scale = &value["color_scales"][0];
+    let scale = &value["colour_scales"][0];
     assert_eq!(scale["non_finite"], category("transparent"));
     assert_eq!(scale["kind"]["type"], "continuous");
     assert_eq!(scale["kind"]["value"]["below"], category("clamp"));
@@ -824,7 +824,7 @@ fn legends_panels_and_layout_weights_are_written_in_the_documented_json_form() {
         json!([{
             "id": 9,
             "cell": { "row": 1, "col": 0, "row_span": 1, "col_span": 1 },
-            "align": "center",
+            "align": "centre",
             "title": null,
             "title_align": "left",
             "content": {
@@ -871,7 +871,7 @@ fn legends_panels_and_layout_weights_are_written_in_the_documented_json_form() {
 #[test]
 fn explicit_legend_entries_are_written_in_the_documented_json_form() {
     let (mut fig, _, line) = single_line_figure();
-    let orange = Color::rgb(230.0 / 255.0, 159.0 / 255.0, 0.0);
+    let orange = Colour::rgb(230.0 / 255.0, 159.0 / 255.0, 0.0);
     let items = vec![
         LegendItem {
             full_row: true,
@@ -880,15 +880,15 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
         LegendItem::custom(
             LegendSample::Line {
                 line: LineStyle {
-                    color: ColorSpec::Rgba { color: orange },
+                    colour: ColourSpec::Rgba { colour: orange },
                     width_pt: 1.5,
                     dash: DashStyle::Dashed,
                 },
                 marker: MarkerStyle {
                     shape: MarkerShape::Square,
                     size_pt: 4.0,
-                    face: ColorSpec::Auto,
-                    edge: ColorSpec::None,
+                    face: ColourSpec::Auto,
+                    edge: ColourSpec::None,
                 },
             },
             Text::plain("measured"),
@@ -905,7 +905,7 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
                     "sample": {
                         "type": "line",
                         "line": {
-                            "color": { "type": "rgba", "color": "#e69f00" },
+                            "colour": { "type": "rgba", "colour": "#e69f00" },
                             "width_pt": 1.5,
                             "dash": "dashed"
                         },
@@ -925,7 +925,7 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
                 "type": "custom",
                 "value": {
                     "label": { "content": "$x_s$", "interpreter": "latex" },
-                    "sample": { "type": "swatch", "color": "#e69f00" }
+                    "sample": { "type": "swatch", "colour": "#e69f00" }
                 }
             },
             "full_row": false
@@ -950,7 +950,7 @@ fn explicit_legend_entries_are_written_in_the_documented_json_form() {
             col: 1,
             ..Cell::default()
         },
-        align: PanelLocation::Center,
+        align: PanelLocation::Centre,
         title: None,
         title_align: TitleAlign::Left,
         content: PanelContent::Legend(PanelLegend {

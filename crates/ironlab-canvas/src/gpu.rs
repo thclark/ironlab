@@ -76,7 +76,7 @@ pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// One vertex of a [`DrawList`].
 ///
 /// `pos` is in figure points; `z` is the depth in `[0, 1]` with 0 the nearest, normalised over the vertex's depth
-/// group and 0 outside any group; `uv` is the texture coordinate; and `color` is premultiplied sRGB, as
+/// group and 0 outside any group; `uv` is the texture coordinate; and `colour` is premultiplied sRGB, as
 /// [`ecolor::Color32`] is.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -84,7 +84,7 @@ pub struct Vertex {
     pub pos: [f32; 2],
     pub z: f32,
     pub uv: [f32; 2],
-    pub color: [u8; 4],
+    pub colour: [u8; 4],
 }
 
 impl Vertex {
@@ -153,7 +153,7 @@ pub struct StrokeParams {
     /// The translation `[e, f]` of the transform, padded.
     pub offset: [f32; 4],
     /// The premultiplied sRGB colour as fractions.
-    pub color: [f32; 4],
+    pub colour: [f32; 4],
     /// The width in item units; 0 means one screen point.
     pub width: f32,
     /// 0 butt, 1 round, 2 square.
@@ -241,7 +241,7 @@ impl MarkerVertex {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MarkerGpu {
-    pub center: [f32; 2],
+    pub centre: [f32; 2],
     /// The depth `z` in `[0, 1]`, normalised over the depth group; 0 outside every group.
     pub z: f32,
     /// The width of the marker in item units, by which the outline is scaled.

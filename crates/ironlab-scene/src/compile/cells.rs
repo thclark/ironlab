@@ -76,7 +76,7 @@ fn bin_of(cells: &Cells, data: &CellsData, j: usize, i: usize) -> Option<BinRead
     let (x_edges, y_edges) = data.bin_edges?;
     let area = (x_edges.get(i + 1)? - x_edges.get(i)?) * (y_edges.get(j + 1)? - y_edges.get(j)?);
     BinReading::recover(
-        binning.normalization,
+        binning.normalisation,
         binning.total,
         value_at(data.values, j * data.nx + i),
         before,
@@ -92,7 +92,7 @@ fn bin_of(cells: &Cells, data: &CellsData, j: usize, i: usize) -> Option<BinRead
 /// leaves transparent, such as the NaN padding of a ragged row, or whose alpha is 0, is not a thing on the page: it
 /// draws neither face nor outline and has no hit. Otherwise the face takes the colour faded by the cell's alpha and
 /// the face opacity, and the outline takes the colour of its edge (the cell's own colour when the edge is automatic
-/// or colormapped) faded by the cell's alpha and the edge opacity. A cell bounded by an edge that a logarithmic axis
+/// or colourmapped) faded by the cell's alpha and the edge opacity. A cell bounded by an edge that a logarithmic axis
 /// cannot place, and a cell wholly outside the plot area, is not drawn.
 pub(super) fn draw_cells(
     draw: &mut Draw,
@@ -120,7 +120,7 @@ pub(super) fn draw_cells(
     let dash = style::dash_array(cells.edge.dash, width);
     let face_opacity = style::unit_opacity(cells.face_opacity);
     let edge_opacity = style::unit_opacity(cells.edge_opacity);
-    let edge_paint = style::resolve(cells.edge.color, Paint::Colormapped);
+    let edge_paint = style::resolve(cells.edge.colour, Paint::Colourmapped);
     let bounds = plane.bounds(draw.clip);
     let mut drawn: u64 = 0;
     for (j, row) in rows.iter().enumerate() {
@@ -149,7 +149,7 @@ pub(super) fn draw_cells(
                 .then(|| paths::fill(colour.with_alpha_factor(face_factor as f32)));
             let edge_colour = match edge_paint {
                 Paint::Fixed(fixed) => fixed,
-                Paint::Colormapped => Some(colour),
+                Paint::Colourmapped => Some(colour),
             };
             let edge_factor = alpha * edge_opacity;
             let stroke = edge_colour.filter(|_| edge_factor > 0.0).and_then(|c| {

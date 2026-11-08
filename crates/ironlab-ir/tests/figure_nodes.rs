@@ -549,7 +549,7 @@ fn every_kind_of_data_reference_is_checked_for_its_kind() {
                 shape: MarkerShape::Circle,
                 ..MarkerStyle::default()
             },
-            color_data: Some(axes),
+            colour_data: Some(axes),
             ..Series::default()
         }),
     );
@@ -682,16 +682,16 @@ fn an_unreferenced_data_array_is_a_warning_until_an_artist_refers_to_it() {
     // The colour data is mapped through a scale, as colour data must be.
     let mut used = fig.clone();
     let line = line_of(&fig, fig.axes[0].artists[0].id()).clone();
-    used.color_scales.push(ColorScale {
+    used.colour_scales.push(ColourScale {
         id: NodeId(702),
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     used.axes[0].artists.push(Artist::Series(Series {
         id: NodeId(701),
         x: line.x,
         y: line.y,
-        color_data: Some(spare),
-        color_scale: Some(NodeId(702)),
+        colour_data: Some(spare),
+        colour_scale: Some(NodeId(702)),
         ..Series::default()
     }));
     let report = used.validate();
@@ -823,7 +823,7 @@ fn a_panel_alone_in_a_fitted_column_is_valid_and_an_axes_there_is_not() {
 #[test]
 fn a_panel_location_is_a_legend_location_without_best() {
     let pairs = [
-        (PanelLocation::Center, LegendLocation::Center),
+        (PanelLocation::Centre, LegendLocation::Centre),
         (PanelLocation::North, LegendLocation::North),
         (PanelLocation::South, LegendLocation::South),
         (PanelLocation::East, LegendLocation::East),
@@ -846,7 +846,7 @@ fn a_panel_location_is_a_legend_location_without_best() {
         json!("north_east")
     );
     assert!(serde_json::from_value::<PanelLocation>(json!("best")).is_err());
-    assert_eq!(PanelLocation::default(), PanelLocation::Center);
+    assert_eq!(PanelLocation::default(), PanelLocation::Centre);
 }
 
 // ---------------------------------------------------------------------------------
@@ -1001,7 +1001,7 @@ fn the_json_form_of_node_and_data_edits_is_documented() {
                     "panel": {
                         "id": 6,
                         "cell": { "row": 0, "col": 0, "row_span": 1, "col_span": 1 },
-                        "align": "center",
+                        "align": "centre",
                         "title": null,
                         "title_align": "left",
                         "content": {

@@ -54,7 +54,7 @@
       },
       "aspect": { "type": "ratio", "value": { "y": 0.5, "z": 2.0 } },
       "aspect_adjust": "limits",
-      "colorbar": null,
+      "colourbar": null,
       "box": true,
       "legend": {
         "type": "inside",
@@ -74,7 +74,7 @@
           "y": 7,
           "z": null,
           "line": {
-            "color": { "type": "rgba", "color": "#0072b2cc" },
+            "colour": { "type": "rgba", "colour": "#0072b2cc" },
             "width_pt": 0.75,
             "dash": "dash_dot"
           },
@@ -85,8 +85,8 @@
             "edge": { "type": "auto" }
           },
           "size_data": null,
-          "color_data": null,
-          "color_scale": null,
+          "colour_data": null,
+          "colour_scale": null,
           "x_coords": "data",
           "y_coords": "data",
           "clip": true

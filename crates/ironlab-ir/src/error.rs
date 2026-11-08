@@ -41,7 +41,7 @@ pub enum IrError {
 
     /// The string is not a colour of the form `#rrggbb` or `#rrggbbaa`.
     #[error("invalid colour {0:?}; expected #rrggbb or #rrggbbaa")]
-    InvalidColor(String),
+    InvalidColour(String),
 
     /// A transaction could not be applied to the figure; the figure is unchanged.
     #[error(transparent)]

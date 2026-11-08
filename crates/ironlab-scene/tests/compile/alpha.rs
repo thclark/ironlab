@@ -7,7 +7,7 @@
 //! backend draws it without knowing where it came from.
 
 use ironlab_ir::{
-    Color, ColorSpec, InsideLegend, Legend, LegendLocation, Levels, Limits, NodeId, OutOfRange,
+    Colour, ColourSpec, InsideLegend, Legend, LegendLocation, Levels, Limits, NodeId, OutOfRange,
     View3d,
 };
 use ironlab_scene::Scene;
@@ -29,7 +29,7 @@ const FACE_ALPHA: [f64; 6] = [0.2, 0.4, f64::NAN, 0.6, 0.8, 1.0];
 /// are clamped before they are averaged, so the 2 and the −1 count as 1 and 0.
 const EDGE_ALPHA: [f64; 6] = [2.0, 1.0, 1.0, -1.0, 0.0, 1.0];
 
-const RED: Color = Color {
+const RED: Colour = Colour {
     r: 1.0,
     g: 0.0,
     b: 0.0,
@@ -53,7 +53,7 @@ fn alpha_surface(three_d: bool, face: f64, edge: f64) -> (Scene, NodeId) {
         &Y,
         |x, y| x + y,
         |s| {
-            s.face = ColorSpec::Rgba { color: RED };
+            s.face = ColourSpec::Rgba { colour: RED };
             s.face_alpha = Some(face_alpha);
             s.edge_alpha = Some(edge_alpha);
             s.face_opacity = face;
@@ -77,12 +77,12 @@ fn alphas(scene: &Scene, id: NodeId) -> (Vec<f32>, Vec<f32>) {
     let mut fills: Vec<f32> = drawn
         .iter()
         .filter_map(Leaf::path)
-        .filter_map(|p| p.fill.as_ref().map(|f| f.color.a))
+        .filter_map(|p| p.fill.as_ref().map(|f| f.colour.a))
         .collect();
     let mut strokes: Vec<f32> = drawn
         .iter()
         .filter_map(Leaf::path)
-        .filter_map(|p| p.stroke.as_ref().map(|s| s.color.a))
+        .filter_map(|p| p.stroke.as_ref().map(|s| s.colour.a))
         .collect();
     fills.sort_by(f32::total_cmp);
     strokes.sort_by(f32::total_cmp);
@@ -108,7 +108,7 @@ fn a_2d_surface_takes_face_and_edge_alpha_times_their_opacities_independently() 
         .find_map(|p| p.fill.as_ref())
         .unwrap();
     assert_eq!(
-        rgb8(fill.color),
+        rgb8(fill.colour),
         [255, 0, 0],
         "the colour itself is unchanged"
     );
@@ -127,12 +127,12 @@ fn a_3d_surface_carries_face_and_edge_transparency_into_its_faces_and_edge_rings
     let rings: Vec<f32> = drawn
         .iter()
         .filter(|l| l.subpaths().len() == 2)
-        .filter_map(|l| l.path().and_then(|p| p.fill.as_ref()).map(|f| f.color.a))
+        .filter_map(|l| l.path().and_then(|p| p.fill.as_ref()).map(|f| f.colour.a))
         .collect();
     let faces: Vec<f32> = drawn
         .iter()
         .filter(|l| l.subpaths().len() == 1)
-        .filter_map(|l| l.path().and_then(|p| p.fill.as_ref()).map(|f| f.color.a))
+        .filter_map(|l| l.path().and_then(|p| p.fill.as_ref()).map(|f| f.colour.a))
         .collect();
     assert_eq!(
         faces.len(),
@@ -204,8 +204,8 @@ fn alpha_of_one_and_opacity_of_one_leave_a_surface_exactly_as_it_was() {
                 &Y,
                 |x, y| x * y,
                 |s| {
-                    s.edge = ColorSpec::Rgba {
-                        color: Color::rgba(0.0, 0.0, 0.0, 0.3),
+                    s.edge = ColourSpec::Rgba {
+                        colour: Colour::rgba(0.0, 0.0, 0.0, 0.3),
                     };
                     if with_alpha {
                         s.face_alpha = Some(ones);
@@ -220,7 +220,7 @@ fn alpha_of_one_and_opacity_of_one_leave_a_surface_exactly_as_it_was() {
 }
 
 /// The colour of the isolines of the fixture contour: blue, itself half transparent.
-const HALF_BLUE: Color = Color {
+const HALF_BLUE: Colour = Colour {
     r: 0.0,
     g: 0.0,
     b: 1.0,
@@ -231,7 +231,7 @@ const HALF_BLUE: Color = Color {
 /// `line` and the opacities `line_opacity` and `fill_opacity`.
 fn opacity_contour(
     fill: bool,
-    line: ColorSpec,
+    line: ColourSpec,
     line_opacity: f64,
     fill_opacity: f64,
 ) -> (Scene, NodeId) {
@@ -247,7 +247,7 @@ fn opacity_contour(
                 values: vec![1.0, 2.0],
             });
             c.fill = fill;
-            c.line.color = line;
+            c.line.colour = line;
             c.line_opacity = line_opacity;
             c.fill_opacity = fill_opacity;
         },
@@ -256,12 +256,12 @@ fn opacity_contour(
 }
 
 // Why: a filled contour is often laid over an image or a surface, so its bands must be fadeable without fading the
-// isolines that mark the levels, and the reverse: the band fills must take the colormap colour's alpha times the
+// isolines that mark the levels, and the reverse: the band fills must take the colourmap colour's alpha times the
 // fill opacity alone, and the isolines their own colour's alpha times the line opacity alone. Isolines that take
-// the colormap (those of an unfilled contour) must be faded by the line opacity too.
+// the colourmap (those of an unfilled contour) must be faded by the line opacity too.
 #[test]
 fn a_contour_fades_its_bands_and_its_isolines_by_their_own_opacities() {
-    let (scene, contour) = opacity_contour(true, ColorSpec::Rgba { color: HALF_BLUE }, 0.8, 0.4);
+    let (scene, contour) = opacity_contour(true, ColourSpec::Rgba { colour: HALF_BLUE }, 0.8, 0.4);
     let (fills, strokes) = alphas(&scene, contour);
     assert!(!fills.is_empty(), "the bands are drawn");
     for &a in &fills {
@@ -272,12 +272,12 @@ fn a_contour_fades_its_bands_and_its_isolines_by_their_own_opacities() {
         assert_alpha(a, 0.5 * 0.8, "an isoline");
     }
 
-    let (scene, contour) = opacity_contour(false, ColorSpec::Colormapped, 0.25, 0.4);
+    let (scene, contour) = opacity_contour(false, ColourSpec::Colourmapped, 0.25, 0.4);
     let (fills, strokes) = alphas(&scene, contour);
     assert!(fills.is_empty(), "an unfilled contour has no bands");
     assert_eq!(strokes.len(), 2, "both isolines are drawn: {strokes:?}");
     for &a in &strokes {
-        assert_alpha(a, 0.25, "a colormapped isoline");
+        assert_alpha(a, 0.25, "a colourmapped isoline");
     }
 }
 
@@ -286,7 +286,7 @@ fn a_contour_fades_its_bands_and_its_isolines_by_their_own_opacities() {
 // the other part is drawn as usual; with both at 0 nothing is drawn, and nothing is warned about.
 #[test]
 fn an_opacity_of_zero_omits_the_bands_or_the_isolines() {
-    let line = ColorSpec::Rgba { color: HALF_BLUE };
+    let line = ColourSpec::Rgba { colour: HALF_BLUE };
     let (scene, contour) = opacity_contour(true, line, 1.0, 0.0);
     let (fills, strokes) = alphas(&scene, contour);
     assert!(fills.is_empty(), "no band is drawn: {fills:?}");
@@ -311,7 +311,7 @@ fn an_opacity_of_zero_omits_the_bands_or_the_isolines() {
 // for nothing.
 #[test]
 fn opacities_of_one_leave_the_colours_of_a_contour_exactly_as_given() {
-    let (scene, contour) = opacity_contour(true, ColorSpec::Rgba { color: HALF_BLUE }, 1.0, 1.0);
+    let (scene, contour) = opacity_contour(true, ColourSpec::Rgba { colour: HALF_BLUE }, 1.0, 1.0);
     let (fills, strokes) = alphas(&scene, contour);
     assert!(!fills.is_empty(), "the bands are drawn");
     assert!(fills.iter().all(|&a| a == 1.0), "bands: {fills:?}");
@@ -336,7 +336,7 @@ fn compiled_image(add: impl FnOnce(&mut Fx, NodeId) -> NodeId) -> ImageItem {
 
 // Why: alpha data is how a measurement says where it can be trusted (a PIV confidence, a mask), so each pixel's
 // alpha must multiply its colour's alpha and the opacity: a NaN alpha (no confidence at all) is transparent, an
-// alpha outside [0, 1] is clamped, and the colour of a translucent pixel is left as the colormap gives it.
+// alpha outside [0, 1] is clamped, and the colour of a translucent pixel is left as the colourmap gives it.
 #[test]
 fn a_mapped_image_multiplies_each_pixel_by_its_alpha_and_by_the_opacity() {
     let item = compiled_image(|fx, ax| {
@@ -450,7 +450,7 @@ fn an_out_of_range_policy_colour_is_multiplied_by_the_pixel_alpha_and_the_opacit
             max: 10.0,
         };
         scale.below = out_of_range(OutOfRange::Rgba {
-            color: Color::rgba(0.0, 0.0, 1.0, 0.8),
+            colour: Colour::rgba(0.0, 0.0, 1.0, 0.8),
         });
         id
     });
@@ -501,7 +501,7 @@ fn sample_alphas(scene: &Scene, ax: NodeId, artist: NodeId) -> (Vec<f32>, Vec<f3
     let mut fills: Vec<f32> = drawn
         .iter()
         .filter_map(Leaf::path)
-        .filter_map(|p| p.fill.as_ref().map(|f| f.color.a))
+        .filter_map(|p| p.fill.as_ref().map(|f| f.colour.a))
         .collect();
     for image in drawn.iter().filter_map(Leaf::image) {
         for row in 0..image.height as usize {
@@ -513,7 +513,7 @@ fn sample_alphas(scene: &Scene, ax: NodeId, artist: NodeId) -> (Vec<f32>, Vec<f3
     let strokes = drawn
         .iter()
         .filter_map(Leaf::path)
-        .filter_map(|p| p.stroke.as_ref().map(|s| s.color.a))
+        .filter_map(|p| p.stroke.as_ref().map(|s| s.colour.a))
         .collect();
     (fills, strokes)
 }
@@ -545,7 +545,7 @@ fn the_legend_sample_of_a_surface_or_image_takes_its_opacity() {
         |x, y| x + y,
         |s| {
             s.label = text("surface");
-            s.face = ColorSpec::Rgba { color: RED };
+            s.face = ColourSpec::Rgba { colour: RED };
             s.face_opacity = 0.4;
         },
     );
@@ -581,7 +581,7 @@ fn the_legend_sample_of_a_contour_takes_its_opacities() {
         |c| {
             c.label = text("filled");
             c.fill = true;
-            c.line.color = ColorSpec::Rgba { color: HALF_BLUE };
+            c.line.colour = ColourSpec::Rgba { colour: HALF_BLUE };
             c.line_opacity = 0.8;
             c.fill_opacity = 0.4;
         },

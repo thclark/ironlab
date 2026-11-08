@@ -1,6 +1,6 @@
 //! Geometry that interactive front ends need to map pointer positions back onto figure elements.
 
-use ironlab_ir::{ColorScaleKey, ColorbarOrientation, HistNorm, NodeId};
+use ironlab_ir::{ColourScaleKey, ColourbarOrientation, HistNorm, NodeId};
 
 use crate::display::{Point, Rect, Transform};
 use crate::maths::decimate::Sample;
@@ -221,32 +221,32 @@ pub struct PanelHit {
 /// What holds a colourbar: a panel, an axes that draws it inside its plot area, or a legend that lists its scale as a
 /// bar item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ColorbarOwner {
+pub enum ColourbarOwner {
     /// The panel with this identifier.
     Panel(NodeId),
     /// The axes with this identifier.
     Axes(NodeId),
     /// A bar item of a legend: inside the plot area of an axes or in a legend panel. A legend may hold several bar
-    /// items, which [`ColorbarHit::scale`] tells apart.
+    /// items, which [`ColourbarHit::scale`] tells apart.
     Legend(LegendOwner),
 }
 
 /// Hit-testing geometry for one colourbar.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ColorbarHit {
-    pub owner: ColorbarOwner,
+pub struct ColourbarHit {
+    pub owner: ColourbarOwner,
     /// The colour scale the bar shows.
     pub scale: NodeId,
     /// The direction of the bar; an inside colourbar is horizontal on the south and north edges and vertical on the
     /// east and west edges, and a bar item of a legend is vertical, or horizontal on a row of its own.
-    pub orientation: ColorbarOrientation,
+    pub orientation: ColourbarOrientation,
     /// The bar, in figure space: for a continuous, discrete or indexed scale the coloured bar itself, without ticks,
     /// labels, title or keys; for a categorical scale the union of its category squares.
     pub bar: Rect,
     /// The squares of a categorical scale, one per category in category order; empty for any other kind.
     pub entries: Vec<Rect>,
     /// The out-of-range keys drawn, each with the category it shows.
-    pub keys: Vec<ColorbarKeyHit>,
+    pub keys: Vec<ColourbarKeyHit>,
     /// The box drawn behind an inside colourbar, enclosing its title, bar, keys and labels, which lies `length` of
     /// the edge along it, centred, and is inset from the plot area by a margin; `None` for a panel colourbar and for a
     /// bar item of a legend, whose box (if any) is the legend's.
@@ -265,9 +265,9 @@ pub struct ColorbarHit {
 
 /// Hit-testing geometry for one out-of-range key of a colourbar.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ColorbarKeyHit {
+pub struct ColourbarKeyHit {
     /// The out-of-range category the key shows.
-    pub key: ColorScaleKey,
+    pub key: ColourScaleKey,
     /// The square of the key, in figure space.
     pub rect: Rect,
     /// The source text of the label drawn beside the key: the author's label, or the default label as drawn.
@@ -458,13 +458,13 @@ pub struct BinReading {
 }
 
 impl BinReading {
-    /// Recovers the count and density of a bin from `value`, the value drawn for it under `normalization`, `size`,
+    /// Recovers the count and density of a bin from `value`, the value drawn for it under `normalisation`, `size`,
     /// the width or area of the bin, and `total`, the number of samples counted. A cumulative value is first
     /// differenced with `before`, the cumulative value of the bins before it (0 for the first bin), so that the count
     /// is that of the bin alone. Returns `None` when the value or the size is not finite.
     #[must_use]
     pub fn recover(
-        normalization: HistNorm,
+        normalisation: HistNorm,
         total: f64,
         value: f64,
         before: f64,
@@ -473,7 +473,7 @@ impl BinReading {
         if !(value.is_finite() && size.is_finite()) {
             return None;
         }
-        let count = match normalization {
+        let count = match normalisation {
             HistNorm::Count => value,
             HistNorm::Probability => value * total,
             HistNorm::Percentage => value * total / 100.0,
@@ -579,7 +579,7 @@ pub struct HitMap {
     pub images: Vec<ImageHit>,
     /// Every colourbar drawn, in paint order: the inside colourbars and the bar items of the inside legends of the
     /// axes, then the colourbars and the bar items of the legends of the panels.
-    pub colorbars: Vec<ColorbarHit>,
+    pub colourbars: Vec<ColourbarHit>,
     /// Every bar drawn in a two-dimensional axes, in paint order.
     pub bars: Vec<BarHit>,
     /// Every step of stairs drawn in a two-dimensional axes, in paint order.

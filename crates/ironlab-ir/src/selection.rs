@@ -146,7 +146,7 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
             all.extend([a.x, a.y]);
             all.extend(a.z);
             all.extend(a.size_data);
-            all.extend(a.color_data);
+            all.extend(a.colour_data);
             a.x
         }
         Artist::Quiver(a) => {
@@ -182,7 +182,7 @@ fn arrays_of(figure: &Figure, node: NodeId) -> Option<Arrays> {
             if let BarWidth::Data(widths) = a.width {
                 all.push(widths);
             }
-            all.extend(a.color_data);
+            all.extend(a.colour_data);
             all.extend(a.binning.as_ref().map(|b| b.edges));
             a.positions
         }

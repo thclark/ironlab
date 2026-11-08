@@ -85,12 +85,12 @@ proto_file! {
             /// A label beside a sample, standing for no artist.
             Custom(LegendItemContentCustom) custom = 2;
             /// A colour scale of the figure.
-            ColorScale(LegendItemContentColorScale) color_scale = 3;
+            ColourScale(LegendItemContentColourScale) colour_scale = 3;
         }
     }
 
     /// A colour scale of the figure, shown as its categories or as a bar.
-    message LegendItemContentColorScale {
+    message LegendItemContentColourScale {
         /// The node identifier of the colour scale; it must be present.
         optional uint64 scale = 1;
         /// The number of entry rows along which a vertical bar runs; absent means 5.
@@ -133,7 +133,7 @@ proto_file! {
     /// A filled rectangle of a colour.
     message LegendSampleSwatch {
         /// The colour of the rectangle.
-        message Color color = 1;
+        message Colour colour = 1;
     }
 
     /// How the entries of a legend are arranged in columns.
@@ -193,6 +193,6 @@ proto_file! {
         /// The corner that overlaps the least data.
         Best = 9;
         /// The centre.
-        Center = 10;
+        Centre = 10;
     }
 }

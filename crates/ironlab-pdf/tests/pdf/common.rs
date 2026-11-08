@@ -147,22 +147,22 @@ pub fn rect_segments(r: Rect) -> Vec<PathSegment> {
     ]
 }
 
-pub fn filled_path(segments: Vec<PathSegment>, color: Rgba, rule: FillRule) -> Item {
+pub fn filled_path(segments: Vec<PathSegment>, colour: Rgba, rule: FillRule) -> Item {
     item(ItemKind::Path(PathItem {
         segments,
-        fill: Some(Fill { color, rule }),
+        fill: Some(Fill { colour, rule }),
         stroke: None,
         depth: None,
     }))
 }
 
-pub fn filled_rect(r: Rect, color: Rgba) -> Item {
-    filled_path(rect_segments(r), color, FillRule::NonZero)
+pub fn filled_rect(r: Rect, colour: Rgba) -> Item {
+    filled_path(rect_segments(r), colour, FillRule::NonZero)
 }
 
-pub fn solid_stroke(color: Rgba, width: f64) -> Stroke {
+pub fn solid_stroke(colour: Rgba, width: f64) -> Stroke {
     Stroke {
-        color,
+        colour,
         width,
         dash: Vec::new(),
         dash_offset: 0.0,
@@ -191,7 +191,7 @@ pub fn group(clip: Option<Rect>, transform: Option<Transform>, items: Vec<Item>)
 /// Converts a text layout into display items with the layout origin (left end of the baseline) at `origin`.
 ///
 /// Glyph runs become glyph items and rules become filled rectangles, which is how the scene compiler places labels.
-pub fn text_items(layout: &TextLayout, origin: Point, color: Rgba) -> Vec<Item> {
+pub fn text_items(layout: &TextLayout, origin: Point, colour: Rgba) -> Vec<Item> {
     layout
         .items
         .iter()
@@ -200,7 +200,7 @@ pub fn text_items(layout: &TextLayout, origin: Point, color: Rgba) -> Vec<Item> 
                 stroke_em: 0.0,
                 font: run.font,
                 size_pt: run.size_pt,
-                color,
+                colour,
                 text: run.text.clone(),
                 glyphs: run
                     .glyphs
@@ -220,7 +220,7 @@ pub fn text_items(layout: &TextLayout, origin: Point, color: Rgba) -> Vec<Item> 
                 height,
             } => filled_rect(
                 Rect::new(origin.x + x, origin.y + y, *width, *height),
-                color,
+                colour,
             ),
         })
         .collect()
@@ -409,7 +409,7 @@ pub struct ImageInfo {
 
 /// Lists the images embedded in a PDF with `pdfimages -list`.
 ///
-/// The columns are: page, num, type, width, height, color, comp, bpc, enc, interp, object, ID, x-ppi, y-ppi, size,
+/// The columns are: page, num, type, width, height, colour, comp, bpc, enc, interp, object, ID, x-ppi, y-ppi, size,
 /// ratio.
 pub fn pdfimages(path: &Path) -> Vec<ImageInfo> {
     let output = run(Command::new(IMAGE_TOOL).arg("-list").arg(path));
@@ -768,16 +768,16 @@ impl Stub {
         )
     }
 
-    /// A stub that paints `color` whether or not the list holds a depth group.
-    pub fn flat(color: [u8; 4]) -> (Self, Calls) {
-        Self::new(color, color)
+    /// A stub that paints `colour` whether or not the list holds a depth group.
+    pub fn flat(colour: [u8; 4]) -> (Self, Calls) {
+        Self::new(colour, colour)
     }
 }
 
 impl Rasteriser for Stub {
     fn rasterise(&mut self, list: &DisplayList, dpi: f64) -> Result<RasterImage, String> {
         self.calls.borrow_mut().push((list.clone(), dpi));
-        let color = if holds_depth(list) {
+        let colour = if holds_depth(list) {
             self.tested
         } else {
             self.painted
@@ -788,7 +788,7 @@ impl Rasteriser for Stub {
         Ok(RasterImage {
             width,
             height,
-            rgba: color
+            rgba: colour
                 .iter()
                 .copied()
                 .cycle()

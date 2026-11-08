@@ -73,9 +73,9 @@ fn fixture(three_d: bool, make: impl FnOnce(&mut FigureBuilder, NodeId) -> Artis
     } else {
         b.axes2d(0, 0)
     };
-    b.fig.color_scales.push(ColorScale {
+    b.fig.colour_scales.push(ColourScale {
         id: SCALE,
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     let artist = b.node();
     let made = make(&mut b, artist);
@@ -147,7 +147,7 @@ fn cells(ny: usize, nx: usize) -> impl FnOnce(&mut FigureBuilder, NodeId) -> Art
         Artist::Cells(Cells {
             id,
             values: b.matrix(ny, nx, |j, i| (j * nx + i) as f64 + 1.0),
-            color_scale: Some(SCALE),
+            colour_scale: Some(SCALE),
             ..Cells::default()
         })
     }
@@ -227,14 +227,14 @@ fn a_default_bar_series_is_a_plain_bar_chart_in_the_colour_order() {
     assert_eq!(bar.base, PerBar::Constant(0.0));
     assert_eq!(bar.width, BarWidth::Pitch(0.55));
     assert_eq!(bar.offset, BarOffset::Widths(0.0));
-    assert_eq!(bar.face, ColorSpec::Auto);
-    assert_eq!(bar.color_data, None);
-    assert_eq!(bar.color_scale, None);
+    assert_eq!(bar.face, ColourSpec::Auto);
+    assert_eq!(bar.colour_data, None);
+    assert_eq!(bar.colour_scale, None);
     assert_eq!(
         bar.edge,
         LineStyle {
-            color: ColorSpec::Rgba {
-                color: Color::BLACK,
+            colour: ColourSpec::Rgba {
+                colour: Colour::BLACK,
             },
             width_pt: 0.5,
             dash: DashStyle::Solid,
@@ -270,8 +270,8 @@ fn default_stairs_are_an_open_unfilled_outline_in_the_colour_order() {
     );
     assert_eq!(stairs.base, None);
     assert_eq!(stairs.line, LineStyle::default());
-    assert_eq!(stairs.line.color, ColorSpec::Auto);
-    assert_eq!(stairs.fill, ColorSpec::None);
+    assert_eq!(stairs.line.colour, ColourSpec::Auto);
+    assert_eq!(stairs.fill, ColourSpec::None);
     assert_eq!(stairs.line_opacity, 1.0);
     assert_eq!(stairs.fill_opacity, 1.0);
     assert_eq!(StepAt::default(), StepAt::Post);
@@ -293,12 +293,12 @@ fn default_cells_are_a_seamless_grid_on_unit_edges_without_outlines() {
     assert_eq!(
         cells.edge,
         LineStyle {
-            color: ColorSpec::None,
+            colour: ColourSpec::None,
             width_pt: 0.5,
             dash: DashStyle::Solid,
         }
     );
-    assert_eq!(cells.color_scale, None);
+    assert_eq!(cells.colour_scale, None);
     assert_eq!(cells.alpha, None);
     assert_eq!(cells.face_opacity, 1.0);
     assert_eq!(cells.edge_opacity, 1.0);
@@ -355,9 +355,9 @@ fn a_default_bar_series_is_written_in_the_documented_json_form() {
             "width": { "type": "pitch", "value": 0.55 },
             "offset": { "type": "widths", "value": 0.0 },
             "face": { "type": "auto" },
-            "color_data": null,
-            "color_scale": null,
-            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" },
+            "colour_data": null,
+            "colour_scale": null,
+            "edge": { "colour": { "type": "rgba", "colour": "#000000" }, "width_pt": 0.5, "dash": "solid" },
             "margin": 0.05
         })
     );
@@ -381,11 +381,11 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
             base: PerBar::Data(NodeId(12)),
             width: BarWidth::Constant(0.5),
             offset: BarOffset::Absolute(-0.25),
-            face: ColorSpec::Colormapped,
-            color_data: Some(NodeId(14)),
-            color_scale: Some(NodeId(20)),
+            face: ColourSpec::Colourmapped,
+            colour_data: Some(NodeId(14)),
+            colour_scale: Some(NodeId(20)),
             edge: LineStyle {
-                color: ColorSpec::Colormapped,
+                colour: ColourSpec::Colourmapped,
                 ..Bar::default().edge
             },
             face_opacity: 0.0,
@@ -410,14 +410,14 @@ fn the_variants_of_a_bar_series_are_written_in_the_documented_json_form() {
         first["offset"],
         json!({ "type": "absolute", "value": -0.25 })
     );
-    assert_eq!(first["face"], json!({ "type": "colormapped" }));
-    assert_eq!(first["color_data"], json!(14));
-    assert_eq!(first["color_scale"], json!(20));
-    assert_eq!(first["edge"]["color"], json!({ "type": "colormapped" }));
+    assert_eq!(first["face"], json!({ "type": "colourmapped" }));
+    assert_eq!(first["colour_data"], json!(14));
+    assert_eq!(first["colour_scale"], json!(20));
+    assert_eq!(first["edge"]["colour"], json!({ "type": "colourmapped" }));
     assert_eq!(first["face_opacity"], json!(0.0));
     assert_eq!(first["edge_opacity"], json!(0.0));
     assert_eq!(first["margin"], json!(0.0));
-    for gone in ["colors", "slot", "gap", "group"] {
+    for gone in ["colours", "slot", "gap", "group"] {
         assert_eq!(first.get(gone), None, "{gone} is written: {first}");
     }
     assert_eq!(artists[1]["width"], json!({ "type": "data", "value": 13 }));
@@ -442,7 +442,7 @@ fn edges_binning() -> Binning {
         bins: Bins::Edges(vec![0.0, 1.0, 3.0, 6.0]),
         edges: NodeId(14),
         range: Some([0.0, 6.0]),
-        normalization: HistNorm::Density,
+        normalisation: HistNorm::Density,
         total: 120.0,
         excluded_non_finite: 2,
         excluded_out_of_range: 5,
@@ -459,7 +459,7 @@ fn grid_binning() -> Binning2d {
         y_edges: NodeId(16),
         x_range: Some([-1.0, 1.0]),
         y_range: None,
-        normalization: HistNorm::Probability,
+        normalisation: HistNorm::Probability,
         min_count: Some(1.0),
         total: 40.0,
         excluded_non_finite: 0,
@@ -495,7 +495,7 @@ fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_t
                 bins: Bins::Rule(BinRule::FreedmanDiaconis),
                 edges: NodeId(12),
                 range: None,
-                normalization: HistNorm::CumulativeCount,
+                normalisation: HistNorm::CumulativeCount,
                 total: 7.0,
                 excluded_non_finite: 0,
                 excluded_out_of_range: 0,
@@ -515,7 +515,7 @@ fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_t
             "bins": { "type": "edges", "value": [0.0, 1.0, 3.0, 6.0] },
             "edges": 14,
             "range": [0.0, 6.0],
-            "normalization": "density",
+            "normalisation": "density",
             "total": 120.0,
             "excluded_non_finite": 2,
             "excluded_out_of_range": 5
@@ -527,7 +527,7 @@ fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_t
     );
     assert_eq!(artists[1]["binning"]["range"], json!(null));
     assert_eq!(
-        artists[1]["binning"]["normalization"],
+        artists[1]["binning"]["normalisation"],
         json!("cumulative_count")
     );
     assert_eq!(
@@ -539,7 +539,7 @@ fn binning_records_are_written_in_the_documented_json_form_and_survive_a_round_t
             "y_edges": 16,
             "x_range": [-1.0, 1.0],
             "y_range": null,
-            "normalization": "probability",
+            "normalisation": "probability",
             "min_count": 1.0,
             "total": 40.0,
             "excluded_non_finite": 0,
@@ -601,7 +601,7 @@ fn stairs_are_written_in_the_documented_json_form() {
                 step: StepAt::Mid,
             },
             base: Some(0.0),
-            fill: ColorSpec::Auto,
+            fill: ColourSpec::Auto,
             line_opacity: 0.25,
             fill_opacity: 0.5,
             ..Stairs::default()
@@ -616,7 +616,7 @@ fn stairs_are_written_in_the_documented_json_form() {
             "visible": true,
             "orientation": "vertical",
             "data": { "type": "edges", "edges": 10, "values": 11 },
-            "line": { "color": { "type": "auto" }, "width_pt": 0.75, "dash": "solid" },
+            "line": { "colour": { "type": "auto" }, "width_pt": 0.75, "dash": "solid" },
             "fill": { "type": "none" }
         })
     );
@@ -644,7 +644,7 @@ fn cells_are_written_in_the_documented_json_form() {
         columns: CellEdges::Unit,
         rows: CellEdges::Edges(NodeId(11)),
         gap: CellGap { x: 0.25, y: 0.0 },
-        color_scale: Some(NodeId(20)),
+        colour_scale: Some(NodeId(20)),
         ..Cells::default()
     })]);
     assert_eq!(
@@ -658,8 +658,8 @@ fn cells_are_written_in_the_documented_json_form() {
             "columns": { "type": "unit" },
             "rows": { "type": "edges", "value": 11 },
             "gap": { "x": 0.25, "y": 0.0 },
-            "edge": { "color": { "type": "none" }, "width_pt": 0.5, "dash": "solid" },
-            "color_scale": 20
+            "edge": { "colour": { "type": "none" }, "width_pt": 0.5, "dash": "solid" },
+            "colour_scale": 20
         })
     );
     let (artists, _) = written_artists(vec![Artist::Cells(Cells {
@@ -695,22 +695,22 @@ fn bars_stairs_and_cells_that_leave_out_their_defaulted_properties_load() {
             "width": { "type": "pitch", "value": 0.55 },
             "offset": { "type": "widths", "value": 0.0 },
             "face": { "type": "auto" },
-            "edge": { "color": { "type": "rgba", "color": "#000000" }, "width_pt": 0.5, "dash": "solid" },
+            "edge": { "colour": { "type": "rgba", "colour": "#000000" }, "width_pt": 0.5, "dash": "solid" },
             "margin": 0.05
         },
         {
             "type": "stairs", "id": 4, "label": null, "visible": true,
             "orientation": "vertical",
             "data": { "type": "edges", "edges": 12, "values": 11 },
-            "line": { "color": { "type": "auto" }, "width_pt": 0.75, "dash": "solid" },
+            "line": { "colour": { "type": "auto" }, "width_pt": 0.75, "dash": "solid" },
             "fill": { "type": "none" }
         },
         {
             "type": "cells", "id": 5, "label": null, "visible": true, "values": 13,
             "columns": { "type": "unit" }, "rows": { "type": "unit" },
             "gap": { "x": 0.0, "y": 0.0 },
-            "edge": { "color": { "type": "none" }, "width_pt": 0.5, "dash": "solid" },
-            "color_scale": null
+            "edge": { "colour": { "type": "none" }, "width_pt": 0.5, "dash": "solid" },
+            "colour_scale": null
         }
     ]);
     let loaded = Figure::from_json(&value.to_string()).expect("the file loads");
@@ -903,9 +903,9 @@ fn zero_bases_offsets_margins_and_every_variant_survive_a_protobuf_round_trip() 
                 base: PerBar::Data(NodeId(0)),
                 width: BarWidth::Data(NodeId(0)),
                 offset: BarOffset::Absolute(0.0),
-                face: ColorSpec::Colormapped,
-                color_data: Some(NodeId(0)),
-                color_scale: Some(NodeId(0)),
+                face: ColourSpec::Colourmapped,
+                colour_data: Some(NodeId(0)),
+                colour_scale: Some(NodeId(0)),
                 face_opacity: 0.0,
                 edge_opacity: 0.0,
                 margin: 0.0,
@@ -937,7 +937,7 @@ fn zero_bases_offsets_margins_and_every_variant_survive_a_protobuf_round_trip() 
                     step: StepAt::Pre,
                 },
                 base: Some(0.0),
-                fill: ColorSpec::Auto,
+                fill: ColourSpec::Auto,
                 line_opacity: 0.0,
                 fill_opacity: 0.0,
                 ..Stairs::default()
@@ -948,7 +948,7 @@ fn zero_bases_offsets_margins_and_every_variant_survive_a_protobuf_round_trip() 
                 columns: CellEdges::Edges(NodeId(0)),
                 rows: CellEdges::Unit,
                 gap: CellGap { x: 0.0, y: 0.5 },
-                color_scale: Some(NodeId(0)),
+                colour_scale: Some(NodeId(0)),
                 alpha: Some(NodeId(0)),
                 face_opacity: 0.0,
                 edge_opacity: 0.0,
@@ -995,11 +995,11 @@ fn every_binning() -> Vec<Binning> {
     bins.into_iter()
         .zip(norms.into_iter().cycle())
         .enumerate()
-        .map(|(k, (bins, normalization))| Binning {
+        .map(|(k, (bins, normalisation))| Binning {
             bins,
             edges: NodeId(14),
             range: (k % 2 == 0).then_some([0.0, k as f64]),
-            normalization,
+            normalisation,
             total: if k == 0 { 0.0 } else { 10.0 * k as f64 },
             excluded_non_finite: k as u64 % 3,
             excluded_out_of_range: if k == 1 { u64::MAX } else { 0 },
@@ -1045,7 +1045,7 @@ fn every_binning_record_survives_a_protobuf_and_a_json_round_trip_on_bars_stairs
                 y_edges: NodeId(16),
                 x_range: binning.range,
                 y_range: binning.range.map(|[lo, hi]| [lo - 1.0, hi + 1.0]),
-                normalization: binning.normalization,
+                normalisation: binning.normalisation,
                 min_count: (k % 3 == 0).then_some(k as f64),
                 total: binning.total,
                 excluded_non_finite: binning.excluded_non_finite,
@@ -1076,8 +1076,8 @@ fn every_binning_record_survives_a_protobuf_and_a_json_round_trip_on_bars_stairs
 fn give_colour_data(fig: &mut Figure, values: &[f64]) -> NodeId {
     let data = push_vector(fig, NodeId(60), values);
     let bar = bar_mut(fig);
-    bar.color_data = Some(data);
-    bar.color_scale = Some(SCALE);
+    bar.colour_data = Some(data);
+    bar.colour_scale = Some(SCALE);
     data
 }
 
@@ -1085,7 +1085,7 @@ fn give_colour_data(fig: &mut Figure, values: &[f64]) -> NodeId {
 // through a scale, so every artist that maps must report its scale and its numbers there,
 // and every other artist must report none. Cells map their values; bars map their colour
 // data whenever they have some, whatever their colours, as a series does, so that the
-// limits of the scale cover the colours a colormapped face or edge would take; bars
+// limits of the scale cover the colours a colourmapped face or edge would take; bars
 // without colour data, and stairs, which take fixed colours or the colour order only, map
 // nothing, or a scale's automatic limits would include bar heights or stair values.
 #[test]
@@ -1096,43 +1096,43 @@ fn cells_and_bars_with_colour_data_map_through_a_colour_scale_and_stairs_never_d
         other => panic!("expected cells, found {other:?}"),
     };
     let artist = &fx.fig.axes[0].artists[0];
-    assert_eq!(artist.color_scale(), Some(SCALE));
+    assert_eq!(artist.colour_scale(), Some(SCALE));
     assert_eq!(
-        artist.color_mapping(),
-        Some(ColorMapping {
-            color_scale: Some(SCALE),
+        artist.colour_mapping(),
+        Some(ColourMapping {
+            colour_scale: Some(SCALE),
             values,
         })
     );
-    assert_eq!(fx.fig.color_scale_values(SCALE), vec![values]);
+    assert_eq!(fx.fig.colour_scale_values(SCALE), vec![values]);
 
-    for face in [ColorSpec::Colormapped, ColorSpec::Auto] {
+    for face in [ColourSpec::Colourmapped, ColourSpec::Auto] {
         let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
         let data = give_colour_data(&mut fx.fig, &[0.0, 1.0, 2.0]);
         bar_mut(&mut fx.fig).face = face;
         let artist = &fx.fig.axes[0].artists[0];
-        assert_eq!(artist.color_scale(), Some(SCALE), "{face:?}");
+        assert_eq!(artist.colour_scale(), Some(SCALE), "{face:?}");
         assert_eq!(
-            artist.color_mapping(),
-            Some(ColorMapping {
-                color_scale: Some(SCALE),
+            artist.colour_mapping(),
+            Some(ColourMapping {
+                colour_scale: Some(SCALE),
                 values: data,
             }),
             "{face:?}"
         );
-        assert_eq!(fx.fig.color_scale_values(SCALE), vec![data], "{face:?}");
+        assert_eq!(fx.fig.colour_scale_values(SCALE), vec![data], "{face:?}");
     }
 
     // A bar series without colour data maps nothing even when it names a scale and its
-    // face is colormapped, because it has no number to map.
+    // face is colourmapped, because it has no number to map.
     let mut fx = fixture(false, bars(&[1.0, 2.0]));
     let bar = bar_mut(&mut fx.fig);
-    bar.face = ColorSpec::Colormapped;
-    bar.color_scale = Some(SCALE);
+    bar.face = ColourSpec::Colourmapped;
+    bar.colour_scale = Some(SCALE);
     let artist = &fx.fig.axes[0].artists[0];
-    assert_eq!(artist.color_scale(), Some(SCALE));
-    assert_eq!(artist.color_mapping(), None);
-    assert_eq!(fx.fig.color_scale_values(SCALE), vec![]);
+    assert_eq!(artist.colour_scale(), Some(SCALE));
+    assert_eq!(artist.colour_mapping(), None);
+    assert_eq!(fx.fig.colour_scale_values(SCALE), vec![]);
 
     let fixed: [Make; 2] = [
         Box::new(bars(&[1.0, 2.0])),
@@ -1141,9 +1141,9 @@ fn cells_and_bars_with_colour_data_map_through_a_colour_scale_and_stairs_never_d
     for make in fixed {
         let fx = fixture(false, make);
         let artist = &fx.fig.axes[0].artists[0];
-        assert_eq!(artist.color_scale(), None, "{artist:?}");
-        assert_eq!(artist.color_mapping(), None, "{artist:?}");
-        assert_eq!(fx.fig.color_scale_values(SCALE), vec![]);
+        assert_eq!(artist.colour_scale(), None, "{artist:?}");
+        assert_eq!(artist.colour_mapping(), None, "{artist:?}");
+        assert_eq!(fx.fig.colour_scale_values(SCALE), vec![]);
     }
 }
 
@@ -1262,7 +1262,7 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
                     bins: Bins::Edges(vec![0.5, 1.5, 2.5, 3.5]),
                     edges,
                     range: Some([0.5, 3.5]),
-                    normalization: HistNorm::Count,
+                    normalisation: HistNorm::Count,
                     total: 10.0,
                     excluded_non_finite: 1,
                     excluded_out_of_range: 0,
@@ -1279,7 +1279,7 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
                     bins: Bins::Rule(BinRule::Auto),
                     edges,
                     range: None,
-                    normalization: HistNorm::Density,
+                    normalisation: HistNorm::Density,
                     total: 0.0,
                     excluded_non_finite: 0,
                     excluded_out_of_range: 0,
@@ -1291,7 +1291,7 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
             &[2.0, 5.0, 3.0],
             Box::new(|fig| {
                 give_colour_data(fig, &[0.5, 1.0, 0.0]);
-                bar_mut(fig).face = ColorSpec::Colormapped;
+                bar_mut(fig).face = ColourSpec::Colourmapped;
             }),
         ),
         (
@@ -1300,8 +1300,8 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
             Box::new(|fig| {
                 give_colour_data(fig, &[0.5, 1.0, 0.0]);
                 let bar = bar_mut(fig);
-                bar.face = ColorSpec::None;
-                bar.edge.color = ColorSpec::Colormapped;
+                bar.face = ColourSpec::None;
+                bar.edge.colour = ColourSpec::Colourmapped;
             }),
         ),
         (
@@ -1309,8 +1309,8 @@ fn the_ordinary_forms_of_a_bar_chart_raise_no_issue() {
             &[2.0, 5.0, 3.0],
             Box::new(|fig| {
                 let bar = bar_mut(fig);
-                bar.face = ColorSpec::None;
-                bar.edge.color = ColorSpec::Auto;
+                bar.face = ColourSpec::None;
+                bar.edge.colour = ColourSpec::Auto;
             }),
         ),
         (
@@ -1401,7 +1401,7 @@ fn counted() -> Binning {
         bins: Bins::Count(3),
         edges: NodeId(5002),
         range: Some([0.0, 3.0]),
-        normalization: HistNorm::Count,
+        normalisation: HistNorm::Count,
         total: 10.0,
         excluded_non_finite: 0,
         excluded_out_of_range: 0,
@@ -1623,7 +1623,7 @@ fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() 
             y_edges,
             x_range: binning.range,
             y_range: None,
-            normalization: binning.normalization,
+            normalisation: binning.normalisation,
             min_count: None,
             total: binning.total,
             excluded_non_finite: 0,
@@ -1654,7 +1654,7 @@ fn a_binning_record_that_describes_no_possible_bins_is_an_error_on_its_artist() 
             y_edges: NodeId(5003),
             x_range: None,
             y_range: None,
-            normalization: HistNorm::Count,
+            normalisation: HistNorm::Count,
             min_count: Some(1.0),
             total: 10.0,
             excluded_non_finite: 0,
@@ -1697,18 +1697,18 @@ fn bar_arrays_that_do_not_hold_one_entry_per_bar_are_shape_mismatches() {
         }),
         ("colour data of one value", |fig| {
             give_colour_data(fig, &[1.0]);
-            bar_mut(fig).face = ColorSpec::Colormapped;
+            bar_mut(fig).face = ColourSpec::Colourmapped;
         }),
         ("colour data of one value per gap between bars", |fig| {
             give_colour_data(fig, &[1.0, 2.0]);
-            bar_mut(fig).edge.color = ColorSpec::Colormapped;
+            bar_mut(fig).edge.colour = ColourSpec::Colourmapped;
         }),
         ("colour data as a matrix", |fig| {
             let data = push_array(fig, NodeId(60), vec![3, 1], vec![1.0, 2.0, 3.0]);
             let bar = bar_mut(fig);
-            bar.color_data = Some(data);
-            bar.color_scale = Some(SCALE);
-            bar.face = ColorSpec::Colormapped;
+            bar.colour_data = Some(data);
+            bar.colour_scale = Some(SCALE);
+            bar.face = ColourSpec::Colourmapped;
         }),
         ("positions as a matrix", |fig| {
             let positions = bar_mut(fig).positions;
@@ -1754,9 +1754,9 @@ fn bar_arrays_of_bytes_are_element_type_mismatches() {
         }),
         ("colour data", |fig, bytes| {
             let bar = bar_mut(fig);
-            bar.color_data = Some(bytes);
-            bar.color_scale = Some(SCALE);
-            bar.face = ColorSpec::Colormapped;
+            bar.colour_data = Some(bytes);
+            bar.colour_scale = Some(SCALE);
+            bar.face = ColourSpec::Colourmapped;
         }),
     ];
     for (name, change) in cases {
@@ -1779,21 +1779,21 @@ fn drop_unused(fig: &mut Figure) {
     fig.data.retain(|data| used.contains(&data.id));
 }
 
-// Why: stairs have no colour scale and no colour data, so a colormapped line or fill has no
+// Why: stairs have no colour scale and no colour data, so a colourmapped line or fill has no
 // value to look a colour up by and no scale to look it up in; drawing it in some fallback
 // colour would hide the mistake, so it is refused, naming the artist. Bars, which may
 // have colour data, and cells, which map their values, are not affected.
 #[test]
-fn a_colormapped_colour_on_stairs_is_an_error() {
+fn a_colourmapped_colour_on_stairs_is_an_error() {
     type Change = fn(&mut Figure);
     let stairs_cases: [(&str, Change); 2] = [
         ("stairs line", |fig| {
-            stairs_mut(fig).line.color = ColorSpec::Colormapped;
+            stairs_mut(fig).line.colour = ColourSpec::Colourmapped;
         }),
         ("stairs fill", |fig| {
             let stairs = stairs_mut(fig);
             stairs.base = Some(0.0);
-            stairs.fill = ColorSpec::Colormapped;
+            stairs.fill = ColourSpec::Colourmapped;
         }),
     ];
     for (name, change) in stairs_cases {
@@ -1801,7 +1801,7 @@ fn a_colormapped_colour_on_stairs_is_an_error() {
         change(&mut fx.fig);
         assert_only_error(
             &fx.fig.validate(),
-            IssueKind::ColormapNotSupported,
+            IssueKind::ColourmapNotSupported,
             fx.artist,
             name,
         );
@@ -1809,8 +1809,8 @@ fn a_colormapped_colour_on_stairs_is_an_error() {
 }
 
 /// Gives the fixture's scale [`SCALE`] the given kind.
-fn set_scale_kind(fig: &mut Figure, kind: ColorScaleKind) {
-    fig.color_scales
+fn set_scale_kind(fig: &mut Figure, kind: ColourScaleKind) {
+    fig.colour_scales
         .iter_mut()
         .find(|scale| scale.id == SCALE)
         .expect("the fixture holds its scale")
@@ -1821,31 +1821,31 @@ fn set_scale_kind(fig: &mut Figure, kind: ColorScaleKind) {
 // bar) maps whole-number codes through a categorical or indexed scale, and one coloured by
 // a quantity maps it through a continuous scale; bars, like series, accept every kind of
 // scale, so none of these may be refused, whether the face or the outline is
-// colormapped. Values that each scale places are used, so that only a wrongful
+// colourmapped. Values that each scale places are used, so that only a wrongful
 // restriction on the kind of scale can fail the test.
 #[test]
 fn bars_coloured_by_data_accept_every_kind_of_colour_scale() {
-    let entries = vec![Color::BLACK, Color::WHITE, Color::BLACK];
+    let entries = vec![Colour::BLACK, Colour::WHITE, Colour::BLACK];
     let kinds = [
-        ("continuous", ColorScaleKind::default()),
+        ("continuous", ColourScaleKind::default()),
         (
             "indexed",
-            ColorScaleKind::Indexed(IndexedColorScale {
-                colors: entries.clone(),
-                outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
-                ..IndexedColorScale::default()
+            ColourScaleKind::Indexed(IndexedColourScale {
+                colours: entries.clone(),
+                outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
+                ..IndexedColourScale::default()
             }),
         ),
         (
             "categorical",
-            ColorScaleKind::Categorical(CategoricalColorScale {
+            ColourScaleKind::Categorical(CategoricalColourScale {
                 categories: ["low", "middle", "high"]
-                    .map(|label| ColorCategory {
-                        color: Color::BLACK,
+                    .map(|label| ColourCategory {
+                        colour: Colour::BLACK,
                         label: Text::plain(label),
                     })
                     .to_vec(),
-                outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
+                outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
             }),
         ),
     ];
@@ -1856,14 +1856,14 @@ fn bars_coloured_by_data_accept_every_kind_of_colour_scale() {
             give_colour_data(&mut fx.fig, &[0.0, 2.0, 1.0]);
             let bar = bar_mut(&mut fx.fig);
             if on_edge {
-                bar.edge.color = ColorSpec::Colormapped;
+                bar.edge.colour = ColourSpec::Colourmapped;
             } else {
-                bar.face = ColorSpec::Colormapped;
+                bar.face = ColourSpec::Colourmapped;
             }
             assert_no_issues(
                 &fx.fig.validate(),
                 &format!(
-                    "{name}, colormapped {}",
+                    "{name}, colourmapped {}",
                     if on_edge { "edge" } else { "face" }
                 ),
             );
@@ -1879,14 +1879,14 @@ fn a_bar_colour_value_that_a_strict_scale_cannot_place_is_out_of_range() {
     let mut fx = fixture(false, bars(&[2.0, 5.0, 3.0]));
     set_scale_kind(
         &mut fx.fig,
-        ColorScaleKind::Indexed(IndexedColorScale {
-            colors: vec![Color::BLACK; 2],
-            outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
-            ..IndexedColorScale::default()
+        ColourScaleKind::Indexed(IndexedColourScale {
+            colours: vec![Colour::BLACK; 2],
+            outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
+            ..IndexedColourScale::default()
         }),
     );
     give_colour_data(&mut fx.fig, &[0.0, 1.0, 2.0]);
-    bar_mut(&mut fx.fig).face = ColorSpec::Colormapped;
+    bar_mut(&mut fx.fig).face = ColourSpec::Colourmapped;
     assert_only_error(
         &fx.fig.validate(),
         IssueKind::ValueOutOfRange,
@@ -1904,13 +1904,13 @@ fn coloured(
     as_bars: bool,
     data: bool,
     named: bool,
-    face: ColorSpec,
-    edge: ColorSpec,
+    face: ColourSpec,
+    edge: ColourSpec,
 ) -> (ValidationReport, NodeId) {
     let fx = fixture(false, move |b, id| {
         let points = b.vector(&[1.0, 2.0, 3.0]);
-        let color_data = data.then(|| b.vector(&[0.0, 0.5, 1.0]));
-        let color_scale = named.then_some(SCALE);
+        let colour_data = data.then(|| b.vector(&[0.0, 0.5, 1.0]));
+        let colour_scale = named.then_some(SCALE);
         if as_bars {
             Artist::Bar(Bar {
                 id,
@@ -1918,11 +1918,11 @@ fn coloured(
                 values: points,
                 face,
                 edge: LineStyle {
-                    color: edge,
+                    colour: edge,
                     ..Bar::default().edge
                 },
-                color_data,
-                color_scale,
+                colour_data,
+                colour_scale,
                 ..Bar::default()
             })
         } else {
@@ -1940,8 +1940,8 @@ fn coloured(
                     edge,
                     ..MarkerStyle::default()
                 },
-                color_data,
-                color_scale,
+                colour_data,
+                colour_scale,
                 ..Series::default()
             })
         }
@@ -1954,72 +1954,72 @@ fn coloured(
 // must follow the same rules, with the same issue kinds, or a program that builds both
 // from one description of its colours would find one valid and the other refused. Colour
 // data without a scale has nothing to be looked up in and is refused as a missing scale,
-// whatever the colours, because it would still set the scale's limits; a colormapped face
+// whatever the colours, because it would still set the scale's limits; a colourmapped face
 // or edge without colour data has no number to map and is drawn as an automatic colour,
-// so it needs no scale and raises nothing; and with both, a colormapped face or edge is
+// so it needs no scale and raises nothing; and with both, a colourmapped face or edge is
 // valid. Each case is compared with the equivalent series and also stated outright, so
 // that a change to the series rules cannot silently pass for bars.
 #[test]
-fn a_colormapped_bar_face_or_edge_follows_the_colour_rules_of_a_series() {
-    use ColorSpec::{Auto, Colormapped};
-    let none = ColorSpec::None;
+fn a_colourmapped_bar_face_or_edge_follows_the_colour_rules_of_a_series() {
+    use ColourSpec::{Auto, Colourmapped};
+    let none = ColourSpec::None;
     /// A case: its name, whether the artist has colour data and names a scale, its face
     /// and edge colours, and the errors expected of it.
     type Case = (
         &'static str,
         bool,
         bool,
-        ColorSpec,
-        ColorSpec,
+        ColourSpec,
+        ColourSpec,
         &'static [IssueKind],
     );
     let cases: [Case; 6] = [
         (
-            "a colormapped face without colour data or a scale",
+            "a colourmapped face without colour data or a scale",
             false,
             false,
-            Colormapped,
+            Colourmapped,
             none,
             &[],
         ),
         (
-            "a colormapped edge without colour data, naming a scale",
+            "a colourmapped edge without colour data, naming a scale",
             false,
             true,
             Auto,
-            Colormapped,
+            Colourmapped,
             &[],
         ),
         (
-            "a colormapped face with colour data but no scale",
+            "a colourmapped face with colour data but no scale",
             true,
             false,
-            Colormapped,
+            Colourmapped,
             none,
-            &[IssueKind::MissingColorScale],
+            &[IssueKind::MissingColourScale],
         ),
         (
-            "a colormapped edge with colour data but no scale",
+            "a colourmapped edge with colour data but no scale",
             true,
             false,
             Auto,
-            Colormapped,
-            &[IssueKind::MissingColorScale],
+            Colourmapped,
+            &[IssueKind::MissingColourScale],
         ),
         (
-            "colour data without a scale or a colormapped colour",
+            "colour data without a scale or a colourmapped colour",
             true,
             false,
             Auto,
             none,
-            &[IssueKind::MissingColorScale],
+            &[IssueKind::MissingColourScale],
         ),
         (
-            "a colormapped face and edge with colour data and a scale",
+            "a colourmapped face and edge with colour data and a scale",
             true,
             true,
-            Colormapped,
-            Colormapped,
+            Colourmapped,
+            Colourmapped,
             &[],
         ),
     ];
@@ -2295,7 +2295,7 @@ fn the_ordinary_forms_of_stairs_raise_no_issue() {
             Box::new(|fig| {
                 let stairs = stairs_mut(fig);
                 stairs.base = Some(0.0);
-                stairs.fill = ColorSpec::Auto;
+                stairs.fill = ColourSpec::Auto;
                 stairs.fill_opacity = 0.5;
             }),
         ),
@@ -2426,9 +2426,9 @@ fn stairs_samples_that_are_not_finite_and_strictly_monotonic_are_an_error() {
 #[test]
 fn a_fill_on_stairs_without_a_base_is_an_error() {
     for fill in [
-        ColorSpec::Auto,
-        ColorSpec::Rgba {
-            color: Color::BLACK,
+        ColourSpec::Auto,
+        ColourSpec::Rgba {
+            colour: Colour::BLACK,
         },
     ] {
         let mut fx = fixture(false, stairs_on_edges(&[1.0, 3.0, 2.0]));
@@ -2563,8 +2563,8 @@ fn the_ordinary_forms_of_cells_raise_no_issue() {
             "outlined cells",
             (2, 3),
             Box::new(|fig| {
-                cells_mut(fig).edge.color = ColorSpec::Rgba {
-                    color: Color::WHITE,
+                cells_mut(fig).edge.colour = ColourSpec::Rgba {
+                    colour: Colour::WHITE,
                 };
             }),
         ),
@@ -2573,7 +2573,7 @@ fn the_ordinary_forms_of_cells_raise_no_issue() {
         (
             "outlines in the colour of each cell",
             (2, 3),
-            Box::new(|fig| cells_mut(fig).edge.color = ColorSpec::Colormapped),
+            Box::new(|fig| cells_mut(fig).edge.colour = ColourSpec::Colourmapped),
         ),
     ];
     for (name, (ny, nx), change) in cases {
@@ -2589,20 +2589,20 @@ fn the_ordinary_forms_of_cells_raise_no_issue() {
 #[test]
 fn cells_must_name_a_colour_scale_that_exists() {
     let mut fx = fixture(false, cells(2, 3));
-    cells_mut(&mut fx.fig).color_scale = None;
+    cells_mut(&mut fx.fig).colour_scale = None;
     assert!(
-        has_error(&fx.fig.validate(), IssueKind::MissingColorScale, fx.artist),
+        has_error(&fx.fig.validate(), IssueKind::MissingColourScale, fx.artist),
         "no scale"
     );
     let mut fx = fixture(false, cells(2, 3));
-    cells_mut(&mut fx.fig).color_scale = Some(NodeId(777));
+    cells_mut(&mut fx.fig).colour_scale = Some(NodeId(777));
     assert!(
-        has_error(&fx.fig.validate(), IssueKind::UnknownColorScale, fx.artist),
+        has_error(&fx.fig.validate(), IssueKind::UnknownColourScale, fx.artist),
         "a scale that does not exist"
     );
     let mut fx = fixture(false, cells(2, 3));
     let values = cells_mut(&mut fx.fig).values;
-    cells_mut(&mut fx.fig).color_scale = Some(values);
+    cells_mut(&mut fx.fig).colour_scale = Some(values);
     assert!(
         has_error(&fx.fig.validate(), IssueKind::WrongNodeKind, fx.artist),
         "a data array as the scale"
@@ -2766,14 +2766,14 @@ fn a_cell_value_that_a_strict_scale_cannot_place_is_out_of_range() {
     let mut fx = fixture(false, cells(2, 3)); // values 1 to 6
     let scale = fx
         .fig
-        .color_scales
+        .colour_scales
         .iter_mut()
         .find(|scale| scale.id == SCALE)
         .expect("the fixture holds its scale");
-    scale.kind = ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![Color::BLACK; 4],
-        outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
-        ..IndexedColorScale::default()
+    scale.kind = ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![Colour::BLACK; 4],
+        outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
+        ..IndexedColourScale::default()
     });
     assert!(
         has_error(&fx.fig.validate(), IssueKind::ValueOutOfRange, fx.artist),
@@ -2814,18 +2814,18 @@ fn an_occupancy_matrix_of_categorical_codes_raises_no_issue() {
         let mut fx = fixture(false, cells(2, 3));
         let scale = fx
             .fig
-            .color_scales
+            .colour_scales
             .iter_mut()
             .find(|scale| scale.id == SCALE)
             .expect("the fixture holds its scale");
-        scale.kind = ColorScaleKind::Categorical(CategoricalColorScale {
+        scale.kind = ColourScaleKind::Categorical(CategoricalColourScale {
             categories: ["absent", "partial", "full"]
-                .map(|label| ColorCategory {
-                    color: Color::BLACK,
+                .map(|label| ColourCategory {
+                    colour: Colour::BLACK,
                     label: Text::plain(label),
                 })
                 .to_vec(),
-            ..CategoricalColorScale::default()
+            ..CategoricalColourScale::default()
         });
         push(&mut fx.fig, NodeId(50));
         let cells = cells_mut(&mut fx.fig);
@@ -2882,7 +2882,7 @@ fn an_opacity_outside_zero_to_one_is_an_error_on_bars_stairs_and_cells() {
         }),
         ("bar edge", 0, |artist, value| {
             if let Artist::Bar(bar) = artist {
-                bar.edge.color = ColorSpec::Auto;
+                bar.edge.colour = ColourSpec::Auto;
                 bar.edge_opacity = value;
             }
         }),
@@ -2894,7 +2894,7 @@ fn an_opacity_outside_zero_to_one_is_an_error_on_bars_stairs_and_cells() {
         ("stairs fill", 1, |artist, value| {
             if let Artist::Stairs(stairs) = artist {
                 stairs.base = Some(0.0);
-                stairs.fill = ColorSpec::Auto;
+                stairs.fill = ColourSpec::Auto;
                 stairs.fill_opacity = value;
             }
         }),
@@ -2905,7 +2905,7 @@ fn an_opacity_outside_zero_to_one_is_an_error_on_bars_stairs_and_cells() {
         }),
         ("cell edges", 2, |artist, value| {
             if let Artist::Cells(cells) = artist {
-                cells.edge.color = ColorSpec::Colormapped;
+                cells.edge.colour = ColourSpec::Colourmapped;
                 cells.edge_opacity = value;
             }
         }),
@@ -3020,7 +3020,7 @@ fn an_empty_artist_with_an_error_is_reported_for_the_error_alone() {
     );
 
     let mut fx = fixture(false, stairs_on_edges(&[]));
-    stairs_mut(&mut fx.fig).fill = ColorSpec::Auto;
+    stairs_mut(&mut fx.fig).fill = ColourSpec::Auto;
     assert_only_error(
         &fx.fig.validate(),
         IssueKind::FillWithoutBase,
@@ -3029,10 +3029,10 @@ fn an_empty_artist_with_an_error_is_reported_for_the_error_alone() {
     );
 
     let mut fx = fixture(false, cells(0, 3));
-    cells_mut(&mut fx.fig).color_scale = None;
+    cells_mut(&mut fx.fig).colour_scale = None;
     assert_only_error(
         &fx.fig.validate(),
-        IssueKind::MissingColorScale,
+        IssueKind::MissingColourScale,
         fx.artist,
         "cells",
     );

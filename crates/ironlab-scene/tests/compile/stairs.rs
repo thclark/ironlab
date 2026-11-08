@@ -6,7 +6,7 @@
 //! vertices are compared after dropping repeated points and points that lie between their neighbours on a straight
 //! run, so that the tests pin the shape rather than how many points the compiler happens to emit for it.
 
-use ironlab_ir::{Color, ColorSpec, NodeId, Orientation, Scale, StepAt};
+use ironlab_ir::{Colour, ColourSpec, NodeId, Orientation, Scale, StepAt};
 use ironlab_scene::Scene;
 use ironlab_scene::display::Rgba;
 
@@ -65,7 +65,7 @@ fn outline(scene: &Scene, ax: NodeId, stairs: NodeId) -> Vec<Vec<[f64; 2]>> {
 fn line_colour(scene: &Scene, stairs: NodeId) -> Rgba {
     from_source(&leaves(scene), stairs)
         .iter()
-        .find_map(|l| l.path().and_then(|p| p.stroke.as_ref()).map(|s| s.color))
+        .find_map(|l| l.path().and_then(|p| p.stroke.as_ref()).map(|s| s.colour))
         .expect("the outline is stroked")
 }
 
@@ -76,7 +76,10 @@ fn fill(scene: &Scene, ax: NodeId, stairs: NodeId) -> (Vec<Vec<[f64; 2]>>, Optio
         .into_iter()
         .filter(|l| l.path().is_some_and(|p| p.fill.is_some()))
         .collect();
-    let colour = filled.first().and_then(|l| l.path()?.fill).map(|f| f.color);
+    let colour = filled
+        .first()
+        .and_then(|l| l.path()?.fill)
+        .map(|f| f.colour);
     let regions = filled
         .iter()
         .flat_map(|l| l.subpaths())
@@ -351,7 +354,7 @@ fn the_fill_is_the_region_between_the_outline_and_the_base_in_the_series_colour(
     let (mut fx, ax) = axes();
     let stairs = fx.stairs(ax, &EDGES, &VALUES, |s| {
         s.base = Some(0.0);
-        s.fill = ColorSpec::Auto;
+        s.fill = ColourSpec::Auto;
     });
     let scene = compile_figure(&fx.build());
     let (regions, colour) = fill(&scene, ax, stairs);
@@ -371,8 +374,8 @@ fn a_value_that_is_not_finite_leaves_a_gap_in_the_fill() {
     let (mut fx, ax) = axes();
     let stairs = fx.stairs(ax, &[0.0, 1.0, 2.0, 3.0], &[1.0, f64::NAN, 2.0], |s| {
         s.base = Some(0.0);
-        s.fill = ColorSpec::Rgba {
-            color: Color::rgb(0.5, 0.5, 0.5),
+        s.fill = ColourSpec::Rgba {
+            colour: Colour::rgb(0.5, 0.5, 0.5),
         };
     });
     let scene = compile_figure(&fx.build());
@@ -404,7 +407,7 @@ fn with_a_base_each_piece_of_an_outline_broken_by_a_missing_value_is_closed_to_t
         &[1.0, f64::NAN, 2.0, 3.0],
         |s| {
             s.base = Some(-1.0);
-            s.fill = ColorSpec::Auto;
+            s.fill = ColourSpec::Auto;
         },
     );
     let scene = compile_figure(&fx.build());
@@ -443,8 +446,8 @@ fn line_and_fill_opacities_multiply_the_alpha_of_their_colours() {
     let (mut fx, ax) = axes();
     let stairs = fx.stairs(ax, &EDGES, &VALUES, |s| {
         s.base = Some(0.0);
-        s.fill = ColorSpec::Rgba {
-            color: Color::rgba(0.0, 0.0, 1.0, 0.8),
+        s.fill = ColourSpec::Rgba {
+            colour: Colour::rgba(0.0, 0.0, 1.0, 0.8),
         };
         s.fill_opacity = 0.5;
         s.line_opacity = 0.25;

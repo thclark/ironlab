@@ -28,15 +28,15 @@ use ironlab::{TickLabels, Ticks};
 use ironlab_scene::hit::AxesHitKind;
 use ironlab_text::TextEngine;
 
-const STATUS: [(Color, &str); 5] = [
-    (Color::rgb(0.0, 0.6, 0.3), "taken by the finite set"),
-    (Color::rgb(0.3, 0.7, 0.9), "taken by the non-finite set"),
+const STATUS: [(Colour, &str); 5] = [
+    (Colour::rgb(0.0, 0.6, 0.3), "taken by the finite set"),
+    (Colour::rgb(0.3, 0.7, 0.9), "taken by the non-finite set"),
     (
-        Color::rgb(0.9, 0.6, 0.0),
+        Colour::rgb(0.9, 0.6, 0.0),
         "taken only in pathological cases",
     ),
-    (Color::rgb(0.6, 0.6, 0.6), "not reachable"),
-    (Color::rgb(0.8, 0.2, 0.1), "not taken"),
+    (Colour::rgb(0.6, 0.6, 0.6), "not reachable"),
+    (Colour::rgb(0.8, 0.2, 0.1), "not taken"),
 ];
 
 /// The tick values and the source text of the tick labels of an axis.
@@ -230,7 +230,7 @@ fn placed_data_lies_in_the_rows_that_ycategory_groups_returns_and_names() {
                 "row {empty} is a header or blank row"
             );
         }
-        let cells_id = ax.occupancy(&placed).color_scale(status).id();
+        let cells_id = ax.occupancy(&placed).colour_scale(status).id();
         (ax.id(), cells_id, rows)
     };
     let Some((_, Artist::Cells(cells))) = fig.ir().artist(cells_id) else {
@@ -326,7 +326,7 @@ fn a_branch_map_is_a_valid_figure_without_warnings() {
         let mut ax = fig.axes(0, 0);
         let rows = ax.ycategory_groups(groups.iter().map(|(g, m)| (*g, m.iter())));
         ax.occupancy(rows.place(&member_data))
-            .color_scale(status)
+            .colour_scale(status)
             .label("Branches");
     }
     fig.panel(1, 0)
@@ -370,13 +370,13 @@ fn a_case_matrix_is_a_valid_figure_without_warnings() {
 
     let mut fig = Figure::new().tiles(3, 1).fit_row(1).fit_row(2);
     let scale = fig
-        .color_scale()
+        .colour_scale()
         .title("fraction of the subroutine's branches the case took")
         .limits(0.0, 1.0)
         .discrete(&edges)
-        .non_finite(Color::rgb(0.8, 0.8, 0.8))
+        .non_finite(Colour::rgb(0.8, 0.8, 0.8))
         .key_label(
-            ColorScaleKey::NonFinite,
+            ColourScaleKey::NonFinite,
             "subroutine not entered by the case",
         )
         .id();
@@ -388,16 +388,16 @@ fn a_case_matrix_is_a_valid_figure_without_warnings() {
             .ycategories(subroutines)
             .legend_in(key);
         ax.cells(&fraction)
-            .color_scale(scale)
+            .colour_scale(scale)
             .label("Fraction taken");
         ax.scatter([1.0, 2.0], [0.0, 2.0])
             .marker(Marker::Point)
             .label("takes a branch no other case takes");
     }
     fig.panel(1, 0)
-        .colorbar(scale)
-        .orientation(ColorbarOrientation::Horizontal)
-        .title_placement(ColorbarTitlePlacement::Above);
+        .colourbar(scale)
+        .orientation(ColourbarOrientation::Horizontal)
+        .title_placement(ColourbarTitlePlacement::Above);
 
     let report = fig.validate();
     assert!(report.is_valid(), "{report:?}");

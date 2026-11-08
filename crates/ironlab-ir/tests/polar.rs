@@ -751,7 +751,7 @@ fn two_d_artist_in(projection: Projection, kind: &str) -> (Figure, NodeId) {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
     b.axes(axes).projection = projection;
-    let scale = b.color_scale(ColorScaleKind::default());
+    let scale = b.colour_scale(ColourScaleKind::default());
     let id = b.node();
     let artist = match kind {
         "bars" => Artist::Bar(Bar {
@@ -771,7 +771,7 @@ fn two_d_artist_in(projection: Projection, kind: &str) -> (Figure, NodeId) {
         "cells" => Artist::Cells(Cells {
             id,
             values: b.matrix(2, 3, |j, i| (j * 3 + i) as f64 + 1.0),
-            color_scale: Some(scale),
+            colour_scale: Some(scale),
             ..Cells::default()
         }),
         other => unreachable!("{other}"),

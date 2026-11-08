@@ -4,8 +4,9 @@
 //! implemented; tests of `PdfOptions::for_figure` do not.
 
 use ironlab_ir::{
-    Artist, Axes, Axis, Color, ColorScale, ColorSpec, DataArray, Figure, FigureSize, Grid, Image,
-    ImagePlacement, Limits, NdArray, NodeId, PixelRange, Provenance, Scale, Series, Surface, Text,
+    Artist, Axes, Axis, Colour, ColourScale, ColourSpec, DataArray, Figure, FigureSize, Grid,
+    Image, ImagePlacement, Limits, NdArray, NodeId, PixelRange, Provenance, Scale, Series, Surface,
+    Text,
 };
 use ironlab_pdf::{PdfError, PdfOptions, export_pdf, write_pdf};
 
@@ -361,10 +362,10 @@ fn half_opaque_surface_and_image() -> Figure {
                         y: NodeId(10),
                     },
                     z: NodeId(11),
-                    face: ColorSpec::Rgba {
-                        color: Color::rgb(1.0, 0.0, 0.0),
+                    face: ColourSpec::Rgba {
+                        colour: Colour::rgb(1.0, 0.0, 0.0),
                     },
-                    edge: ColorSpec::None,
+                    edge: ColourSpec::None,
                     face_opacity: 0.5,
                     ..Surface::default()
                 }),
@@ -448,9 +449,9 @@ fn surface_on_a_logarithmic_axis() -> Figure {
     let axes_id = figure.alloc_node_id();
     let surface_id = figure.alloc_node_id();
     let scale_id = figure.alloc_node_id();
-    figure.color_scales.push(ColorScale {
+    figure.colour_scales.push(ColourScale {
         id: scale_id,
-        ..ColorScale::default()
+        ..ColourScale::default()
     });
     figure.axes.push(Axes {
         id: axes_id,
@@ -462,8 +463,8 @@ fn surface_on_a_logarithmic_axis() -> Figure {
             id: surface_id,
             grid: Grid::Rectilinear { x, y },
             z,
-            edge: ColorSpec::None,
-            color_scale: Some(scale_id),
+            edge: ColourSpec::None,
+            colour_scale: Some(scale_id),
             ..Surface::default()
         })],
         ..Axes::default()

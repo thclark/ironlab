@@ -28,7 +28,7 @@ fn a_path_parses_from_and_displays_as_dot_separated_field_names() {
         "x.limits",
         "projection.view3d.azimuth_deg",
         "box",
-        "line.color.color.r",
+        "line.colour.colour.r",
     ] {
         let parsed = path(text);
         assert_eq!(parsed.to_string(), text);
@@ -247,7 +247,7 @@ fn collect_paths(
 // figure's `labels` are now `tags`; `panel_legends` is now `panels`, whose legend
 // properties lie below `content.legend`; and the data table is a list of `DataArray` nodes
 // whose `name` is their only settable property. Colour scales then removed the axes'
-// `colormap` and `clim`, replaced the colour-indexed and colour-mapped images by the
+// `colourmap` and `clim`, replaced the colour-indexed and colour-mapped images by the
 // scalar image, whose policies moved to its scale, and made the levels of a contour
 // optional.
 #[test]
@@ -262,7 +262,7 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
                 "schema_version",
                 "id",
                 "data",
-                "color_scales",
+                "colour_scales",
                 "axes",
                 "provenance",
                 "panels",
@@ -288,16 +288,16 @@ fn the_registry_lists_exactly_the_settable_fields_of_the_wire_schema() {
         (NodeKind::Stairs, "Stairs", read_only),
         (NodeKind::Cells, "Cells", read_only),
         // The entries of an indexed or categorical scale, and the colours of a listed
-        // colormap, are structure that code writes, read but not set through the
+        // colourmap, are structure that code writes, read but not set through the
         // registry, as the entries of a legend are.
         (
-            NodeKind::ColorScale,
-            "ColorScale",
+            NodeKind::ColourScale,
+            "ColourScale",
             &[
                 "id",
-                "kind.continuous.colormap.colors",
-                "kind.discrete.colormap.colors",
-                "kind.indexed.colors",
+                "kind.continuous.colourmap.colours",
+                "kind.discrete.colourmap.colours",
+                "kind.indexed.colours",
                 "kind.categorical.categories",
             ],
         ),
@@ -418,7 +418,7 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
     flatten_wire(
         &figure,
         "",
-        &["data", "color_scales", "axes", "panels"],
+        &["data", "colour_scales", "axes", "panels"],
         &mut leaves,
     );
     all.push(leaves);
@@ -435,10 +435,10 @@ fn wire_leaves_by_node(fig: &Figure, pool: &DescriptorPool) -> Vec<Leaves> {
         all.push(leaves);
     }
     let scales_field = figure
-        .get_field_by_name("color_scales")
-        .expect("Figure.color_scales");
+        .get_field_by_name("colour_scales")
+        .expect("Figure.colour_scales");
     let WireValue::List(scales) = &*scales_field else {
-        panic!("Figure.color_scales is a list");
+        panic!("Figure.colour_scales is a list");
     };
     for scale in scales {
         let WireValue::Message(scale) = scale else {
@@ -638,7 +638,7 @@ fn a_path_into_a_variant_that_is_not_set_is_an_inactive_variant() {
     let contour = fig.axes[2].artists[0].id(); // automatic levels
     let quiver = fig.axes[3].artists[0].id(); // automatic scale
     let image = fig.axes[6].artists[0].id(); // on the xy plane
-    let scale = fig.color_scales[7].id; // continuous, transparent below
+    let scale = fig.colour_scales[7].id; // continuous, transparent below
     for (node, at, value) in [
         (two_d, "projection.view3d.zoom", Value::Double(2.0)),
         (two_d, "projection.view3d", Value::View3d(View3d::default())),
@@ -649,12 +649,12 @@ fn a_path_into_a_variant_that_is_not_set_is_an_inactive_variant() {
         (image, "placement.plane.x", Value::Unset),
         (
             scale,
-            "kind.continuous.below.policy.color",
-            Value::Color(Color::BLACK),
+            "kind.continuous.below.policy.colour",
+            Value::Colour(Colour::BLACK),
         ),
         (
             scale,
-            "kind.continuous.below.policy.color.a",
+            "kind.continuous.below.policy.colour.a",
             Value::Float(0.5),
         ),
         (scale, "kind.discrete.levels", Value::Unset),
@@ -916,7 +916,7 @@ fn a_value_of_the_wrong_type_is_refused_with_the_expected_type() {
     let axes = fig.axes[0].id;
     let line = fig.axes[0].artists[0].id();
     let image = fig.axes[6].artists[0].id();
-    let scale = fig.color_scales[7].id;
+    let scale = fig.colour_scales[7].id;
     for (node, at, value, expected, found) in [
         (
             axes,
@@ -930,9 +930,9 @@ fn a_value_of_the_wrong_type_is_refused_with_the_expected_type() {
         (
             scale,
             "non_finite.policy",
-            Value::ColorSpec(ColorSpec::None),
+            Value::ColourSpec(ColourSpec::None),
             ValueType::OutOfRange,
-            Some(ValueType::ColorSpec),
+            Some(ValueType::ColourSpec),
         ),
         (
             image,
@@ -1035,7 +1035,7 @@ fn an_image_is_edited_through_its_plane_its_ranges_and_the_colour_of_a_policy() 
     let fig = kitchen_sink_figure();
     let image = fig.axes[5].artists[2].id(); // on the xz wall, with columns and no rows
     let mapped = fig.axes[7].artists[0].id(); // on the floor
-    let scale = fig.color_scales[7].id; // the scale of `mapped`, transparent below
+    let scale = fig.colour_scales[7].id; // the scale of `mapped`, transparent below
     let (edited, inverse) = applied(
         &fig,
         &tx([
@@ -1059,12 +1059,12 @@ fn an_image_is_edited_through_its_plane_its_ranges_and_the_colour_of_a_policy() 
                 scale,
                 "kind.continuous.below.policy",
                 Value::OutOfRange(OutOfRange::Rgba {
-                    color: Color::BLACK,
+                    colour: Colour::BLACK,
                 }),
             ),
             set(
                 scale,
-                "kind.continuous.below.policy.color.a",
+                "kind.continuous.below.policy.colour.a",
                 Value::Float(0.5),
             ),
             set(mapped, "placement.plane.z", Value::Double(4.0)),
@@ -1095,7 +1095,7 @@ fn an_image_is_edited_through_its_plane_its_ranges_and_the_colour_of_a_policy() 
             .get(scale, &path("kind.continuous.below.policy"))
             .unwrap(),
         Value::OutOfRange(OutOfRange::Rgba {
-            color: Color::rgba(0.0, 0.0, 0.0, 0.5),
+            colour: Colour::rgba(0.0, 0.0, 0.0, 0.5),
         })
     );
     assert_eq!(
@@ -1299,7 +1299,7 @@ fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
             ),
             set(stacked, "width.constant", Value::Double(0.9)),
             set(stacked, "offset.absolute", Value::Double(-0.2)),
-            set(coloured, "face", Value::ColorSpec(ColorSpec::Auto)),
+            set(coloured, "face", Value::ColourSpec(ColourSpec::Auto)),
             set(coloured, "edge_opacity", Value::Double(0.25)),
             set(sampled, "data.step", Value::StepAt(StepAt::Mid)),
             set(sampled, "base", Value::Double(-2.0)),
@@ -1325,7 +1325,7 @@ fn bars_stairs_and_cells_are_edited_through_their_new_properties() {
             "offset",
             Value::BarOffset(BarOffset::Absolute(-0.2)),
         ),
-        (coloured, "face", Value::ColorSpec(ColorSpec::Auto)),
+        (coloured, "face", Value::ColourSpec(ColourSpec::Auto)),
         (coloured, "edge_opacity", Value::Double(0.25)),
         (sampled, "data.step", Value::StepAt(StepAt::Mid)),
         (sampled, "base", Value::Double(-2.0)),
@@ -1377,7 +1377,7 @@ fn the_binning_record_of_bars_stairs_and_cells_is_listed_and_read() {
     }
     assert_eq!(fig.get(plain_bars, &path("binning")).unwrap(), Value::Unset);
     assert_eq!(
-        fig.get(binned_bars, &path("binning.normalization"))
+        fig.get(binned_bars, &path("binning.normalisation"))
             .unwrap(),
         Value::HistNorm(HistNorm::Density)
     );

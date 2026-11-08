@@ -15,7 +15,7 @@ use crate::display::{Item, Rect};
 use crate::hit::{HitMap, PanelHit};
 
 use super::Ctx;
-use super::colorbar::{self, Colorbar};
+use super::colourbar::{self, Colourbar};
 use super::layout::{self, Along, Fits};
 use super::legend::{self, Candidate, PanelListing};
 use super::style::ColourScales;
@@ -34,7 +34,7 @@ pub(super) enum Content<'a> {
     Legend(PanelListing<'a>),
     /// A colourbar, with its scale resolved, or `None` when it names no colour scale of the figure, which leaves the
     /// panel empty.
-    Colorbar(Option<Colorbar<'a>>),
+    Colourbar(Option<Colourbar<'a>>),
 }
 
 /// Prepares the content of every panel of the figure, in the order the figure lists them.
@@ -74,8 +74,8 @@ pub(super) fn prepare<'a, 's>(
                         ctx, panel.id, content, &gathered, candidates, scales,
                     ))
                 }
-                PanelContent::Colorbar(content) => {
-                    Content::Colorbar(colorbar::prepare_panel(ctx, panel, content, scales))
+                PanelContent::Colourbar(content) => {
+                    Content::Colourbar(colourbar::prepare_panel(ctx, panel, content, scales))
                 }
             };
             let fs = ctx.font_size;
@@ -109,7 +109,7 @@ impl Content<'_> {
     fn size(&self, ctx: &Ctx, along: Along, cross: f64, heading: Option<&TextBlock>) -> f64 {
         match self {
             Content::Legend(legend) => legend.size(ctx.font_size, along, cross, heading),
-            Content::Colorbar(bar) => bar
+            Content::Colourbar(bar) => bar
                 .as_ref()
                 .map_or(0.0, |b| b.size(ctx, along, cross, heading)),
         }
@@ -120,8 +120,8 @@ impl Content<'_> {
     /// the panel's title `heading`), and nothing for any other content, whose heading lies inside its area.
     fn top_margin(&self, ctx: &Ctx, heading: Option<&TextBlock>) -> f64 {
         match self {
-            Content::Colorbar(Some(bar)) => bar.top_margin(ctx, heading),
-            Content::Legend(_) | Content::Colorbar(None) => 0.0,
+            Content::Colourbar(Some(bar)) => bar.top_margin(ctx, heading),
+            Content::Legend(_) | Content::Colourbar(None) => 0.0,
         }
     }
 
@@ -149,7 +149,7 @@ impl Content<'_> {
                 };
                 legend::draw_panel(ctx, panel, content, heading, area, fill, out, hits);
             }
-            Content::Colorbar(bar) => {
+            Content::Colourbar(bar) => {
                 if let Some(bar) = bar {
                     let area = fit_to_plots(ctx, panel, area, plots, bar.vertical());
                     bar.draw_panel(ctx, panel, heading, area, out, hits);
@@ -243,7 +243,7 @@ pub(super) fn place(area: Rect, width: f64, height: f64, align: PanelLocation, i
         PanelLocation::South => (cx, bottom),
         PanelLocation::East => (right, cy),
         PanelLocation::West => (left, cy),
-        PanelLocation::Center => (cx, cy),
+        PanelLocation::Centre => (cx, cy),
     };
     Rect::new(x, y, width, height)
 }

@@ -3,18 +3,18 @@
 //!
 //! These tests assert the figure description the facade stores. They assume that `AxesMut::stairs(edges, values)`
 //! and `AxesMut::stairs_at(x, values, StepAt)` return a `StairsMut`, exported in the prelude, whose setters are
-//! `label`, `base`, `open`, the line setters of `SeriesMut` (`color`, `line_width`, `dash`), `fill`,
+//! `label`, `base`, `open`, the line setters of `SeriesMut` (`colour`, `line_width`, `dash`), `fill`,
 //! `line_opacity`, `fill_opacity` and `orientation`.
 
 mod common;
 
 use common::{data, has_error_at, stairs};
 use ironlab::IssueKind;
-use ironlab::ir::{ColorSpec, DashStyle, NdArray, Orientation, StairsData, StepAt};
+use ironlab::ir::{ColourSpec, DashStyle, NdArray, Orientation, StairsData, StepAt};
 use ironlab::prelude::*;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 // WHY: `stairs(edges, values)` is Matplotlib's `stairs`, the outline of a histogram: it must store the edges and the
 // values as given, one more edge than values, as an open, unfilled, upright outline in the next colour of the colour
@@ -36,8 +36,8 @@ fn stairs_stores_edges_and_values_as_an_open_unfilled_outline() {
     );
     assert_eq!(data(&fig, values), &NdArray::vector(vec![2.0, 5.0, 1.0]));
     assert_eq!(s.base, None);
-    assert_eq!(s.fill, ColorSpec::None);
-    assert_eq!(s.line.color, ColorSpec::Auto);
+    assert_eq!(s.fill, ColourSpec::None);
+    assert_eq!(s.line.colour, ColourSpec::Auto);
     assert_eq!(s.orientation, Orientation::Vertical);
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
@@ -80,7 +80,7 @@ fn stairs_setters_write_the_properties_they_name() {
         .stairs([0.0, 1.0, 2.0], [1.0, 2.0])
         .label("Counts")
         .base(0.0)
-        .color(RED)
+        .colour(RED)
         .line_width(2.0)
         .dash(DashStyle::Dashed)
         .fill(BLUE)
@@ -91,10 +91,10 @@ fn stairs_setters_write_the_properties_they_name() {
     let s = stairs(&fig, id);
     assert_eq!(s.label, Some(Text::new("Counts")));
     assert_eq!(s.base, Some(0.0));
-    assert_eq!(s.line.color, ColorSpec::Rgba { color: RED });
+    assert_eq!(s.line.colour, ColourSpec::Rgba { colour: RED });
     assert_eq!(s.line.width_pt, 2.0);
     assert_eq!(s.line.dash, DashStyle::Dashed);
-    assert_eq!(s.fill, ColorSpec::Rgba { color: BLUE });
+    assert_eq!(s.fill, ColourSpec::Rgba { colour: BLUE });
     assert_eq!((s.line_opacity, s.fill_opacity), (0.75, 0.5));
     assert_eq!(s.orientation, Orientation::Horizontal);
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());

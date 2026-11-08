@@ -63,7 +63,7 @@ pub fn figure() -> Figure {
             let id = ax
                 .plot(&alpha, curve(1.0 + level / 100.0))
                 .label(format!("Perturbed by {level} %"))
-                .color(ramp(k))
+                .colour(ramp(k))
                 .id();
             if row == 0 {
                 levels.push(id);
@@ -72,11 +72,11 @@ pub fn figure() -> Figure {
         let id = ax
             .plot(&alpha, curve(1.0))
             .label("Base case (unperturbed inputs)")
-            .color(Color::rgb(0.0, 0.0, 0.0))
+            .colour(Colour::rgb(0.0, 0.0, 0.0))
             .line_width(1.5)
             .marker(Marker::Circle)
             .marker_size(3.5)
-            .marker_face(Color::rgb(0.0, 0.0, 0.0))
+            .marker_face(Colour::rgb(0.0, 0.0, 0.0))
             .id();
         base.get_or_insert(id);
         ax.grid(true).legend_in(key);

@@ -8,17 +8,17 @@ use serde_json::json;
 // the range 0 to 1 with full opacity implied.
 #[test]
 fn six_digit_hex_parses_as_an_opaque_colour() {
-    let c = Color::from_hex("#ff8000").unwrap();
-    assert_eq!(c, Color::rgba(1.0, 128.0 / 255.0, 0.0, 1.0));
+    let c = Colour::from_hex("#ff8000").unwrap();
+    assert_eq!(c, Colour::rgba(1.0, 128.0 / 255.0, 0.0, 1.0));
 }
 
 // Why: `#rrggbbaa` carries opacity as the fourth byte, used for translucent fills.
 #[test]
 fn eight_digit_hex_parses_with_alpha() {
-    let c = Color::from_hex("#0072b280").unwrap();
+    let c = Colour::from_hex("#0072b280").unwrap();
     assert_eq!(
         c,
-        Color::rgba(0.0, 114.0 / 255.0, 178.0 / 255.0, 128.0 / 255.0)
+        Colour::rgba(0.0, 114.0 / 255.0, 178.0 / 255.0, 128.0 / 255.0)
     );
 }
 
@@ -27,8 +27,8 @@ fn eight_digit_hex_parses_with_alpha() {
 #[test]
 fn hex_digits_are_case_insensitive() {
     assert_eq!(
-        Color::from_hex("#ABCDEF").unwrap(),
-        Color::from_hex("#abcdef").unwrap()
+        Colour::from_hex("#ABCDEF").unwrap(),
+        Colour::from_hex("#abcdef").unwrap()
     );
 }
 
@@ -36,14 +36,14 @@ fn hex_digits_are_case_insensitive() {
 // are stable and diffable.
 #[test]
 fn hex_output_is_lower_case_and_omits_opaque_alpha() {
-    assert_eq!(Color::rgb(1.0, 128.0 / 255.0, 0.0).to_hex(), "#ff8000");
+    assert_eq!(Colour::rgb(1.0, 128.0 / 255.0, 0.0).to_hex(), "#ff8000");
     assert_eq!(
-        Color::rgba(1.0, 1.0, 1.0, 128.0 / 255.0).to_hex(),
+        Colour::rgba(1.0, 1.0, 1.0, 128.0 / 255.0).to_hex(),
         "#ffffff80"
     );
-    assert_eq!(Color::rgba(0.0, 0.0, 0.0, 0.0).to_hex(), "#00000000");
-    assert_eq!(Color::BLACK.to_hex(), "#000000");
-    assert_eq!(Color::WHITE.to_hex(), "#ffffff");
+    assert_eq!(Colour::rgba(0.0, 0.0, 0.0, 0.0).to_hex(), "#00000000");
+    assert_eq!(Colour::BLACK.to_hex(), "#000000");
+    assert_eq!(Colour::WHITE.to_hex(), "#ffffff");
 }
 
 // Why: components between the 256 representable levels must round to the nearest level
@@ -52,8 +52,8 @@ fn hex_output_is_lower_case_and_omits_opaque_alpha() {
 // part of the contract.
 #[test]
 fn hex_output_rounds_and_clamps_components() {
-    assert_eq!(Color::rgb(0.25, 0.999, 0.001).to_hex(), "#40ff00");
-    assert_eq!(Color::rgb(1.5, -0.5, 0.0).to_hex(), "#ff0000");
+    assert_eq!(Colour::rgb(0.25, 0.999, 0.001).to_hex(), "#40ff00");
+    assert_eq!(Colour::rgb(1.5, -0.5, 0.0).to_hex(), "#ff0000");
 }
 
 // Why: a malformed colour in a file must be an error, not a silently wrong colour.
@@ -74,7 +74,7 @@ fn malformed_hex_strings_are_rejected() {
         "red",
     ] {
         assert!(
-            matches!(Color::from_hex(bad), Err(IrError::InvalidColor(ref s)) if s == bad),
+            matches!(Colour::from_hex(bad), Err(IrError::InvalidColour(ref s)) if s == bad),
             "{bad:?} was not rejected as an invalid colour"
         );
     }
@@ -85,13 +85,13 @@ fn malformed_hex_strings_are_rejected() {
 #[test]
 fn colours_serialise_as_hex_strings() {
     assert_eq!(
-        serde_json::to_value(Color::WHITE).unwrap(),
+        serde_json::to_value(Colour::WHITE).unwrap(),
         json!("#ffffff")
     );
-    let c: Color = serde_json::from_value(json!("#00000080")).unwrap();
-    assert_eq!(c, Color::rgba(0.0, 0.0, 0.0, 128.0 / 255.0));
-    assert!(serde_json::from_value::<Color>(json!("#nothex")).is_err());
-    assert!(serde_json::from_value::<Color>(json!([0, 0, 0])).is_err());
+    let c: Colour = serde_json::from_value(json!("#00000080")).unwrap();
+    assert_eq!(c, Colour::rgba(0.0, 0.0, 0.0, 128.0 / 255.0));
+    assert!(serde_json::from_value::<Colour>(json!("#nothex")).is_err());
+    assert!(serde_json::from_value::<Colour>(json!([0, 0, 0])).is_err());
 }
 
 proptest! {
@@ -104,7 +104,7 @@ proptest! {
         } else {
             format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
         };
-        let colour = Color::from_hex(&hex).unwrap();
+        let colour = Colour::from_hex(&hex).unwrap();
         prop_assert_eq!(colour.to_hex(), hex);
     }
 }

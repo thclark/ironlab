@@ -20,15 +20,15 @@
 //! ```text
 //! right  = ( cos a,          sin a,          0     )
 //! up     = (-sin e · sin a,  sin e · cos a,  cos e )
-//! toward = ( cos e · sin a, -cos e · cos a,  sin e )
+//! towards = ( cos e · sin a, -cos e · cos a,  sin e )
 //! ```
 //!
 //! This is the rotation part of MATLAB's `viewmtx(az, el)`. The rows are orthonormal and
-//! `right × up = toward`, so the projection neither distorts lengths within the screen plane nor
+//! `right × up = towards`, so the projection neither distorts lengths within the screen plane nor
 //! mirrors the scene. A point `p` projects to `screen = (right · p, up · p)` with y pointing up,
-//! and `depth = toward · p`, which is larger for points closer to the viewer.
+//! and `depth = towards · p`, which is larger for points closer to the viewer.
 //!
-//! At the default view, `toward ≈ (-0.527, -0.687, 0.500)`: the viewer is on the −x, −y, +z
+//! At the default view, `towards ≈ (-0.527, -0.687, 0.500)`: the viewer is on the −x, −y, +z
 //! side, so the nearest corner of the box is `(-0.5, -0.5, 0.5)` and the lowest corner on screen
 //! is `(-0.5, -0.5, -0.5)`. The +x axis points to the right and slightly up on screen
 //! (`≈ (0.793, 0.304)`), and the +y axis points to the left and up (`≈ (-0.609, 0.397)`).
@@ -102,11 +102,11 @@ impl Camera {
 
     /// Projects a point in normalised box coordinates onto the screen.
     pub fn project(&self, p: [f64; 3]) -> Projected {
-        let [right, up, toward] = self.view_matrix();
+        let [right, up, towards] = self.view_matrix();
         let dot = |row: [f64; 3]| row[0] * p[0] + row[1] * p[1] + row[2] * p[2];
         Projected {
             screen: [dot(right), dot(up)],
-            depth: dot(toward),
+            depth: dot(towards),
         }
     }
 }
@@ -181,14 +181,14 @@ pub enum Plane {
 /// `el = 0`.
 pub fn back_planes(cam: &Camera) -> [Plane; 3] {
     const EDGE_ON: f64 = 1e-12;
-    let toward = cam.view_matrix()[2];
+    let towards = cam.view_matrix()[2];
     let pick = |component: f64, min: Plane, max: Plane| {
         if component < -EDGE_ON { max } else { min }
     };
     [
-        pick(toward[0], Plane::XMin, Plane::XMax),
-        pick(toward[1], Plane::YMin, Plane::YMax),
-        pick(toward[2], Plane::ZMin, Plane::ZMax),
+        pick(towards[0], Plane::XMin, Plane::XMax),
+        pick(towards[1], Plane::YMin, Plane::YMax),
+        pick(towards[2], Plane::ZMin, Plane::ZMax),
     ]
 }
 

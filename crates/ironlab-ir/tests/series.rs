@@ -16,39 +16,39 @@
 //!     pub line: LineStyle,               // dash None or colour None: no line is drawn
 //!     pub marker: MarkerStyle,           // shape None: no marker is drawn
 //!     pub size_data: Option<NodeId>,     // the diameter of each marker in points, n values
-//!     pub color_data: Option<NodeId>,    // n values (per point) or n − 1 (per segment)
-//!     pub color_scale: Option<NodeId>,   // required when color_data is set
+//!     pub colour_data: Option<NodeId>,    // n values (per point) or n − 1 (per segment)
+//!     pub colour_scale: Option<NodeId>,   // required when colour_data is set
 //!     pub x_coords: Coords,
 //!     pub y_coords: Coords,
 //!     pub clip: bool,
 //!     pub base: Option<f64>,             // the fill and its base are tested in `series_fill`
-//!     pub fill: ColorSpec,
+//!     pub fill: ColourSpec,
 //!     pub fill_opacity: f64,
 //! }
 //! ```
 //!
 //! - `Artist::Series`, `NodeKind::Series`, and a wire message `Series`; the JSON tag of the
-//!   artist is `"series"`. `Line`, `Scatter`, `ScatterSize` and `ScatterColor` no longer exist,
+//!   artist is `"series"`. `Line`, `Scatter`, `ScatterSize` and `ScatterColour` no longer exist,
 //!   and no compatibility shim reads the old `"line"` or `"scatter"` forms (the project has no
 //!   users yet, so breaking changes are free).
 //! - `Series::default()` is the default of `plot`: a solid automatic line 0.75 pt wide
 //!   (`LineStyle::default()`), no markers (`MarkerStyle::default()`), no size or colour data,
 //!   no scale, both dimensions in data coordinates, clipped and visible. The facade's
 //!   `scatter` sets its own defaults over it.
-//! - `line.color` is the colour of the series, which an automatic marker face or edge
+//! - `line.colour` is the colour of the series, which an automatic marker face or edge
 //!   follows, as a line's automatic marker edge follows its line today.
-//! - `color_data` must hold n values (one per point) or n − 1 values (one per segment), where
+//! - `colour_data` must hold n values (one per point) or n − 1 values (one per segment), where
 //!   n is the number of points. n − 1 values are refused when the series draws no line, which
 //!   is when its dash is `None` or its line colour is `None`; that refusal, and every other
 //!   length, is `IssueKind::ShapeMismatch` against the series. `size_data` must hold exactly
 //!   n values.
-//! - A series whose `color_data` is set maps it, so `Artist::color_mapping` returns its colour
-//!   data and scale, and it must name a scale (`MissingColorScale`) whatever its colour
+//! - A series whose `colour_data` is set maps it, so `Artist::colour_mapping` returns its colour
+//!   data and scale, and it must name a scale (`MissingColourScale`) whatever its colour
 //!   specifications. A series without colour data maps nothing, even when it names a scale.
 //!   Any kind of scale is accepted.
-//! - The registry lists `size_data`, `color_data` and `color_scale` as optional node
-//!   identifiers, and no longer lists `size` or `color`. A colormapped colour is available at
-//!   `line.color`, `marker.face` and `marker.edge` exactly when the series has colour data and
+//! - The registry lists `size_data`, `colour_data` and `colour_scale` as optional node
+//!   identifiers, and no longer lists `size` or `colour`. A colourmapped colour is available at
+//!   `line.colour`, `marker.face` and `marker.edge` exactly when the series has colour data and
 //!   names a colour scale of the figure.
 
 mod common;
@@ -59,9 +59,9 @@ use common::{categorical, continuous, discrete, indexed, named};
 use ironlab_ir::*;
 use serde_json::{Value as JsonValue, json};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 /// Returns whether a list of issues holds one of the given kind against the given node.
 fn has(issues: &[ValidationIssue], kind: IssueKind, node: NodeId) -> bool {
@@ -82,7 +82,7 @@ fn count(n: usize) -> Vec<f64> {
 
 /// Adds a continuous scale of viridis between automatic limits.
 fn viridis(b: &mut FigureBuilder) -> NodeId {
-    b.color_scale(continuous(named(ColormapName::Viridis), Limits::Auto))
+    b.colour_scale(continuous(named(ColourmapName::Viridis), Limits::Auto))
 }
 
 /// A figure of one 2D axes holding one series of `n` points, built from the defaults by
@@ -108,9 +108,9 @@ fn figure_with(n: usize, edit: impl FnOnce(&mut Series, &mut FigureBuilder)) -> 
 /// line and circle markers unless `edit` says otherwise.
 fn coloured(n: usize, colours: usize, edit: impl FnOnce(&mut Series)) -> (Figure, NodeId) {
     figure_with(n, |s, b| {
-        s.color_data = Some(b.vector(&count(colours)));
-        s.color_scale = Some(viridis(b));
-        s.line.color = ColorSpec::Colormapped;
+        s.colour_data = Some(b.vector(&count(colours)));
+        s.colour_scale = Some(viridis(b));
+        s.line.colour = ColourSpec::Colourmapped;
         s.marker.shape = MarkerShape::Circle;
         edit(s);
     })
@@ -141,12 +141,12 @@ fn the_default_series_is_a_solid_automatic_line_without_markers_data_or_scale() 
     assert_eq!(s.z, None);
     assert_eq!(s.line, LineStyle::default());
     assert_eq!(s.line.dash, DashStyle::Solid);
-    assert_eq!(s.line.color, ColorSpec::Auto);
+    assert_eq!(s.line.colour, ColourSpec::Auto);
     assert_eq!(s.marker, MarkerStyle::default());
     assert_eq!(s.marker.shape, MarkerShape::None);
     assert_eq!(s.size_data, None);
-    assert_eq!(s.color_data, None);
-    assert_eq!(s.color_scale, None);
+    assert_eq!(s.colour_data, None);
+    assert_eq!(s.colour_scale, None);
     assert_eq!(s.x_coords, Coords::Data);
     assert_eq!(s.y_coords, Coords::Data);
     assert!(s.clip);
@@ -172,7 +172,7 @@ fn a_series_with_every_property_set_or_absent_round_trips_through_json_and_proto
     b.fig.layout = TileLayout::new(1, 2);
     let flat = b.axes2d(0, 0);
     let deep = b.axes3d(0, 1);
-    let scale = b.color_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict));
+    let scale = b.colour_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict));
     let x = b.vector(&[0.0, 1.0, 2.0]);
     let y = b.vector(&[2.0, 0.0, 1.0]);
     let z = b.vector(&[1.0, 2.0, 3.0]);
@@ -189,19 +189,19 @@ fn a_series_with_every_property_set_or_absent_round_trips_through_json_and_proto
             y,
             z: Some(z),
             line: LineStyle {
-                color: ColorSpec::Colormapped,
+                colour: ColourSpec::Colourmapped,
                 width_pt: 1.25,
                 dash: DashStyle::DashDot,
             },
             marker: MarkerStyle {
                 shape: MarkerShape::Diamond,
                 size_pt: 5.5,
-                face: ColorSpec::Rgba { color: GREEN },
-                edge: ColorSpec::None,
+                face: ColourSpec::Rgba { colour: GREEN },
+                edge: ColourSpec::None,
             },
             size_data: Some(sizes),
-            color_data: Some(classes),
-            color_scale: Some(scale),
+            colour_data: Some(classes),
+            colour_scale: Some(scale),
             ..Series::default()
         }),
     );
@@ -241,16 +241,16 @@ fn the_json_form_of_a_series_is_tagged_series_and_names_its_data_and_scale_direc
         colours = b.vector(&[0.0, 1.0, 2.0]);
         scale = viridis(b);
         s.size_data = Some(sizes);
-        s.color_data = Some(colours);
-        s.color_scale = Some(scale);
+        s.colour_data = Some(colours);
+        s.colour_scale = Some(scale);
     });
     let value: JsonValue = serde_json::from_str(&fig.to_json()).unwrap();
     let artist = &value["axes"][0]["artists"][0];
     assert_eq!(artist["type"], json!("series"));
     assert_eq!(artist["size_data"], json!(sizes.0));
-    assert_eq!(artist["color_data"], json!(colours.0));
-    assert_eq!(artist["color_scale"], json!(scale.0));
-    for gone in ["size", "color"] {
+    assert_eq!(artist["colour_data"], json!(colours.0));
+    assert_eq!(artist["colour_scale"], json!(scale.0));
+    for gone in ["size", "colour"] {
         assert!(
             artist.get(gone).is_none(),
             "a series has no `{gone}` property: {artist}"
@@ -302,8 +302,8 @@ fn colour_data_of_one_value_per_segment_is_valid_when_the_series_draws_a_line() 
         let (fig, _) = coloured(4, 3, |s| {
             s.marker.shape = shape;
             // With no value per point, the markers take fixed colours.
-            s.marker.edge = ColorSpec::Rgba {
-                color: Color::BLACK,
+            s.marker.edge = ColourSpec::Rgba {
+                colour: Colour::BLACK,
             };
         });
         assert_eq!(fig.validate().errors, vec![], "{what}");
@@ -316,11 +316,13 @@ fn colour_data_of_one_value_per_segment_is_refused_when_the_series_draws_no_line
     type Edit = fn(&mut Series);
     let edits: [(&str, Edit); 2] = [
         ("a dash of none", |s| s.line.dash = DashStyle::None),
-        ("a line colour of none", |s| s.line.color = ColorSpec::None),
+        ("a line colour of none", |s| {
+            s.line.colour = ColourSpec::None
+        }),
     ];
     for (what, edit) in edits {
         let (fig, id) = coloured(4, 3, |s| {
-            s.marker.face = ColorSpec::Colormapped;
+            s.marker.face = ColourSpec::Colourmapped;
             edit(s);
         });
         let report = fig.validate();
@@ -374,22 +376,22 @@ fn size_data_must_hold_exactly_one_value_per_point() {
     }
 }
 
-// Why: there is no axes colormap to fall back on, so colour data without a scale cannot be drawn and must be reported, whichever colours use it.
+// Why: there is no axes colourmap to fall back on, so colour data without a scale cannot be drawn and must be reported, whichever colours use it.
 #[test]
-fn colour_data_without_a_scale_is_missing_color_scale() {
+fn colour_data_without_a_scale_is_missing_colour_scale() {
     for (what, line, face) in [
-        ("a mapped line", ColorSpec::Colormapped, ColorSpec::None),
-        ("mapped markers", ColorSpec::Auto, ColorSpec::Colormapped),
-        ("automatic colours", ColorSpec::Auto, ColorSpec::Auto),
+        ("a mapped line", ColourSpec::Colourmapped, ColourSpec::None),
+        ("mapped markers", ColourSpec::Auto, ColourSpec::Colourmapped),
+        ("automatic colours", ColourSpec::Auto, ColourSpec::Auto),
     ] {
         let (fig, id) = coloured(3, 3, |s| {
-            s.color_scale = None;
-            s.line.color = line;
+            s.colour_scale = None;
+            s.line.colour = line;
             s.marker.face = face;
         });
         let report = fig.validate();
         assert!(
-            has(&report.errors, IssueKind::MissingColorScale, id),
+            has(&report.errors, IssueKind::MissingColourScale, id),
             "{what}: {report:?}"
         );
     }
@@ -398,14 +400,14 @@ fn colour_data_without_a_scale_is_missing_color_scale() {
 // Why: a scale without colour data maps nothing, so naming one must not make a series invalid or change what it maps.
 #[test]
 fn a_scale_without_colour_data_is_valid_and_maps_nothing() {
-    let (fig, id) = figure_with(3, |s, b| s.color_scale = Some(viridis(b)));
+    let (fig, id) = figure_with(3, |s, b| s.colour_scale = Some(viridis(b)));
     assert_eq!(fig.validate().errors, vec![]);
     let (_, artist) = fig.artist(id).unwrap();
-    assert_eq!(artist.color_mapping(), None);
-    assert_eq!(artist.color_scale(), series_of(&fig, id).color_scale);
+    assert_eq!(artist.colour_mapping(), None);
+    assert_eq!(artist.colour_scale(), series_of(&fig, id).colour_scale);
 }
 
-// Why: validation, automatic limits and the compiler all decide from `color_mapping` whether an artist is colour-mapped, so a series with colour data must report its scale and values there, per point or per segment.
+// Why: validation, automatic limits and the compiler all decide from `colour_mapping` whether an artist is colour-mapped, so a series with colour data must report its scale and values there, per point or per segment.
 #[test]
 fn a_series_with_colour_data_maps_its_colour_data_through_its_scale() {
     for colours in [3, 2] {
@@ -413,10 +415,10 @@ fn a_series_with_colour_data_maps_its_colour_data_through_its_scale() {
         let s = series_of(&fig, id);
         let (_, artist) = fig.artist(id).unwrap();
         assert_eq!(
-            artist.color_mapping(),
-            Some(ColorMapping {
-                color_scale: s.color_scale,
-                values: s.color_data.unwrap(),
+            artist.colour_mapping(),
+            Some(ColourMapping {
+                colour_scale: s.colour_scale,
+                values: s.colour_data.unwrap(),
             }),
             "{colours} values"
         );
@@ -427,16 +429,16 @@ fn a_series_with_colour_data_maps_its_colour_data_through_its_scale() {
 #[test]
 fn a_series_accepts_every_kind_of_scale() {
     for kind in [
-        continuous(named(ColormapName::Magma), Limits::Auto),
+        continuous(named(ColourmapName::Magma), Limits::Auto),
         discrete(&[0.0, 1.0, 2.0]),
         indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict),
         categorical(vec![RED, GREEN, BLUE], OutOfRange::Strict),
     ] {
         let (fig, _) = figure_with(3, |s, b| {
-            s.color_data = Some(b.vector(&[0.0, 1.0, 2.0]));
-            s.color_scale = Some(b.color_scale(kind.clone()));
+            s.colour_data = Some(b.vector(&[0.0, 1.0, 2.0]));
+            s.colour_scale = Some(b.colour_scale(kind.clone()));
             s.marker.shape = MarkerShape::Circle;
-            s.marker.edge = ColorSpec::Colormapped;
+            s.marker.edge = ColourSpec::Colourmapped;
         });
         assert_eq!(fig.validate().errors, vec![], "{kind:?}");
     }
@@ -447,10 +449,10 @@ fn a_series_accepts_every_kind_of_scale() {
 fn colour_data_outside_a_strict_indexed_scale_is_value_out_of_range_per_point_or_per_segment() {
     for (n, colours) in [(3, vec![0.0, 0.5, 2.0]), (3, vec![0.0, 3.0])] {
         let (fig, id) = figure_with(n, |s, b| {
-            s.color_data = Some(b.vector(&colours));
-            s.color_scale =
-                Some(b.color_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict)));
-            s.line.color = ColorSpec::Colormapped;
+            s.colour_data = Some(b.vector(&colours));
+            s.colour_scale =
+                Some(b.colour_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict)));
+            s.line.colour = ColourSpec::Colourmapped;
         });
         let report = fig.validate();
         assert!(
@@ -463,10 +465,10 @@ fn colour_data_outside_a_strict_indexed_scale_is_value_out_of_range_per_point_or
 // Why: the size and colour data are references like the coordinates, so a reference to a missing node, to a node of another kind or to 8-bit values must be refused as it is for x and y.
 #[test]
 fn size_and_colour_data_are_checked_as_references_to_floating_point_data_arrays() {
-    for which in ["size_data", "color_data"] {
+    for which in ["size_data", "colour_data"] {
         let point = |s: &mut Series, target: NodeId| match which {
             "size_data" => s.size_data = Some(target),
-            _ => s.color_data = Some(target),
+            _ => s.colour_data = Some(target),
         };
         let (fig, id) = coloured(3, 3, |s| point(s, NodeId(9_999)));
         assert!(
@@ -475,7 +477,7 @@ fn size_and_colour_data_are_checked_as_references_to_floating_point_data_arrays(
         );
 
         let (fig, id) = coloured(3, 3, |s| {
-            let scale = s.color_scale.unwrap();
+            let scale = s.colour_scale.unwrap();
             point(s, scale);
         });
         assert!(
@@ -485,8 +487,8 @@ fn size_and_colour_data_are_checked_as_references_to_floating_point_data_arrays(
 
         let (fig, id) = figure_with(3, |s, b| {
             let bytes = b.bytes(vec![3], vec![1, 2, 3]);
-            s.color_scale = Some(viridis(b));
-            s.color_data = Some(b.vector(&[0.0, 1.0, 2.0]));
+            s.colour_scale = Some(viridis(b));
+            s.colour_data = Some(b.vector(&[0.0, 1.0, 2.0]));
             point(s, bytes);
         });
         assert!(
@@ -499,7 +501,7 @@ fn size_and_colour_data_are_checked_as_references_to_floating_point_data_arrays(
 // Why: an array a series uses through its size or colour data is in use, so it must not be warned of as unused data.
 #[test]
 fn size_and_colour_data_count_as_used() {
-    let (fig, _) = coloured(3, 3, |s| s.size_data = s.color_data);
+    let (fig, _) = coloured(3, 3, |s| s.size_data = s.colour_data);
     let report = fig.validate();
     assert!(
         !kinds(&report.warnings).contains(&IssueKind::UnusedData),
@@ -523,8 +525,8 @@ fn hidden_series_and_values_per_segment_contribute_to_automatic_colour_limits() 
             id: shown,
             x: points,
             y: points,
-            color_data: Some(per_point),
-            color_scale: Some(scale),
+            colour_data: Some(per_point),
+            colour_scale: Some(scale),
             ..Series::default()
         }),
     );
@@ -535,14 +537,14 @@ fn hidden_series_and_values_per_segment_contribute_to_automatic_colour_limits() 
             visible: false,
             x: points,
             y: points,
-            color_data: Some(per_segment),
-            color_scale: Some(scale),
+            colour_data: Some(per_segment),
+            colour_scale: Some(scale),
             ..Series::default()
         }),
     );
     let fig = b.build();
     assert_eq!(fig.validate().errors, vec![]);
-    assert_eq!(fig.automatic_color_limits(scale), Some((-5.0, 40.0)));
+    assert_eq!(fig.automatic_colour_limits(scale), Some((-5.0, 40.0)));
 }
 
 // Why: blended coordinates (ADR 0019) belong to the series as they did to a line and a scatter, so its placement rules must still be enforced.
@@ -600,7 +602,7 @@ fn the_registry_lists_the_properties_of_a_series() {
         "y",
         "z",
         "line",
-        "line.color",
+        "line.colour",
         "line.width_pt",
         "line.dash",
         "marker",
@@ -609,8 +611,8 @@ fn the_registry_lists_the_properties_of_a_series() {
         "marker.face",
         "marker.edge",
         "size_data",
-        "color_data",
-        "color_scale",
+        "colour_data",
+        "colour_scale",
         "x_coords",
         "y_coords",
         "clip",
@@ -620,13 +622,13 @@ fn the_registry_lists_the_properties_of_a_series() {
             "the registry lacks {expected}: {listed:?}"
         );
     }
-    for gone in ["id", "size", "color"] {
+    for gone in ["id", "size", "colour"] {
         assert!(
             !listed.contains(&gone.to_owned()),
             "{gone} is not a settable property of a series: {listed:?}"
         );
     }
-    for reference in ["size_data", "color_data", "color_scale", "z"] {
+    for reference in ["size_data", "colour_data", "colour_scale", "z"] {
         let property = properties(NodeKind::Series)
             .into_iter()
             .find(|p| p.path.to_string() == reference)
@@ -649,64 +651,68 @@ fn colour_and_size_data_are_set_and_unset_by_path_and_undone() {
     let (edited, inverse) = applied(
         &fig,
         &tx([
-            set(id, "color_data", Value::NodeId(colours)),
+            set(id, "colour_data", Value::NodeId(colours)),
             set(id, "size_data", Value::NodeId(colours)),
-            set(id, "color_scale", Value::NodeId(scale)),
-            set(id, "marker.edge", Value::ColorSpec(ColorSpec::Colormapped)),
+            set(id, "colour_scale", Value::NodeId(scale)),
+            set(
+                id,
+                "marker.edge",
+                Value::ColourSpec(ColourSpec::Colourmapped),
+            ),
         ]),
     )
     .unwrap();
     let s = series_of(&edited, id);
-    assert_eq!(s.color_data, Some(colours));
+    assert_eq!(s.colour_data, Some(colours));
     assert_eq!(s.size_data, Some(colours));
-    assert_eq!(s.color_scale, Some(scale));
+    assert_eq!(s.colour_scale, Some(scale));
     assert_eq!(edited.validate().errors, vec![]);
     assert_eq!(applied(&edited, &inverse).unwrap().0, fig, "undo");
 
     let (cleared, _) = applied(
         &edited,
         &tx([
-            set(id, "color_data", Value::Unset),
+            set(id, "colour_data", Value::Unset),
             set(id, "size_data", Value::Unset),
         ]),
     )
     .unwrap();
-    assert_eq!(series_of(&cleared, id).color_data, None);
+    assert_eq!(series_of(&cleared, id).colour_data, None);
     assert_eq!(series_of(&cleared, id).size_data, None);
-    assert_eq!(cleared.get(id, &path("color_data")).unwrap(), Value::Unset);
+    assert_eq!(cleared.get(id, &path("colour_data")).unwrap(), Value::Unset);
 }
 
-/// Returns why a colormapped colour is unavailable at a property of a node, or `None` when
+/// Returns why a colourmapped colour is unavailable at a property of a node, or `None` when
 /// it is available.
-fn colormapped_unavailable(fig: &Figure, node: NodeId, at: &str) -> Option<&'static str> {
+fn colourmapped_unavailable(fig: &Figure, node: NodeId, at: &str) -> Option<&'static str> {
     property_choices(fig, node, &path(at))
         .into_iter()
-        .find(|choice| choice.value == Value::ColorSpec(ColorSpec::Colormapped))
-        .unwrap_or_else(|| panic!("{at} offers a colormapped colour"))
+        .find(|choice| choice.value == Value::ColourSpec(ColourSpec::Colourmapped))
+        .unwrap_or_else(|| panic!("{at} offers a colourmapped colour"))
         .unavailable
 }
 
-// Why: the rule for a colormapped colour is structural (#19): it is available on the line and on both parts of the markers exactly when the series has values to map and a scale to map them through.
+// Why: the rule for a colourmapped colour is structural (#19): it is available on the line and on both parts of the markers exactly when the series has values to map and a scale to map them through.
 #[test]
-fn a_colormapped_colour_is_available_exactly_when_the_series_has_colour_data_and_a_scale() {
+fn a_colourmapped_colour_is_available_exactly_when_the_series_has_colour_data_and_a_scale() {
     let (mapped, id) = coloured(3, 3, |_| {});
-    for at in ["line.color", "marker.face", "marker.edge"] {
+    for at in ["line.colour", "marker.face", "marker.edge"] {
         assert_eq!(
-            colormapped_unavailable(&mapped, id, at),
+            colourmapped_unavailable(&mapped, id, at),
             None,
             "{at} with colour data and a scale"
         );
     }
 
-    let (no_data, id) = figure_with(3, |s, b| s.color_scale = Some(viridis(b)));
-    let (no_scale, unscaled) = coloured(3, 3, |s| s.color_scale = None);
-    for at in ["line.color", "marker.face", "marker.edge"] {
+    let (no_data, id) = figure_with(3, |s, b| s.colour_scale = Some(viridis(b)));
+    let (no_scale, unscaled) = coloured(3, 3, |s| s.colour_scale = None);
+    for at in ["line.colour", "marker.face", "marker.edge"] {
         assert!(
-            colormapped_unavailable(&no_data, id, at).is_some(),
+            colourmapped_unavailable(&no_data, id, at).is_some(),
             "{at} without colour data"
         );
         assert!(
-            colormapped_unavailable(&no_scale, unscaled, at).is_some(),
+            colourmapped_unavailable(&no_scale, unscaled, at).is_some(),
             "{at} without a scale"
         );
     }

@@ -68,7 +68,7 @@ fn assert_survives(name: &str, bad: Item, expect: Expect) {
 
 fn black_fill() -> Option<Fill> {
     Some(Fill {
-        color: Rgba::BLACK,
+        colour: Rgba::BLACK,
         rule: FillRule::NonZero,
     })
 }
@@ -205,7 +205,7 @@ fn invalid_dash_arrays_do_not_produce_an_invalid_pdf() {
 
 #[test]
 fn colour_components_outside_the_unit_interval_do_not_produce_an_invalid_pdf() {
-    // WHY: colours are interpolated from colormaps and can overshoot [0, 1] numerically; PDF colour operands outside
+    // WHY: colours are interpolated from colourmaps and can overshoot [0, 1] numerically; PDF colour operands outside
     // their range are errors in strict consumers.
     let bad = filled_rect(
         Rect::new(10.0, 10.0, 80.0, 80.0),
@@ -225,7 +225,7 @@ fn glyph_run(edit: impl FnOnce(&mut GlyphsItem)) -> Item {
         stroke_em: 0.0,
         font: run.font,
         size_pt: run.size_pt,
-        color: Rgba::BLACK,
+        colour: Rgba::BLACK,
         text: run.text.clone(),
         glyphs: run
             .glyphs

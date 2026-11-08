@@ -5,13 +5,13 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use ironlab_ir::{
-    Axes, Cell, Color, Dimension, NodeId, Panel, PanelContent, PanelLegend, PanelLocation,
+    Axes, Cell, Colour, Dimension, NodeId, Panel, PanelContent, PanelLegend, PanelLocation,
     Parameter, Projection, Text, TitleAlign, TrackSize, ValidationReport,
 };
 use ironlab_text::TextEngine;
 
 use crate::axes::AxesMut;
-use crate::color_scale::{self, ColorScaleMut};
+use crate::colour_scale::{self, ColourScaleMut};
 use crate::data::{DataArrayMut, DataSource};
 use crate::error::Error;
 use crate::legend::PanelMut;
@@ -302,14 +302,14 @@ impl Figure {
     }
 
     /// Adds a continuous colour scale to the figure and returns a handle to it, whose
-    /// [`id`](ColorScaleMut::id) the `color_scale` setters of artist handles accept.
+    /// [`id`](ColourScaleMut::id) the `colour_scale` setters of artist handles accept.
     ///
     /// The scale has the defaults of its kind: viridis between automatic limits in linear
     /// space, which clamps values beyond its limits to its end colours and draws nothing
     /// for a value that is not finite. Automatic limits are the exact range of the values
     /// of every artist that names the scale, in every axes, so artists in several axes
     /// that name one scale share its colours: this is how a row of plots is given one
-    /// colour scale. [`ColorScaleMut::discrete`] and [`ColorScaleMut::bands`] make the
+    /// colour scale. [`ColourScaleMut::discrete`] and [`ColourScaleMut::bands`] make the
     /// scale discrete.
     ///
     /// A scale that no artist names is valid, because a colourbar may show a scale of its
@@ -322,24 +322,24 @@ impl Figure {
     /// let z = Matrix::from_fn(x.len(), x.len(), |row, col| x[col] - x[row]);
     ///
     /// let mut fig = Figure::new().tiles(1, 2);
-    /// let shared = fig.color_scale().colormap(Colormap::Coolwarm).title("Difference").id();
-    /// fig.axes(0, 0).surface(&x, &x, &z).color_scale(shared);
-    /// fig.axes(0, 1).contourf(&x, &x, &z).color_scale(shared);
-    /// assert_eq!(fig.ir().color_scales.len(), 1);
+    /// let shared = fig.colour_scale().colourmap(Colourmap::Coolwarm).title("Difference").id();
+    /// fig.axes(0, 0).surface(&x, &x, &z).colour_scale(shared);
+    /// fig.axes(0, 1).contourf(&x, &x, &z).colour_scale(shared);
+    /// assert_eq!(fig.ir().colour_scales.len(), 1);
     /// ```
-    pub fn color_scale(&mut self) -> ColorScaleMut<'_> {
-        ColorScaleMut::add(&mut self.ir, color_scale::continuous())
+    pub fn colour_scale(&mut self) -> ColourScaleMut<'_> {
+        ColourScaleMut::add(&mut self.ir, colour_scale::continuous())
     }
 
     /// Adds an indexed colour scale to the figure: a palette of which a whole number `i`
-    /// takes entry `i`, as an indexed image takes its colours from a colormap (MATLAB's
+    /// takes entry `i`, as an indexed image takes its colours from a colourmap (MATLAB's
     /// `image` with an indexed array).
     ///
     /// Any other value, a fractional one included, names no entry and is a validation
-    /// error by default; [`ColorScaleMut::outside`] chooses another policy, such as a
+    /// error by default; [`ColourScaleMut::outside`] chooses another policy, such as a
     /// clamp for indices computed as floating-point numbers. An 8-bit value always names
-    /// an entry of a 256-entry palette. [`ColormapSample::sample`](crate::ColormapSample::sample)
-    /// builds a palette from a colormap.
+    /// an entry of a 256-entry palette. [`ColourmapSample::sample`](crate::ColourmapSample::sample)
+    /// builds a palette from a colourmap.
     ///
     /// ```
     /// use ironlab::prelude::*;
@@ -347,17 +347,20 @@ impl Figure {
     /// let mut fig = Figure::new();
     /// let terrain = fig
     ///     .indexed_scale([
-    ///         Color::rgb(0.2, 0.4, 0.8), // water
-    ///         Color::rgb(0.3, 0.6, 0.2), // land
-    ///         Color::WHITE,              // ice
+    ///         Colour::rgb(0.2, 0.4, 0.8), // water
+    ///         Colour::rgb(0.3, 0.6, 0.2), // land
+    ///         Colour::WHITE,              // ice
     ///     ])
     ///     .id();
     /// let codes = ByteMatrix::from_rows(&[[0, 1, 1], [1, 2, 2]]);
-    /// fig.axes(0, 0).scalar_image(&codes).color_scale(terrain);
+    /// fig.axes(0, 0).scalar_image(&codes).colour_scale(terrain);
     /// assert!(fig.validate().is_valid());
     /// ```
-    pub fn indexed_scale(&mut self, colors: impl IntoIterator<Item = Color>) -> ColorScaleMut<'_> {
-        ColorScaleMut::add(&mut self.ir, color_scale::indexed(colors))
+    pub fn indexed_scale(
+        &mut self,
+        colours: impl IntoIterator<Item = Colour>,
+    ) -> ColourScaleMut<'_> {
+        ColourScaleMut::add(&mut self.ir, colour_scale::indexed(colours))
     }
 
     /// Adds a categorical colour scale to the figure, built from pairs of a colour and the
@@ -372,19 +375,19 @@ impl Figure {
     /// let mut fig = Figure::new();
     /// let status = fig
     ///     .categorical_scale([
-    ///         (Color::rgb(0.0, 0.6, 0.3), "converged"),
-    ///         (Color::rgb(0.8, 0.2, 0.1), "diverged"),
+    ///         (Colour::rgb(0.0, 0.6, 0.3), "converged"),
+    ///         (Colour::rgb(0.8, 0.2, 0.1), "diverged"),
     ///     ])
     ///     .id();
     /// let outcome = ByteMatrix::from_rows(&[[0, 0, 1], [0, 1, 1]]);
-    /// fig.axes(0, 0).scalar_image(&outcome).color_scale(status);
+    /// fig.axes(0, 0).scalar_image(&outcome).colour_scale(status);
     /// assert!(fig.validate().is_valid());
     /// ```
     pub fn categorical_scale<T: Into<Text>>(
         &mut self,
-        categories: impl IntoIterator<Item = (Color, T)>,
-    ) -> ColorScaleMut<'_> {
-        ColorScaleMut::add(&mut self.ir, color_scale::categorical(categories))
+        categories: impl IntoIterator<Item = (Colour, T)>,
+    ) -> ColourScaleMut<'_> {
+        ColourScaleMut::add(&mut self.ir, colour_scale::categorical(categories))
     }
 
     /// Returns the axes that occupies the tile at a zero-based row and column,

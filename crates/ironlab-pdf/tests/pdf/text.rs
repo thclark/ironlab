@@ -206,7 +206,7 @@ fn each_font_id_embeds_its_own_face() {
             stroke_em: 0.0,
             font,
             size_pt: 12.0,
-            color: ironlab_scene::display::Rgba::BLACK,
+            colour: ironlab_scene::display::Rgba::BLACK,
             text: "a".to_owned(),
             glyphs: vec![PlacedGlyph {
                 id,
@@ -247,7 +247,7 @@ fn glyphs_are_drawn_at_their_placed_positions_in_their_colour() {
         stroke_em: 0.0,
         font,
         size_pt: size,
-        color: RED,
+        colour: RED,
         text: "HH".to_owned(),
         glyphs: vec![
             PlacedGlyph {

@@ -42,7 +42,7 @@ use ironlab_scene::display::{
 };
 use ironlab_scene::maths::camera::FACE_DEPTH_BIAS;
 
-fn filled_polygon(points: &[(f64, f64)], color: Rgba) -> Item {
+fn filled_polygon(points: &[(f64, f64)], colour: Rgba) -> Item {
     let mut segments = vec![PathSegment::MoveTo(Point::new(points[0].0, points[0].1))];
     segments.extend(
         points[1..]
@@ -55,7 +55,7 @@ fn filled_polygon(points: &[(f64, f64)], color: Rgba) -> Item {
         kind: ItemKind::Path(PathItem {
             segments,
             fill: Some(Fill {
-                color,
+                colour,
                 rule: FillRule::NonZero,
             }),
             stroke: None,
@@ -986,17 +986,17 @@ fn a_mesh_image_wider_than_one_texture_is_cut_at_the_tile_boundary_inside_its_ce
 // ---------------------------------------------------------------------------------------------------------------------
 
 /// A filled square from `(x0, y0)` to `(x1, y1)` lying at `plane`, as the compiler emits the fill of a face.
-fn face(x0: f64, y0: f64, x1: f64, y1: f64, color: Rgba, plane: DepthPlane) -> Item {
-    let mut item = filled_polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], color);
+fn face(x0: f64, y0: f64, x1: f64, y1: f64, colour: Rgba, plane: DepthPlane) -> Item {
+    let mut item = filled_polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], colour);
     if let ItemKind::Path(path) = &mut item.kind {
         path.depth = Some(Depth::Plane(plane));
     }
     item
 }
 
-/// The outline of the square from `(x0, y0)` to `(x1, y1)`, stroked `width` wide in `color` and lying at `plane`,
+/// The outline of the square from `(x0, y0)` to `(x1, y1)`, stroked `width` wide in `colour` and lying at `plane`,
 /// as the compiler emits the edge of a face.
-fn edge(x0: f64, y0: f64, x1: f64, y1: f64, width: f64, color: Rgba, plane: DepthPlane) -> Item {
+fn edge(x0: f64, y0: f64, x1: f64, y1: f64, width: f64, colour: Rgba, plane: DepthPlane) -> Item {
     Item {
         source: None,
         kind: ItemKind::Path(PathItem {
@@ -1009,7 +1009,7 @@ fn edge(x0: f64, y0: f64, x1: f64, y1: f64, width: f64, color: Rgba, plane: Dept
             ],
             fill: None,
             stroke: Some(Stroke {
-                color,
+                colour,
                 width,
                 dash: Vec::new(),
                 dash_offset: 0.0,
@@ -1479,13 +1479,13 @@ fn a_translucent_nearer_face_blends_over_the_opaque_face_behind_it() {
 // which two lists of the same shape make likely.
 #[test]
 fn a_different_list_rendered_after_the_first_shows_its_own_content() {
-    let square = |color| {
+    let square = |colour| {
         vec![depth_group(vec![face(
             10.0,
             10.0,
             90.0,
             90.0,
-            color,
+            colour,
             DepthPlane::constant(0.0),
         )])]
     };
@@ -2056,7 +2056,7 @@ fn a_clip_with_fractional_edges_is_cut_at_the_nearest_whole_pixels() {
 // colour, or flipped into the font's y-up space would fail here and nowhere else.
 #[test]
 fn a_glyph_run_renders_solid_ink_in_its_colour_inside_the_em_box_above_its_pen_origin() {
-    for (origin, size, color, expected) in [
+    for (origin, size, colour, expected) in [
         (
             Point::new(30.0, 70.0),
             40.0,
@@ -2070,7 +2070,7 @@ fn a_glyph_run_renders_solid_ink_in_its_colour_inside_the_em_box_above_its_pen_o
             RED_PX,
         ),
     ] {
-        let Some(image) = render_page(Rgba::WHITE, vec![glyph_h(origin, size, color)]) else {
+        let Some(image) = render_page(Rgba::WHITE, vec![glyph_h(origin, size, colour)]) else {
             return;
         };
         let inked = inked_pixels(&image);
@@ -2201,7 +2201,7 @@ fn the_same_list_at_twice_the_dpi_is_the_same_picture_at_twice_the_size() {
 /// A solid black stroke `width` wide with butt caps and miter joins, which every stroke test starts from.
 fn pen(width: f64) -> Stroke {
     Stroke {
-        color: Rgba::BLACK,
+        colour: Rgba::BLACK,
         width,
         dash: Vec::new(),
         dash_offset: 0.0,
@@ -2809,7 +2809,7 @@ fn a_translucent_stroke_is_blended_once_where_its_bodies_join_and_caps_overlap()
             // An 8 pt right angle from (10, 50) along y = 50 to (50, 50) and up x = 50 to (50, 10): the bodies are
             // the rectangles [10, 50] × [46, 54] and [46, 54] × [10, 50], which overlap in [46, 50]².
             let stroke = Stroke {
-                color: Rgba::new(0.0, 0.0, 0.0, 0.5),
+                colour: Rgba::new(0.0, 0.0, 0.0, 0.5),
                 cap,
                 join,
                 ..pen(8.0)
@@ -3357,7 +3357,7 @@ fn a_stroke_listed_after_a_depth_group_is_drawn_over_the_faces_of_the_group() {
     let line = stroked_polyline(
         &[(10.0, 40.0), (90.0, 40.0)],
         Stroke {
-            color: Rgba::new(0.0, 0.0, 1.0, 1.0),
+            colour: Rgba::new(0.0, 0.0, 1.0, 1.0),
             ..pen(8.0)
         },
     );
@@ -3387,14 +3387,14 @@ fn of_two_crossing_opaque_strokes_outside_a_depth_group_the_later_one_shows_at_t
     let red = stroked_polyline(
         &[(10.0, 50.0), (90.0, 50.0)],
         Stroke {
-            color: Rgba::new(1.0, 0.0, 0.0, 1.0),
+            colour: Rgba::new(1.0, 0.0, 0.0, 1.0),
             ..pen(8.0)
         },
     );
     let blue = stroked_polyline(
         &[(50.0, 10.0), (50.0, 90.0)],
         Stroke {
-            color: Rgba::new(0.0, 0.0, 1.0, 1.0),
+            colour: Rgba::new(0.0, 0.0, 1.0, 1.0),
             ..pen(8.0)
         },
     );
@@ -3839,7 +3839,7 @@ fn a_stroke_listed_after_markers_outside_a_depth_group_shows_where_it_crosses_th
         stroked_polyline(
             &[(10.0, 40.0), (90.0, 40.0)],
             Stroke {
-                color: Rgba::new(0.0, 1.0, 0.0, 1.0),
+                colour: Rgba::new(0.0, 1.0, 0.0, 1.0),
                 ..pen(8.0)
             },
         )
@@ -4000,14 +4000,14 @@ fn viewport(to_screen: ScreenTransform) -> Viewport {
     Viewport::whole([100, 100], 1.0, to_screen)
 }
 
-/// A list of one quad from `(0, 0)` to `(10, 10)` in figure points in the premultiplied `color`, textured with
+/// A list of one quad from `(0, 0)` to `(10, 10)` in figure points in the premultiplied `colour`, textured with
 /// `texture` when one is given, as the tessellator emits a filled rectangle or, in white, one tile of an image.
-fn quad_list(color: [u8; 4], texture: Option<TileKey>) -> Arc<DrawList> {
+fn quad_list(colour: [u8; 4], texture: Option<TileKey>) -> Arc<DrawList> {
     let vertex = |x: f32, y: f32, u: f32, v: f32| Vertex {
         pos: [x, y],
         z: 0.0,
         uv: [u, v],
-        color,
+        colour,
     };
     Arc::new(DrawList {
         vertices: vec![
@@ -4952,7 +4952,7 @@ fn pump_can_be_called_repeatedly_before_and_after_a_render_without_harm() {
 #[test]
 fn a_rendered_image_encodes_as_a_png_that_decodes_to_the_same_pixels() {
     let mut figure = figure_with_surface(true);
-    figure.background = ironlab_ir::Color::rgba(0.0, 0.0, 0.0, 0.0);
+    figure.background = ironlab_ir::Colour::rgba(0.0, 0.0, 0.0, 0.0);
     let Some(image) = rendered_or_skip(render_offscreen(&figure, &TEXT, 72.0)) else {
         return;
     };
@@ -5018,8 +5018,8 @@ fn dashed_line_figure(dash: ironlab_ir::DashStyle) -> Figure {
             x: array_id(0),
             y: array_id(1),
             line: ironlab_ir::LineStyle {
-                color: ironlab_ir::ColorSpec::Rgba {
-                    color: ironlab_ir::Color::BLACK,
+                colour: ironlab_ir::ColourSpec::Rgba {
+                    colour: ironlab_ir::Colour::BLACK,
                 },
                 width_pt: 2.0,
                 dash,
@@ -5336,8 +5336,8 @@ fn a_stroked_glyph_run_covers_more_pixels_than_the_unstroked_run_in_its_colour()
 fn a_translucent_stroked_glyph_is_not_darker_where_the_stroke_overlaps_the_fill() {
     let size = 160.0;
     let origin = Point::new(20.0, 140.0);
-    let glyph = |color: Rgba, stroke_em: f64| {
-        let mut item = glyph_h(origin, size, color);
+    let glyph = |colour: Rgba, stroke_em: f64| {
+        let mut item = glyph_h(origin, size, colour);
         if let ItemKind::Glyphs(glyphs) = &mut item.kind {
             glyphs.stroke_em = stroke_em;
         }
@@ -5826,9 +5826,9 @@ fn a_globe_image_shows_the_colour_of_its_near_side_at_the_projected_pixel_centre
 
     // The point of the far side that projects onto the same place: the near point reflected through the plane of the
     // screen.
-    let [_, _, toward] = camera.view_matrix();
-    let along = near[0] * toward[0] + near[1] * toward[1] + near[2] * toward[2];
-    let far: [f64; 3] = std::array::from_fn(|k| near[k] - 2.0 * along * toward[k]);
+    let [_, _, towards] = camera.view_matrix();
+    let along = near[0] * towards[0] + near[1] * towards[1] + near[2] * towards[2];
+    let far: [f64; 3] = std::array::from_fn(|k| near[k] - 2.0 * along * towards[k]);
     let far_az = far[1].atan2(far[0]).to_degrees().rem_euclid(360.0);
     let far_el = (far[2] / 0.5).asin().to_degrees();
     let (fi, fj) = (

@@ -151,7 +151,7 @@ fn axes_lookup_finds_only_axes() {
 }
 
 // Why: legend clicks identify an artist and need both the artist and the axes that holds
-// it (for its legend and colormap), so the lookup must return the containing axes.
+// it (for its legend and colourmap), so the lookup must return the containing axes.
 #[test]
 fn artist_lookup_returns_the_containing_axes() {
     let fig = kitchen_sink_figure();

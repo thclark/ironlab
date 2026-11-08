@@ -14,18 +14,18 @@ use crate::require_tools;
 /// The stroke of the heaviest step, in ems: STIX Two Text SemiBold's stem less Regular's, as calibrated.
 const STROKE_EM: f64 = 0.038;
 
-/// A page holding `content` laid out at `size_pt` with its baseline origin at `origin`, in `color`, every glyph run
+/// A page holding `content` laid out at `size_pt` with its baseline origin at `origin`, in `colour`, every glyph run
 /// stroked by `stroke_em`.
 fn stroked_label(
     text: &ironlab_text::TextEngine,
     content: &str,
     size_pt: f64,
     origin: Point,
-    color: Rgba,
+    colour: Rgba,
     stroke_em: f64,
 ) -> DisplayList {
     let mut list = page(240.0, 140.0);
-    let mut items = text_items(&text.layout(content, true, size_pt), origin, color);
+    let mut items = text_items(&text.layout(content, true, size_pt), origin, colour);
     for item in &mut items {
         if let ItemKind::Glyphs(glyphs) = &mut item.kind {
             glyphs.stroke_em = stroke_em;

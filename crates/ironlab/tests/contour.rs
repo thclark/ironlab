@@ -4,7 +4,7 @@
 mod common;
 
 use common::{contour, data, has_error_at, is_3d, parent, small_grid};
-use ironlab::ir::{ColorSpec, ContourPlacement, Grid, IssueKind, Levels, NdArray};
+use ironlab::ir::{ColourSpec, ContourPlacement, Grid, IssueKind, Levels, NdArray};
 use ironlab::prelude::*;
 
 // WHY: the field must be stored with shape [ny, nx] in row-major order; a transposed
@@ -171,7 +171,7 @@ fn levels_and_level_values_select_automatic_or_explicit_levels() {
         .id();
 
     assert_eq!(contour(&fig, default).levels, None);
-    assert_eq!(contour(&fig, default).line.color, ColorSpec::Colormapped);
+    assert_eq!(contour(&fig, default).line.colour, ColourSpec::Colourmapped);
     assert_eq!(
         contour(&fig, counted).levels,
         Some(Levels::Auto { count: 4 })
@@ -211,15 +211,15 @@ fn contour_setters_map_to_ir_fields() {
         .axes(0, 0)
         .contour(&x, &y, &z)
         .line_width(0.3)
-        .color(Color::BLACK)
+        .colour(Colour::BLACK)
         .label("$\\psi$")
         .id();
     let c = contour(&fig, id);
     assert_eq!(c.line.width_pt, 0.3);
     assert_eq!(
-        c.line.color,
-        ColorSpec::Rgba {
-            color: Color::BLACK
+        c.line.colour,
+        ColourSpec::Rgba {
+            colour: Colour::BLACK
         }
     );
     assert_eq!(c.label, Some(Text::new("$\\psi$")));

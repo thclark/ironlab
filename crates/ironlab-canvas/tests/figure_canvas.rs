@@ -229,7 +229,7 @@ fn the_background_is_reported_premultiplied_and_omitted_when_transparent() {
     );
 
     let mut figure = figure_with(vec![axes_2d(2)], vec![]);
-    figure.background = ironlab_ir::Color::rgba(0.0, 0.0, 0.0, 0.0);
+    figure.background = ironlab_ir::Colour::rgba(0.0, 0.0, 0.0, 0.0);
     let (mut canvas, _) = fitted(figure);
     assert_eq!(
         canvas.background(&TEXT),
@@ -1154,28 +1154,28 @@ fn a_click_soon_after_a_drag_is_a_click_and_not_a_double_click() {
 // Colourbars (stage 6 of the colourbar epic)
 // ---------------------------------------------------------------------------------------------------------------------
 //
-// The API assumed beyond `colorbar_interaction.rs`: `colorbar_tip_text(&ColorbarTip) -> String` in `figure_canvas`,
-// re-exported with `ColorbarTip` and `ColorbarReading` at the crate root, and `FigureCanvas::callout` answering a
-// `Tip::Colorbar` with that text, a ring at the tip's position on a continuous bar, and the outline of the piece read
+// The API assumed beyond `colourbar_interaction.rs`: `colourbar_tip_text(&ColourbarTip) -> String` in `figure_canvas`,
+// re-exported with `ColourbarTip` and `ColourbarReading` at the crate root, and `FigureCanvas::callout` answering a
+// `Tip::Colourbar` with that text, a ring at the tip's position on a continuous bar, and the outline of the piece read
 // (a band, an entry's block, a square or a key) on every other bar.
 
-mod colorbars {
+mod colourbars {
     use super::*;
-    use ironlab_canvas::{ColorbarReading, ColorbarTip, colorbar_tip_text};
+    use ironlab_canvas::{ColourbarReading, ColourbarTip, colourbar_tip_text};
     use ironlab_ir::{
-        Artist, Axes, Cell, ColorScale, ColorScaleKey, ColorScaleKind, ColorScaleLevels,
-        ColorbarOrientation, DiscreteColorScale, Figure, Limits, NdArray, Panel, PanelColorbar,
+        Artist, Axes, Cell, ColourScale, ColourScaleKey, ColourScaleKind, ColourScaleLevels,
+        ColourbarOrientation, DiscreteColourScale, Figure, Limits, NdArray, Panel, PanelColourbar,
         PanelContent, PanelLocation, ScalarImage, TileLayout, TrackSize,
     };
     use ironlab_scene::display::Rect as FigureRect;
-    use ironlab_scene::hit::{ColorbarHit, ColorbarOwner};
+    use ironlab_scene::hit::{ColourbarHit, ColourbarOwner};
 
     const SCALE: NodeId = NodeId(10);
     const PANEL: NodeId = NodeId(20);
 
     /// One 2D axes holding an image of the values 0 to 10 through one scale of the given kind, beside a fitted column
     /// holding a standing colourbar panel of that scale.
-    fn figure_with_bar(kind: ColorScaleKind) -> Figure {
+    fn figure_with_bar(kind: ColourScaleKind) -> Figure {
         let values = NdArray::from_shape(vec![1, 3], vec![0.0, 4.0, 10.0])
             .expect("the shape matches the values");
         let mut layout = TileLayout::new(1, 2);
@@ -1184,16 +1184,16 @@ mod colorbars {
             id: NodeId(1),
             layout,
             data: vec![data_array(array_id(0), values)],
-            color_scales: vec![ColorScale {
+            colour_scales: vec![ColourScale {
                 id: SCALE,
                 kind,
-                ..ColorScale::default()
+                ..ColourScale::default()
             }],
             axes: vec![Axes {
                 artists: vec![Artist::ScalarImage(ScalarImage {
                     id: NodeId(3),
                     values: array_id(0),
-                    color_scale: Some(SCALE),
+                    colour_scale: Some(SCALE),
                     ..ScalarImage::default()
                 })],
                 ..axes_2d(2)
@@ -1204,37 +1204,37 @@ mod colorbars {
                     col: 1,
                     ..Cell::default()
                 },
-                align: PanelLocation::Center,
+                align: PanelLocation::Centre,
                 title: None,
                 title_align: ironlab_ir::TitleAlign::Left,
-                content: PanelContent::Colorbar(PanelColorbar {
+                content: PanelContent::Colourbar(PanelColourbar {
                     scale: SCALE,
-                    orientation: ColorbarOrientation::Vertical,
-                    ..PanelColorbar::default()
+                    orientation: ColourbarOrientation::Vertical,
+                    ..PanelColourbar::default()
                 }),
             }],
             ..Figure::new()
         }
     }
 
-    fn bar_of(hit: &HitMap) -> ColorbarHit {
-        hit.colorbars
+    fn bar_of(hit: &HitMap) -> ColourbarHit {
+        hit.colourbars
             .iter()
-            .find(|c| c.owner == ColorbarOwner::Panel(PANEL))
+            .find(|c| c.owner == ColourbarOwner::Panel(PANEL))
             .expect("the panel draws its bar")
             .clone()
     }
 
     /// The screen position at fraction `f` of the bar's length from its bottom, on its centre line.
-    fn on_bar(bar: &ColorbarHit, fit: &Fit, f: f64) -> Pos2 {
+    fn on_bar(bar: &ColourbarHit, fit: &Fit, f: f64) -> Pos2 {
         let b = bar.bar;
         fit.to_screen
             .apply(Point::new(b.x + b.width / 2.0, b.bottom() - f * b.height))
     }
 
-    fn tip(reading: ColorbarReading, title: Option<&str>) -> ColorbarTip {
-        ColorbarTip {
-            owner: ColorbarOwner::Panel(PANEL),
+    fn tip(reading: ColourbarReading, title: Option<&str>) -> ColourbarTip {
+        ColourbarTip {
+            owner: ColourbarOwner::Panel(PANEL),
             scale: SCALE,
             title: title.map(str::to_owned),
             position: Point::new(100.0, 50.0),
@@ -1251,20 +1251,20 @@ mod colorbars {
     // statement of what the key stands for.
     #[test]
     fn a_bar_datatip_text_reads_in_the_words_of_its_kind() {
-        let text = colorbar_tip_text(&tip(ColorbarReading::Value(2.5), Some("Pressure")));
+        let text = colourbar_tip_text(&tip(ColourbarReading::Value(2.5), Some("Pressure")));
         assert_eq!(
             text.lines().collect::<Vec<_>>(),
             ["Pressure", "value = 2.5"]
         );
 
-        let text = colorbar_tip_text(&tip(ColorbarReading::Value(1.0e-7), None));
+        let text = colourbar_tip_text(&tip(ColourbarReading::Value(1.0e-7), None));
         assert_eq!(
             text, "value = 1.0000e-7",
             "a number far from unity is written as a point's is"
         );
 
-        let text = colorbar_tip_text(&tip(
-            ColorbarReading::Band {
+        let text = colourbar_tip_text(&tip(
+            ColourbarReading::Band {
                 low: 0.5,
                 high: 1.0,
             },
@@ -1272,16 +1272,16 @@ mod colorbars {
         ));
         assert_eq!(text, "band = 0.5 – 1");
 
-        let text = colorbar_tip_text(&tip(
-            ColorbarReading::Entry {
+        let text = colourbar_tip_text(&tip(
+            ColourbarReading::Entry {
                 index: 2,
                 label: Some("High".to_owned()),
             },
             None,
         ));
         assert_eq!(text, "entry = High (index 2)");
-        let text = colorbar_tip_text(&tip(
-            ColorbarReading::Entry {
+        let text = colourbar_tip_text(&tip(
+            ColourbarReading::Entry {
                 index: 1,
                 label: None,
             },
@@ -1289,8 +1289,8 @@ mod colorbars {
         ));
         assert_eq!(text, "index = 1");
 
-        let text = colorbar_tip_text(&tip(
-            ColorbarReading::Category {
+        let text = colourbar_tip_text(&tip(
+            ColourbarReading::Category {
                 index: 1,
                 label: "Forest".to_owned(),
             },
@@ -1301,9 +1301,9 @@ mod colorbars {
             ["Land cover", "category = Forest (index 1)"]
         );
 
-        let text = colorbar_tip_text(&tip(
-            ColorbarReading::Key {
-                key: ColorScaleKey::Above,
+        let text = colourbar_tip_text(&tip(
+            ColourbarReading::Key {
+                key: ColourScaleKey::Above,
                 label: "> 10".to_owned(),
             },
             None,
@@ -1318,13 +1318,13 @@ mod colorbars {
     // `a_bar_is_read_and_zoomed_on_a_headless_handle` in `crates/ironlab-web/tests/web.rs`.
     #[test]
     fn a_callout_over_a_bar_rings_a_value_and_outlines_a_band() {
-        let (mut canvas, fit) = fitted(figure_with_bar(ColorScaleKind::default()));
+        let (mut canvas, fit) = fitted(figure_with_bar(ColourScaleKind::default()));
         let hit = hit_map_of(&mut canvas);
         let bar = bar_of(&hit);
         let pos = on_bar(&bar, &fit, 0.3);
         let state_tip = canvas
             .state()
-            .colorbar_tip(&hit, fit.to_screen.invert(pos))
+            .colourbar_tip(&hit, fit.to_screen.invert(pos))
             .expect("the state reads the bar under the pointer");
         canvas.hover(Some(pos));
         let Callout { marker, text } = canvas
@@ -1332,7 +1332,7 @@ mod colorbars {
             .expect("hovering the bar gives a callout");
         assert_eq!(
             text,
-            colorbar_tip_text(&state_tip),
+            colourbar_tip_text(&state_tip),
             "the text is the bar datatip's"
         );
         assert!(text.starts_with("value = "), "{text:?}");
@@ -1349,11 +1349,11 @@ mod colorbars {
             other => panic!("a value is ringed, not {other:?}"),
         }
 
-        let banded = ColorScaleKind::Discrete(DiscreteColorScale {
-            levels: ColorScaleLevels::Explicit {
+        let banded = ColourScaleKind::Discrete(DiscreteColourScale {
+            levels: ColourScaleLevels::Explicit {
                 values: vec![0.0, 2.0, 5.0, 10.0],
             },
-            ..DiscreteColorScale::default()
+            ..DiscreteColourScale::default()
         });
         let (mut canvas, fit) = fitted(figure_with_bar(banded));
         let hit = hit_map_of(&mut canvas);
@@ -1396,7 +1396,7 @@ mod colorbars {
     // `a_bar_is_read_and_zoomed_on_a_headless_handle` in `crates/ironlab-web/tests/web.rs`.
     #[test]
     fn the_wheel_and_a_drag_over_a_bar_zoom_and_pan_the_scale_through_the_fit() {
-        let (mut canvas, fit) = fitted(figure_with_bar(ColorScaleKind::default()));
+        let (mut canvas, fit) = fitted(figure_with_bar(ColourScaleKind::default()));
         let hit = hit_map_of(&mut canvas);
         let bar = bar_of(&hit);
         let pos = on_bar(&bar, &fit, 0.6);
@@ -1408,7 +1408,7 @@ mod colorbars {
             canvas.wheel(pos, factor, &TEXT),
             "a wheel notch over the bar changes the figure"
         );
-        let limits = |figure: &Figure| figure.color_scale(SCALE).and_then(|s| s.kind.limits());
+        let limits = |figure: &Figure| figure.colour_scale(SCALE).and_then(|s| s.kind.limits());
         assert_eq!(limits(canvas.state().figure()), limits(twin.figure()));
         assert!(
             matches!(limits(canvas.state().figure()), Some(Limits::Manual { min, max }) if max - min < 10.0),

@@ -32,7 +32,7 @@ The location of a legend inside a plot area is one of the following values of `L
 | --- | --- |
 | `NorthEast`, `NorthWest`, `SouthEast`, `SouthWest` | The corners of the plot area. `NorthEast` is the default. |
 | `North`, `South`, `East`, `West` | The centres of the edges of the plot area. |
-| `Center` | The centre of the plot area, where the legend covers the data. |
+| `Centre` | The centre of the plot area, where the legend covers the data. |
 | `Best` | Whichever corner overlaps the fewest drawn data points. |
 
 The legend is kept a short distance inside the edges of the plot area at every location.
@@ -63,11 +63,11 @@ A panel is a node of the figure that occupies tiles of the layout, as an axes do
 
 | Method | Effect |
 | --- | --- |
-| `align(location)` | Places the content within the panel. The location is a `PanelLocation`, which offers the locations listed [above](#locations) except `Best`, because a panel holds no data for its content to avoid. The default is `Center`. |
+| `align(location)` | Places the content within the panel. The location is a `PanelLocation`, which offers the locations listed [above](#locations) except `Best`, because a panel holds no data for its content to avoid. The default is `Centre`. |
 | `title(text)` | Sets the heading drawn at the top of the panel's content, as [Titling a panel](#titling-a-panel) describes. A panel has no title by default. |
-| `title_align(align)` | Sets how the title is aligned with the content: `TitleAlign::Left`, the default, `TitleAlign::Center` or `TitleAlign::Right`. |
+| `title_align(align)` | Sets how the title is aligned with the content: `TitleAlign::Left`, the default, `TitleAlign::Centre` or `TitleAlign::Right`. |
 | `legend()` | Returns a `PanelLegendMut` handle to the legend that the panel holds, whose setters are listed below. A panel that holds a colourbar is given a legend with the default settings in its place. |
-| `colorbar(scale)` | Makes the content of the panel a colourbar of the colour scale with the given identifier, and returns a `PanelColorbarMut` handle, as the [colour guide](colour.md#a-colourbar-in-a-panel) describes. |
+| `colourbar(scale)` | Makes the content of the panel a colourbar of the colour scale with the given identifier, and returns a `PanelColourbarMut` handle, as the [colour guide](colour.md#a-colourbar-in-a-panel) describes. |
 | `id()` | Returns the identifier of the panel, which axes use to send their entries to it. |
 
 The setters of a `PanelLegendMut` handle can be chained:
@@ -153,10 +153,10 @@ Two plots with the same label but a different look are both listed, because merg
 let mut fig = Figure::new().tiles(1, 3);
 let key = fig.panel(0, 2).id();
 let mut left = fig.axes(0, 0);
-left.plot(&t, &a).label("Model").color(Color::rgb(0.0, 0.0, 0.0));
+left.plot(&t, &a).label("Model").colour(Colour::rgb(0.0, 0.0, 0.0));
 left.legend_in(key);
 let mut right = fig.axes(0, 1);
-right.plot(&t, &b).label("Model").color(Color::rgb(0.8, 0.1, 0.1));
+right.plot(&t, &b).label("Model").colour(Colour::rgb(0.8, 0.1, 0.1));
 right.legend_in(key);
 // The panel lists "Model" twice, in black and in red, and the export warns of the clash.
 ```
@@ -196,7 +196,7 @@ let mut ax = fig.axes(0, 0);
 let small = ax.plot(&t, &a).label("Small perturbation").id();
 let large = ax.plot(&t, &b).label("Large perturbation").id();
 // The reference is added last, so that it is drawn on top of the others.
-let reference = ax.plot(&t, &a).label("Reference").color(Color::rgb(0.0, 0.0, 0.0)).id();
+let reference = ax.plot(&t, &a).label("Reference").colour(Colour::rgb(0.0, 0.0, 0.0)).id();
 let key = fig.panel(1, 0).legend().item(reference).item(small).item(large).id();
 fig.axes(0, 0).legend_in(key);
 ```
@@ -227,15 +227,15 @@ Some keys explain an encoding rather than name a series: the shape of a marker m
 
 | Sample | Drawn as |
 | --- | --- |
-| `LegendSample::marker(shape, color)` | A single filled marker of the shape and colour, without a line. |
-| `LegendSample::line(color)` | A solid line of the colour, without a marker. |
-| `LegendSample::swatch(color)` | A square of the colour with a thin black outline, as a category of a [categorical scale](#colour-scales-as-items) is drawn. |
+| `LegendSample::marker(shape, colour)` | A single filled marker of the shape and colour, without a line. |
+| `LegendSample::line(colour)` | A solid line of the colour, without a marker. |
+| `LegendSample::swatch(colour)` | A square of the colour with a thin black outline, as a category of a [categorical scale](#colour-scales-as-items) is drawn. |
 | `LegendSample::Line { line, marker }` | A line and a marker of any `LineStyle` and `MarkerStyle`, drawn as the sample of a plot is drawn. A dash of `Dash::None` draws the marker alone. An automatic line colour is the ink of the labels, and an automatic marker colour takes the line colour. |
 
 A panel that no axes sends its entries to may list such items alone, as a second key beside the first:
 
 ```rust
-let grey = Color::rgb(0.45, 0.45, 0.45);
+let grey = Colour::rgb(0.45, 0.45, 0.45);
 let mut fig = Figure::new().tiles(2, 2).fit_row(1);
 let curves = fig.panel(1, 0).id();
 // ... plots in the axes above, which send their entries to `curves` ...
@@ -243,8 +243,8 @@ fig.panel(1, 1)
     .legend()
     .custom_item(LegendSample::marker(Marker::Square, grey), "Transition")
     .custom_item(LegendSample::marker(Marker::TriangleUp, grey), "Separation")
-    .custom_item(LegendSample::swatch(Color::rgb(0.85, 0.55, 0.0)), "Upper surface")
-    .custom_item(LegendSample::swatch(Color::rgb(0.0, 0.55, 0.4)), "Lower surface")
+    .custom_item(LegendSample::swatch(Colour::rgb(0.85, 0.55, 0.0)), "Upper surface")
+    .custom_item(LegendSample::swatch(Colour::rgb(0.0, 0.55, 0.4)), "Lower surface")
     .columns(LegendEntryColumns::Count(2));
 ```
 
@@ -268,19 +268,19 @@ key.columns(LegendEntryColumns::Count(3));
 
 ### Colour scales as items
 
-An item may show a [colour scale](colour.md) instead of a plot, so that the key of a classification, or the bar of a scale, sits among the entries that explain the rest of the figure. `item` recognises the identifier of a scale when it is called, and `LegendItem::color_scale(id)` makes the same item for an explicit list or a legend inside an axes:
+An item may show a [colour scale](colour.md) instead of a plot, so that the key of a classification, or the bar of a scale, sits among the entries that explain the rest of the figure. `item` recognises the identifier of a scale when it is called, and `LegendItem::colour_scale(id)` makes the same item for an explicit list or a legend inside an axes:
 
 ```rust
 let mut fig = Figure::new().tiles(2, 1).fit_row(1);
 let status = fig
-    .categorical_scale([(Color::rgb(0.0, 0.45, 0.7), "converged"), (Color::rgb(0.9, 0.6, 0.0), "diverged")])
+    .categorical_scale([(Colour::rgb(0.0, 0.45, 0.7), "converged"), (Colour::rgb(0.9, 0.6, 0.0), "diverged")])
     .id();
 let mut ax = fig.axes(0, 0);
 let measured = ax.scatter(&t, &a).label("Measured").id();
 fig.panel(1, 0).legend().item(status).item(measured);
 ```
 
-A categorical scale is listed as one ordinary entry per category, labelled with the category's label beside a swatch of its colour, and a continuous, discrete or indexed scale as a vertical bar five entry rows long, centred on the column of samples so that it lines up with the samples of the entries above and below it, titled along its length, with each out-of-range key it shows as an entry row of its own above or below the bar. `LegendItem::color_scale(id).with_rows(rows)` asks for a bar of another number of rows. A scale may be any scale of the figure, whether or not a plot uses it, so a key of a classification can stand on its own. The [colour guide](colour.md#colour-keys-in-legends) describes how each is drawn and how the entries of categories merge with the other entries of a legend panel.
+A categorical scale is listed as one ordinary entry per category, labelled with the category's label beside a swatch of its colour, and a continuous, discrete or indexed scale as a vertical bar five entry rows long, centred on the column of samples so that it lines up with the samples of the entries above and below it, titled along its length, with each out-of-range key it shows as an entry row of its own above or below the bar. `LegendItem::colour_scale(id).with_rows(rows)` asks for a bar of another number of rows. A scale may be any scale of the figure, whether or not a plot uses it, so a key of a classification can stand on its own. The [colour guide](colour.md#colour-keys-in-legends) describes how each is drawn and how the entries of categories merge with the other entries of a legend panel.
 
 ## Sizing rows and columns with weights
 
@@ -405,7 +405,7 @@ In the JSON encoding, the `legend` of an axes is either `{"type": "inside", "val
     {
       "id": 1,
       "cell": {"row": 1, "col": 0, "row_span": 1, "col_span": 2},
-      "align": "center",
+      "align": "centre",
       "title": null,
       "title_align": "left",
       "content": {
@@ -425,13 +425,13 @@ The entries of a legend are omitted while they are automatic. An explicit list i
   "value": [
     {"content": {"type": "artist", "value": 12}, "full_row": true},
     {"content": {"type": "artist", "value": 9}, "full_row": false},
-    {"content": {"type": "color_scale", "value": {"scale": 4, "rows": 5}}, "full_row": false},
+    {"content": {"type": "colour_scale", "value": {"scale": 4, "rows": 5}}, "full_row": false},
     {
       "content": {
         "type": "custom",
         "value": {
           "label": {"content": "Upper surface", "interpreter": "latex"},
-          "sample": {"type": "swatch", "color": "#d98c00"}
+          "sample": {"type": "swatch", "colour": "#d98c00"}
         }
       },
       "full_row": false

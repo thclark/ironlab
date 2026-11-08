@@ -32,8 +32,8 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ironlab_ir::{
-    Axis, CategoricalColorScale, Cell as IrCell, CellGap, Choice, Color, ColorScaleOutOfRange,
-    ContinuousColorScale, DiscreteColorScale, FigureSize, ImagePlacement, IndexedColorScale,
+    Axis, CategoricalColourScale, Cell as IrCell, CellGap, Choice, Colour, ColourScaleOutOfRange,
+    ContinuousColourScale, DiscreteColourScale, FigureSize, ImagePlacement, IndexedColourScale,
     InsideLegend, LegendEntryLayout, LineStyle, MarkerStyle, NodeId, OutOfRange, PanelLegend,
     Parameter, PixelRange, PolarView, PropertyPath, SphericalView, Text, TileLayout, TrackSize,
     Value, ValueType, View3d, choices,
@@ -482,7 +482,7 @@ fn property_row(
                 integer,
             } => number_control(ui, panel, state, node, row, *speed, *range, *integer),
             Editor::Choice { offered } => choice_control(ui, state, node, row, offered),
-            Editor::Color => color_control(ui, panel, state, node, row),
+            Editor::Colour => colour_control(ui, panel, state, node, row),
             Editor::Text | Editor::RichText => text_control(ui, panel, state, node, row),
             Editor::Numbers => numbers_control(ui, panel, state, node, row),
             Editor::Words => words_control(ui, panel, state, node, row),
@@ -626,14 +626,14 @@ fn choice_control(
 /// The picker holds 8-bit components, so a colour is committed only when the picker
 /// changed it: a colour whose components are not multiples of 1/255, such as an entry of a
 /// palette computed by a program, is drawn without being rounded into the figure.
-fn color_control(
+fn colour_control(
     ui: &mut egui::Ui,
     panel: &mut PropertyPanel,
     state: &mut FigureState,
     node: NodeId,
     row: &PropertyRow,
 ) -> bool {
-    let Value::Color(current) = row.value else {
+    let Value::Colour(current) = row.value else {
         return false;
     };
     let shown = to_color32(current);
@@ -642,7 +642,7 @@ fn color_control(
     hint(swatch(ui, &mut rgba, id), row.docs);
     let open = egui::Popup::is_id_open(ui.ctx(), id.with("picker"));
     panel.hold(state, id, open);
-    rgba != shown && set(state, node, &row.path, Value::Color(from_color32(rgba)))
+    rgba != shown && set(state, node, &row.path, Value::Colour(from_color32(rgba)))
 }
 
 /// Draws the control of a text property: a field holding its source. A rich text keeps
@@ -897,7 +897,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::Strings => Some(Value::Strings(Vec::new())),
         ValueType::Texts => Some(Value::Texts(Vec::new())),
         ValueType::Text => Some(Value::Text(Text::default())),
-        ValueType::Color => Some(Value::Color(Color::BLACK)),
+        ValueType::Colour => Some(Value::Colour(Colour::BLACK)),
         ValueType::FigureSize => Some(Value::FigureSize(FigureSize::default())),
         ValueType::TileLayout => Some(Value::TileLayout(TileLayout::default())),
         ValueType::Links => Some(Value::Links(Vec::new())),
@@ -916,24 +916,24 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         ValueType::MarkerStyle => Some(Value::MarkerStyle(MarkerStyle::default())),
         ValueType::ImagePlacement => Some(Value::ImagePlacement(ImagePlacement::default())),
         ValueType::PixelRange => Some(Value::PixelRange(PixelRange::default())),
-        ValueType::ColorScaleOutOfRange => Some(Value::ColorScaleOutOfRange(
-            ColorScaleOutOfRange::new(OutOfRange::default()),
+        ValueType::ColourScaleOutOfRange => Some(Value::ColourScaleOutOfRange(
+            ColourScaleOutOfRange::new(OutOfRange::default()),
         )),
-        ValueType::ContinuousColorScale => {
-            Some(Value::ContinuousColorScale(ContinuousColorScale::default()))
+        ValueType::ContinuousColourScale => Some(Value::ContinuousColourScale(
+            ContinuousColourScale::default(),
+        )),
+        ValueType::DiscreteColourScale => {
+            Some(Value::DiscreteColourScale(DiscreteColourScale::default()))
         }
-        ValueType::DiscreteColorScale => {
-            Some(Value::DiscreteColorScale(DiscreteColorScale::default()))
+        ValueType::IndexedColourScale => {
+            Some(Value::IndexedColourScale(IndexedColourScale::default()))
         }
-        ValueType::IndexedColorScale => {
-            Some(Value::IndexedColorScale(IndexedColorScale::default()))
-        }
-        ValueType::CategoricalColorScale => Some(Value::CategoricalColorScale(
-            CategoricalColorScale::default(),
+        ValueType::CategoricalColourScale => Some(Value::CategoricalColourScale(
+            CategoricalColourScale::default(),
         )),
         ValueType::CellGap => Some(Value::CellGap(CellGap::default())),
         // A colourbar names a colour scale, which is a reference to a node.
-        ValueType::NodeId | ValueType::PanelColorbar | ValueType::InsideColorbar => None,
+        ValueType::NodeId | ValueType::PanelColourbar | ValueType::InsideColourbar => None,
         // A binning record describes how the program that built the figure counted its
         // samples, so the viewer, which shows it read-only, never invents one.
         ValueType::Binning | ValueType::Binning2d => None,
@@ -948,7 +948,7 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::Aspect
         | ValueType::AspectAdjust
         | ValueType::TitleAlign
-        | ValueType::ColorSpec
+        | ValueType::ColourSpec
         | ValueType::Grid
         | ValueType::Levels
         | ValueType::ContourPlacement
@@ -956,14 +956,14 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::ImagePlane
         | ValueType::OutOfRange
         | ValueType::Scale
-        | ValueType::ColormapName
+        | ValueType::ColourmapName
         | ValueType::Legend
         | ValueType::LegendLocation
         | ValueType::PanelLocation
         | ValueType::PanelContent
-        | ValueType::ColorbarOrientation
-        | ValueType::InsideColorbarSide
-        | ValueType::ColorbarTitlePlacement
+        | ValueType::ColourbarOrientation
+        | ValueType::InsideColourbarSide
+        | ValueType::ColourbarTitlePlacement
         | ValueType::LegendEntryColumns
         | ValueType::LegendEntryOrder
         | ValueType::MarkerShape
@@ -972,10 +972,10 @@ fn default_value(value_type: ValueType) -> Option<Value> {
         | ValueType::Interpreter
         | ValueType::FontSetId
         | ValueType::Embolden
-        | ValueType::ColorScaleKind
-        | ValueType::Colormap
-        | ValueType::ColorScaleNorm
-        | ValueType::ColorScaleLevels
+        | ValueType::ColourScaleKind
+        | ValueType::Colourmap
+        | ValueType::ColourScaleNorm
+        | ValueType::ColourScaleLevels
         | ValueType::Orientation
         | ValueType::PerBar
         | ValueType::BarWidth
@@ -989,20 +989,20 @@ fn default_value(value_type: ValueType) -> Option<Value> {
     }
 }
 
-fn to_color32(color: Color) -> egui::Color32 {
+fn to_color32(colour: Colour) -> egui::Color32 {
     let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
     egui::Color32::from_rgba_unmultiplied(
-        channel(color.r),
-        channel(color.g),
-        channel(color.b),
-        channel(color.a),
+        channel(colour.r),
+        channel(colour.g),
+        channel(colour.b),
+        channel(colour.a),
     )
 }
 
-fn from_color32(color: egui::Color32) -> Color {
+fn from_color32(colour: egui::Color32) -> Colour {
     let channel = |value: u8| f32::from(value) / 255.0;
-    let [r, g, b, a] = color.to_srgba_unmultiplied();
-    Color::rgba(channel(r), channel(g), channel(b), channel(a))
+    let [r, g, b, a] = colour.to_srgba_unmultiplied();
+    Colour::rgba(channel(r), channel(g), channel(b), channel(a))
 }
 
 // ---------------------------------------------------------------------------------

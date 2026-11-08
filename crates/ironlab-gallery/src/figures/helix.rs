@@ -42,7 +42,7 @@ pub fn figure() -> Figure {
     ax.plot3(&theta, &radius, &height).line_width(1.25);
     ax.quiver3(&bases, &ones, &base_height, &sweep, &outward, &climb)
         .no_scale()
-        .color(Color::BLACK)
+        .colour(Colour::BLACK)
         .line_width(0.75);
     ax.ylim(0.0, 1.5)
         .ytick_step(0.5)

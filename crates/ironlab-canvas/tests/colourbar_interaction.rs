@@ -11,17 +11,17 @@
 //! The API these tests assume, beyond what `interaction.rs` exercises:
 //!
 //! ```text
-//! // crates/ironlab-scene/src/hit.rs (see crates/ironlab-scene/tests/compile/colorbar_hits.rs)
-//! pub struct ColorbarHit { ..., pub map: Option<AxisMap>, pub edges: Vec<f64> }
-//! pub struct ColorbarKeyHit { pub key: ColorScaleKey, pub rect: Rect, pub label: String }
+//! // crates/ironlab-scene/src/hit.rs (see crates/ironlab-scene/tests/compile/colourbar_hits.rs)
+//! pub struct ColourbarHit { ..., pub map: Option<AxisMap>, pub edges: Vec<f64> }
+//! pub struct ColourbarKeyHit { pub key: ColourScaleKey, pub rect: Rect, pub label: String }
 //!
 //! // crates/ironlab-canvas/src/interaction.rs
-//! pub enum Tip { Point(Datatip), Pixel(PixelDatatip), Colorbar(ColorbarTip) }
+//! pub enum Tip { Point(Datatip), Pixel(PixelDatatip), Colourbar(ColourbarTip) }
 //!
 //! /// What a colourbar says under the pointer.
-//! pub struct ColorbarTip {
+//! pub struct ColourbarTip {
 //!     /// What holds the bar: a panel, an axes, or a legend whose bar item it is.
-//!     pub owner: ColorbarOwner,
+//!     pub owner: ColourbarOwner,
 //!     /// The colour scale the bar shows.
 //!     pub scale: NodeId,
 //!     /// The source text of the scale's title, when it has one.
@@ -32,10 +32,10 @@
 //!     /// The piece read, in figure space — a band, an entry's block, a category's square or a key's square — or
 //!     /// `None` on a continuous bar, which has no pieces.
 //!     pub piece: Option<Rect>,
-//!     pub reading: ColorbarReading,
+//!     pub reading: ColourbarReading,
 //! }
 //!
-//! pub enum ColorbarReading {
+//! pub enum ColourbarReading {
 //!     /// The value under the pointer on a continuous bar.
 //!     Value(f64),
 //!     /// The band under the pointer on a discrete bar, from its lower edge to its upper edge; a value on an edge
@@ -47,14 +47,14 @@
 //!     /// The category of the square under the pointer, with its label's source text.
 //!     Category { index: usize, label: String },
 //!     /// The out-of-range key under the pointer, with the label it is drawn with.
-//!     Key { key: ColorScaleKey, label: String },
+//!     Key { key: ColourScaleKey, label: String },
 //! }
 //!
-//! // ColorbarTip and ColorbarReading derive Clone, Debug and PartialEq, as the other tips do.
+//! // ColourbarTip and ColourbarReading derive Clone, Debug and PartialEq, as the other tips do.
 //!
 //! impl FigureState {
 //!     /// What the colourbar under the pointer says, or `None` where no bar, square or key lies.
-//!     pub fn colorbar_tip(&self, hit: &HitMap, at: Point) -> Option<ColorbarTip>;
+//!     pub fn colourbar_tip(&self, hit: &HitMap, at: Point) -> Option<ColourbarTip>;
 //! }
 //! ```
 //!
@@ -79,19 +79,20 @@
 mod common;
 
 use common::*;
-use ironlab_canvas::interaction::{ColorbarReading, ColorbarTip, Tip};
+use ironlab_canvas::interaction::{ColourbarReading, ColourbarTip, Tip};
 use ironlab_canvas::{FigureState, Tool};
 use ironlab_ir::{
-    Artist, Axes, CategoricalColorScale, Cell, Color, ColorCategory, ColorScale, ColorScaleKey,
-    ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorbarOrientation, ContinuousColorScale,
-    Dimension, DiscreteColorScale, Figure, ImagePlacement, IndexedColorScale, InsideColorbar,
-    InsideColorbarSide, LegendEntries, LegendItem, Limits, NdArray, NodeId, Panel, PanelColorbar,
-    PanelContent, PanelLegend, PanelLocation, PixelRange, ScalarImage, Text, TickLabels, Ticks,
-    TileLayout, TrackSize, Value,
+    Artist, Axes, CategoricalColourScale, Cell, Colour, ColourCategory, ColourScale,
+    ColourScaleKey, ColourScaleKind, ColourScaleLevels, ColourScaleNorm, ColourbarOrientation,
+    ContinuousColourScale, Dimension, DiscreteColourScale, Figure, ImagePlacement,
+    IndexedColourScale, InsideColourbar, InsideColourbarSide, LegendEntries, LegendItem, Limits,
+    NdArray, NodeId, Panel, PanelColourbar, PanelContent, PanelLegend, PanelLocation, PixelRange,
+    ScalarImage, Text, TickLabels, Ticks, TileLayout, TrackSize, Value,
 };
 use ironlab_scene::display::{Point, Rect};
 use ironlab_scene::hit::{
-    AxesHit, AxesHitKind, AxisMap, ColorbarHit, ColorbarKeyHit, ColorbarOwner, HitMap, LegendOwner,
+    AxesHit, AxesHitKind, AxisMap, ColourbarHit, ColourbarKeyHit, ColourbarOwner, HitMap,
+    LegendOwner,
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -127,74 +128,74 @@ const LYING: Rect = Rect::new(50.0, 140.0, 200.0, 10.0);
 const INSIDE: Rect = Rect::new(235.0, 30.0, 8.0, 80.0);
 const BACKDROP: Rect = Rect::new(222.0, 25.0, 25.0, 90.0);
 
-fn continuous(limits: Limits, norm: ColorScaleNorm) -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale {
+fn continuous(limits: Limits, norm: ColourScaleNorm) -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale {
         limits,
         norm,
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     })
 }
 
-fn scale(id: NodeId, kind: ColorScaleKind) -> ColorScale {
-    ColorScale {
+fn scale(id: NodeId, kind: ColourScaleKind) -> ColourScale {
+    ColourScale {
         id,
         kind,
-        ..ColorScale::default()
+        ..ColourScale::default()
     }
 }
 
 /// The scales of the fixture, as the constants above describe them.
-fn scales() -> Vec<ColorScale> {
-    let grey = Color::rgb(0.5, 0.5, 0.5);
+fn scales() -> Vec<ColourScale> {
+    let grey = Colour::rgb(0.5, 0.5, 0.5);
     vec![
-        scale(AUTO, continuous(Limits::Auto, ColorScaleNorm::Linear)),
-        scale(LOG, continuous(manual(1.0, 100.0), ColorScaleNorm::Log)),
+        scale(AUTO, continuous(Limits::Auto, ColourScaleNorm::Linear)),
+        scale(LOG, continuous(manual(1.0, 100.0), ColourScaleNorm::Log)),
         scale(
             BANDS,
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Auto {
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Auto {
                     count: 4,
                     limits: Limits::Auto,
                 },
-                ..DiscreteColorScale::default()
+                ..DiscreteColourScale::default()
             }),
         ),
         scale(
             EDGES,
-            ColorScaleKind::Discrete(DiscreteColorScale {
-                levels: ColorScaleLevels::Explicit {
+            ColourScaleKind::Discrete(DiscreteColourScale {
+                levels: ColourScaleLevels::Explicit {
                     values: vec![0.0, 0.5, 1.0, 2.0],
                 },
-                ..DiscreteColorScale::default()
+                ..DiscreteColourScale::default()
             }),
         ),
         scale(
             PALETTE,
-            ColorScaleKind::Indexed(IndexedColorScale {
-                colors: vec![grey; 4],
+            ColourScaleKind::Indexed(IndexedColourScale {
+                colours: vec![grey; 4],
                 ticks: Ticks::Values(vec![0.0, 2.0]),
                 tick_labels: TickLabels::Text(vec![Text::plain("Low"), Text::plain("High")]),
-                ..IndexedColorScale::default()
+                ..IndexedColourScale::default()
             }),
         ),
         scale(
             CLASSES,
-            ColorScaleKind::Categorical(CategoricalColorScale {
+            ColourScaleKind::Categorical(CategoricalColourScale {
                 categories: ["Water", "Forest", "Rock"]
                     .into_iter()
-                    .map(|label| ColorCategory {
-                        color: grey,
+                    .map(|label| ColourCategory {
+                        colour: grey,
                         label: Text::plain(label),
                     })
                     .collect(),
-                ..CategoricalColorScale::default()
+                ..CategoricalColourScale::default()
             }),
         ),
-        ColorScale {
+        ColourScale {
             title: Some(Text::plain("Pressure")),
             ..scale(
                 TITLED,
-                continuous(manual(0.0, 10.0), ColorScaleNorm::Linear),
+                continuous(manual(0.0, 10.0), ColourScaleNorm::Linear),
             )
         },
     ]
@@ -210,12 +211,12 @@ fn figure() -> Figure {
         id: NodeId(1),
         layout: TileLayout::new(1, 3),
         data: vec![data_array(array_id(0), values)],
-        color_scales: scales(),
+        colour_scales: scales(),
         axes: vec![Axes {
             artists: vec![Artist::ScalarImage(ScalarImage {
                 id: IMAGE,
                 values: array_id(0),
-                color_scale: Some(AUTO),
+                colour_scale: Some(AUTO),
                 // Three columns of pitch 10/3 and two rows of pitch 2.5 cover x ∈ [0, 10] and y ∈ [0, 5], so that
                 // an inside bar anywhere in the plot area lies over the image.
                 placement: ImagePlacement {
@@ -240,13 +241,13 @@ fn figure() -> Figure {
                     col: 1,
                     ..Cell::default()
                 },
-                align: PanelLocation::Center,
+                align: PanelLocation::Centre,
                 title: None,
                 title_align: ironlab_ir::TitleAlign::Left,
-                content: PanelContent::Colorbar(PanelColorbar {
+                content: PanelContent::Colourbar(PanelColourbar {
                     scale: AUTO,
-                    orientation: ColorbarOrientation::Vertical,
-                    ..PanelColorbar::default()
+                    orientation: ColourbarOrientation::Vertical,
+                    ..PanelColourbar::default()
                 }),
             },
             Panel {
@@ -255,11 +256,11 @@ fn figure() -> Figure {
                     col: 2,
                     ..Cell::default()
                 },
-                align: PanelLocation::Center,
+                align: PanelLocation::Centre,
                 title: None,
                 title_align: ironlab_ir::TitleAlign::Left,
                 content: PanelContent::Legend(PanelLegend {
-                    entries: LegendEntries::Explicit(vec![LegendItem::color_scale(BANDS)]),
+                    entries: LegendEntries::Explicit(vec![LegendItem::colour_scale(BANDS)]),
                     ..PanelLegend::default()
                 }),
             },
@@ -269,10 +270,10 @@ fn figure() -> Figure {
 }
 
 /// The mapping of `[min, max]` along a bar from its low end: the bottom of a standing bar, the left of a lying one.
-fn along(bar: Rect, orientation: ColorbarOrientation, min: f64, max: f64, log: bool) -> AxisMap {
+fn along(bar: Rect, orientation: ColourbarOrientation, min: f64, max: f64, log: bool) -> AxisMap {
     let (start, end) = match orientation {
-        ColorbarOrientation::Vertical => (bar.bottom(), bar.y),
-        ColorbarOrientation::Horizontal => (bar.x, bar.right()),
+        ColourbarOrientation::Vertical => (bar.bottom(), bar.y),
+        ColourbarOrientation::Horizontal => (bar.x, bar.right()),
     };
     AxisMap {
         min,
@@ -285,46 +286,46 @@ fn along(bar: Rect, orientation: ColorbarOrientation, min: f64, max: f64, log: b
 
 /// The hit geometry of a standing bar of `scale` held by `owner` over `bar`, mapping `[min, max]`.
 fn standing(
-    owner: ColorbarOwner,
+    owner: ColourbarOwner,
     scale: NodeId,
     bar: Rect,
     min: f64,
     max: f64,
     log: bool,
-) -> ColorbarHit {
-    ColorbarHit {
+) -> ColourbarHit {
+    ColourbarHit {
         owner,
         scale,
-        orientation: ColorbarOrientation::Vertical,
+        orientation: ColourbarOrientation::Vertical,
         bar,
         entries: vec![],
         keys: vec![],
         backdrop: None,
-        map: Some(along(bar, ColorbarOrientation::Vertical, min, max, log)),
+        map: Some(along(bar, ColourbarOrientation::Vertical, min, max, log)),
         edges: vec![],
     }
 }
 
-fn panel_bar(scale: NodeId, min: f64, max: f64, log: bool) -> ColorbarHit {
-    standing(ColorbarOwner::Panel(BAR_PANEL), scale, BAR, min, max, log)
+fn panel_bar(scale: NodeId, min: f64, max: f64, log: bool) -> ColourbarHit {
+    standing(ColourbarOwner::Panel(BAR_PANEL), scale, BAR, min, max, log)
 }
 
-fn inside_bar(scale: NodeId, min: f64, max: f64) -> ColorbarHit {
-    ColorbarHit {
+fn inside_bar(scale: NodeId, min: f64, max: f64) -> ColourbarHit {
+    ColourbarHit {
         backdrop: Some(BACKDROP),
-        ..standing(ColorbarOwner::Axes(AXES), scale, INSIDE, min, max, false)
+        ..standing(ColourbarOwner::Axes(AXES), scale, INSIDE, min, max, false)
     }
 }
 
 /// A hit map of the 2D axes at [`PLOT`] and the given bars.
-fn hit_with(colorbars: Vec<ColorbarHit>) -> HitMap {
+fn hit_with(colourbars: Vec<ColourbarHit>) -> HitMap {
     HitMap {
         axes: vec![hit_2d(AXES.0, PLOT)],
         legend_entries: vec![],
         panels: vec![],
         artists: vec![],
         images: vec![],
-        colorbars,
+        colourbars,
         bars: vec![],
         steps: vec![],
         cells: vec![],
@@ -339,7 +340,7 @@ fn up(bar: Rect, f: f64) -> Point {
 /// The limits of a continuous scale, or of the automatic band edges of a discrete one.
 fn scale_limits(figure: &Figure, id: NodeId) -> Limits {
     figure
-        .color_scale(id)
+        .colour_scale(id)
         .and_then(|scale| scale.kind.limits())
         .unwrap_or_else(|| panic!("the scale {id} has limits"))
 }
@@ -353,9 +354,9 @@ fn manual_scale(figure: &Figure, id: NodeId) -> (f64, f64) {
 }
 
 #[track_caller]
-fn tip(state: &FigureState, hit: &HitMap, at: Point) -> ColorbarTip {
+fn tip(state: &FigureState, hit: &HitMap, at: Point) -> ColourbarTip {
     state
-        .colorbar_tip(hit, at)
+        .colourbar_tip(hit, at)
         .unwrap_or_else(|| panic!("a colourbar is read at {at:?}"))
 }
 
@@ -381,10 +382,10 @@ fn hovering_a_continuous_bar_reads_the_value_under_the_pointer() {
 
     let read = tip(&state, &hit, at);
     assert_eq!(read.scale, AUTO);
-    assert_eq!(read.owner, ColorbarOwner::Panel(BAR_PANEL));
+    assert_eq!(read.owner, ColourbarOwner::Panel(BAR_PANEL));
     assert_eq!(read.title, None, "the scale has no title");
     match read.reading {
-        ColorbarReading::Value(v) => assert_close(v, 2.5, EPS, "a quarter of the way up"),
+        ColourbarReading::Value(v) => assert_close(v, 2.5, EPS, "a quarter of the way up"),
         other => panic!("a continuous bar reads a value, not {other:?}"),
     }
     assert_eq!(read.piece, None, "a continuous bar has no pieces");
@@ -405,7 +406,7 @@ fn hovering_a_logarithmic_bar_reads_in_decades() {
     let state = FigureState::new(figure());
     let hit = hit_with(vec![panel_bar(LOG, 1.0, 100.0, true)]);
     match tip(&state, &hit, up(BAR, 0.5)).reading {
-        ColorbarReading::Value(v) => assert_close(v, 10.0, 1e-9, "the middle decade"),
+        ColourbarReading::Value(v) => assert_close(v, 10.0, 1e-9, "the middle decade"),
         other => panic!("{other:?}"),
     }
 }
@@ -416,11 +417,11 @@ fn hovering_a_logarithmic_bar_reads_in_decades() {
 fn hovering_a_lying_bar_reads_from_the_left() {
     let state = FigureState::new(figure());
     let hit = hit_with(vec![
-        ColorbarHit {
-            orientation: ColorbarOrientation::Horizontal,
+        ColourbarHit {
+            orientation: ColourbarOrientation::Horizontal,
             map: Some(along(
                 LYING,
-                ColorbarOrientation::Horizontal,
+                ColourbarOrientation::Horizontal,
                 0.0,
                 10.0,
                 false,
@@ -431,7 +432,7 @@ fn hovering_a_lying_bar_reads_from_the_left() {
     ]);
     let at = Point::new(LYING.x + LYING.width / 4.0, LYING.y + LYING.height / 2.0);
     match tip(&state, &hit, at).reading {
-        ColorbarReading::Value(v) => {
+        ColourbarReading::Value(v) => {
             assert_close(v, 2.5, EPS, "a quarter of the way from the left")
         }
         other => panic!("{other:?}"),
@@ -443,9 +444,9 @@ trait WithBar {
     fn with_bar(self, bar: Rect) -> Self;
 }
 
-impl WithBar for ColorbarHit {
+impl WithBar for ColourbarHit {
     fn with_bar(self, bar: Rect) -> Self {
-        ColorbarHit { bar, ..self }
+        ColourbarHit { bar, ..self }
     }
 }
 
@@ -456,8 +457,8 @@ impl WithBar for ColorbarHit {
 #[test]
 fn hovering_a_discrete_bar_reads_the_band_under_the_pointer() {
     let state = FigureState::new(figure());
-    let map = along(BAR, ColorbarOrientation::Vertical, 0.0, 2.0, false);
-    let hit = hit_with(vec![ColorbarHit {
+    let map = along(BAR, ColourbarOrientation::Vertical, 0.0, 2.0, false);
+    let hit = hit_with(vec![ColourbarHit {
         edges: vec![0.0, 0.5, 1.0, 2.0],
         ..panel_bar(EDGES, 0.0, 2.0, false)
     }]);
@@ -466,7 +467,7 @@ fn hovering_a_discrete_bar_reads_the_band_under_the_pointer() {
     let read = tip(&state, &hit, at_value(0.75));
     assert_eq!(
         read.reading,
-        ColorbarReading::Band {
+        ColourbarReading::Band {
             low: 0.5,
             high: 1.0
         }
@@ -492,7 +493,7 @@ fn hovering_a_discrete_bar_reads_the_band_under_the_pointer() {
 
     assert_eq!(
         tip(&state, &hit, at_value(1.0)).reading,
-        ColorbarReading::Band {
+        ColourbarReading::Band {
             low: 1.0,
             high: 2.0
         },
@@ -500,7 +501,7 @@ fn hovering_a_discrete_bar_reads_the_band_under_the_pointer() {
     );
     assert_eq!(
         tip(&state, &hit, at_value(1.9)).reading,
-        ColorbarReading::Band {
+        ColourbarReading::Band {
             low: 1.0,
             high: 2.0
         },
@@ -520,14 +521,14 @@ fn hovering_an_indexed_bar_reads_the_entry_and_the_name_of_its_tick() {
 
     assert_eq!(
         tip(&state, &hit, in_block(2.0, 0.5)).reading,
-        ColorbarReading::Entry {
+        ColourbarReading::Entry {
             index: 2,
             label: Some("High".to_owned())
         }
     );
     assert_eq!(
         tip(&state, &hit, in_block(1.0, 0.9)).reading,
-        ColorbarReading::Entry {
+        ColourbarReading::Entry {
             index: 1,
             label: None
         },
@@ -535,7 +536,7 @@ fn hovering_an_indexed_bar_reads_the_entry_and_the_name_of_its_tick() {
     );
     assert_eq!(
         tip(&state, &hit, in_block(0.0, 0.1)).reading,
-        ColorbarReading::Entry {
+        ColourbarReading::Entry {
             index: 0,
             label: Some("Low".to_owned())
         }
@@ -543,7 +544,7 @@ fn hovering_an_indexed_bar_reads_the_entry_and_the_name_of_its_tick() {
     let read = tip(&state, &hit, in_block(3.0, 0.5));
     assert_eq!(
         read.reading,
-        ColorbarReading::Entry {
+        ColourbarReading::Entry {
             index: 3,
             label: None
         }
@@ -564,7 +565,7 @@ fn hovering_a_category_square_reads_its_label_and_a_gap_reads_nothing() {
         Rect::new(300.0, 50.0, 10.0, 10.0),
     ];
     let hit = hit_with(vec![
-        ColorbarHit {
+        ColourbarHit {
             entries: squares.clone(),
             map: None,
             ..panel_bar(CLASSES, 0.0, 0.0, false)
@@ -575,14 +576,14 @@ fn hovering_a_category_square_reads_its_label_and_a_gap_reads_nothing() {
     let read = tip(&state, &hit, Point::new(305.0, 40.0));
     assert_eq!(
         read.reading,
-        ColorbarReading::Category {
+        ColourbarReading::Category {
             index: 1,
             label: "Forest".to_owned()
         }
     );
     assert_eq!(read.piece, Some(squares[1]));
     assert_eq!(
-        state.colorbar_tip(&hit, Point::new(305.0, 32.5)),
+        state.colourbar_tip(&hit, Point::new(305.0, 32.5)),
         None,
         "the gap between two squares is no category"
     );
@@ -595,15 +596,15 @@ fn hovering_a_key_reads_the_label_it_is_drawn_with() {
     let state = FigureState::new(figure());
     let above = Rect::new(300.0, 2.0, 10.0, 10.0);
     let non_finite = Rect::new(300.0, 125.0, 10.0, 10.0);
-    let hit = hit_with(vec![ColorbarHit {
+    let hit = hit_with(vec![ColourbarHit {
         keys: vec![
-            ColorbarKeyHit {
-                key: ColorScaleKey::Above,
+            ColourbarKeyHit {
+                key: ColourScaleKey::Above,
                 rect: above,
                 label: "> 10".to_owned(),
             },
-            ColorbarKeyHit {
-                key: ColorScaleKey::NonFinite,
+            ColourbarKeyHit {
+                key: ColourScaleKey::NonFinite,
                 rect: non_finite,
                 label: "Missing".to_owned(),
             },
@@ -614,16 +615,16 @@ fn hovering_a_key_reads_the_label_it_is_drawn_with() {
     let read = tip(&state, &hit, Point::new(305.0, 7.0));
     assert_eq!(
         read.reading,
-        ColorbarReading::Key {
-            key: ColorScaleKey::Above,
+        ColourbarReading::Key {
+            key: ColourScaleKey::Above,
             label: "> 10".to_owned()
         }
     );
     assert_eq!(read.piece, Some(above));
     assert_eq!(
         tip(&state, &hit, Point::new(305.0, 130.0)).reading,
-        ColorbarReading::Key {
-            key: ColorScaleKey::NonFinite,
+        ColourbarReading::Key {
+            key: ColourScaleKey::NonFinite,
             label: "Missing".to_owned()
         }
     );
@@ -646,9 +647,9 @@ fn a_bar_reading_carries_the_title_of_its_scale() {
 #[test]
 fn beside_the_bar_and_between_its_pieces_nothing_is_read() {
     let state = FigureState::new(figure());
-    let hit = hit_with(vec![ColorbarHit {
-        keys: vec![ColorbarKeyHit {
-            key: ColorScaleKey::Above,
+    let hit = hit_with(vec![ColourbarHit {
+        keys: vec![ColourbarKeyHit {
+            key: ColourScaleKey::Above,
             rect: Rect::new(300.0, 2.0, 10.0, 10.0),
             label: "> 10".to_owned(),
         }],
@@ -661,7 +662,7 @@ fn beside_the_bar_and_between_its_pieces_nothing_is_read() {
         Point::new(305.0, BAR.bottom() + 5.0),
     ] {
         assert_eq!(
-            state.colorbar_tip(&hit, at),
+            state.colourbar_tip(&hit, at),
             None,
             "nothing is read at {at:?}"
         );
@@ -680,7 +681,7 @@ fn a_bar_item_of_a_legend_is_read_as_any_bar_is() {
     let state = FigureState::new(figure());
     let hit = hit_with(vec![
         standing(
-            ColorbarOwner::Legend(LegendOwner::Panel(LEGEND_PANEL)),
+            ColourbarOwner::Legend(LegendOwner::Panel(LEGEND_PANEL)),
             BANDS,
             BAR,
             0.0,
@@ -691,7 +692,7 @@ fn a_bar_item_of_a_legend_is_read_as_any_bar_is() {
     ]);
     assert_eq!(
         tip(&state, &hit, up(BAR, 0.6)).reading,
-        ColorbarReading::Band {
+        ColourbarReading::Band {
             low: 0.5,
             high: 0.75
         }
@@ -702,9 +703,9 @@ trait WithEdges {
     fn with_edges(self, edges: Vec<f64>) -> Self;
 }
 
-impl WithEdges for ColorbarHit {
+impl WithEdges for ColourbarHit {
     fn with_edges(self, edges: Vec<f64>) -> Self {
-        ColorbarHit { edges, ..self }
+        ColourbarHit { edges, ..self }
     }
 }
 
@@ -715,18 +716,18 @@ impl WithEdges for ColorbarHit {
 #[test]
 fn an_inside_bar_and_its_box_hide_the_image_beneath_them() {
     let mut figure = figure();
-    figure.axes[0].colorbar = Some(InsideColorbar {
+    figure.axes[0].colourbar = Some(InsideColourbar {
         scale: AUTO,
-        side: InsideColorbarSide::East,
+        side: InsideColourbarSide::East,
         length: 0.8,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     let state = FigureState::new(figure);
     let hit = ironlab_scene::compile(state.figure(), &TEXT).hit_map;
     let bar = hit
-        .colorbars
+        .colourbars
         .iter()
-        .find(|c| c.owner == ColorbarOwner::Axes(AXES))
+        .find(|c| c.owner == ColourbarOwner::Axes(AXES))
         .expect("the inside bar is drawn")
         .clone();
     let backdrop = bar.backdrop.expect("an inside bar has a box");
@@ -740,7 +741,7 @@ fn an_inside_bar_and_its_box_hide_the_image_beneath_them() {
         "the image lies beneath the bar"
     );
     assert!(
-        matches!(state.tip_at(&hit, centre), Some(Tip::Colorbar(_))),
+        matches!(state.tip_at(&hit, centre), Some(Tip::Colourbar(_))),
         "the bar is read, not the pixel beneath it"
     );
 
@@ -777,7 +778,7 @@ fn the_wheel_over_a_bar_zooms_the_scale_about_the_value_under_the_pointer() {
     let mut state = FigureState::new(figure());
     let hit = hit_with(vec![panel_bar(AUTO, 0.0, 10.0, false)]);
     let at = up(BAR, 0.3);
-    let map = hit.colorbars[0].map.unwrap();
+    let map = hit.colourbars[0].map.unwrap();
     let grabbed = map.to_data(at.y);
 
     assert!(state.scroll(&hit, at, 2.0));
@@ -814,7 +815,7 @@ fn the_wheel_over_a_logarithmic_bar_zooms_in_decades_and_keeps_the_limits_positi
     let mut state = FigureState::new(figure());
     let hit = hit_with(vec![panel_bar(LOG, 1.0, 100.0, true)]);
     let at = up(BAR, 0.25);
-    let map = hit.colorbars[0].map.unwrap();
+    let map = hit.colourbars[0].map.unwrap();
     let grabbed = map.to_data(at.y);
 
     assert!(state.scroll(&hit, at, 2.0));
@@ -849,7 +850,7 @@ fn the_wheel_over_a_logarithmic_bar_zooms_in_decades_and_keeps_the_limits_positi
 fn a_drag_along_a_bar_pans_the_scale_and_is_one_undo_step() {
     let mut state = FigureState::new(figure());
     let hit = hit_with(vec![panel_bar(AUTO, 0.0, 10.0, false)]);
-    let map = hit.colorbars[0].map.unwrap();
+    let map = hit.colourbars[0].map.unwrap();
     let start = up(BAR, 0.25);
     let grabbed = map.to_data(start.y);
 
@@ -960,9 +961,9 @@ fn a_gesture_on_a_discrete_bar_of_automatic_levels_sets_the_limits_of_its_levels
     let entries = state.overlay().entries();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].path.to_string(), "kind.discrete.levels.limits");
-    match &state.figure().color_scale(BANDS).unwrap().kind {
-        ColorScaleKind::Discrete(DiscreteColorScale {
-            levels: ColorScaleLevels::Auto { count, .. },
+    match &state.figure().colour_scale(BANDS).unwrap().kind {
+        ColourScaleKind::Discrete(DiscreteColourScale {
+            levels: ColourScaleLevels::Auto { count, .. },
             ..
         }) => assert_eq!(*count, 4, "the number of bands is kept"),
         other => panic!("{other:?}"),
@@ -976,7 +977,7 @@ fn a_gesture_on_a_discrete_bar_of_automatic_levels_sets_the_limits_of_its_levels
 #[test]
 fn a_gesture_on_a_bar_without_limits_or_on_a_legend_bar_item_changes_nothing() {
     let legend_item = standing(
-        ColorbarOwner::Legend(LegendOwner::Panel(LEGEND_PANEL)),
+        ColourbarOwner::Legend(LegendOwner::Panel(LEGEND_PANEL)),
         BANDS,
         BAR,
         0.0,
@@ -987,7 +988,7 @@ fn a_gesture_on_a_bar_without_limits_or_on_a_legend_bar_item_changes_nothing() {
     for bar in [
         panel_bar(EDGES, 0.0, 2.0, false).with_edges(vec![0.0, 0.5, 1.0, 2.0]),
         panel_bar(PALETTE, -0.5, 3.5, false),
-        ColorbarHit {
+        ColourbarHit {
             map: None,
             entries: vec![BAR],
             ..panel_bar(CLASSES, 0.0, 0.0, false)
@@ -1164,32 +1165,32 @@ fn a_double_click_on_a_bar_and_refit_restore_the_limits_of_the_scale() {
 fn after_a_gesture_every_bar_of_the_scale_shows_the_new_limits() {
     let mut figure = figure();
     figure.layout.col_weights = vec![TrackSize::Weight(1.0), TrackSize::Fit, TrackSize::Fit];
-    figure.axes[0].colorbar = Some(InsideColorbar {
+    figure.axes[0].colourbar = Some(InsideColourbar {
         scale: AUTO,
-        side: InsideColorbarSide::West,
+        side: InsideColourbarSide::West,
         length: 0.8,
-        ..InsideColorbar::default()
+        ..InsideColourbar::default()
     });
     if let PanelContent::Legend(legend) = &mut figure.panels[1].content {
-        legend.entries = LegendEntries::Explicit(vec![LegendItem::color_scale(AUTO)]);
+        legend.entries = LegendEntries::Explicit(vec![LegendItem::colour_scale(AUTO)]);
     }
     let mut state = FigureState::new(figure);
     let scene = ironlab_scene::compile(state.figure(), &TEXT);
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
     let hit = scene.hit_map;
     let owners = [
-        ColorbarOwner::Panel(BAR_PANEL),
-        ColorbarOwner::Axes(AXES),
-        ColorbarOwner::Legend(LegendOwner::Panel(LEGEND_PANEL)),
+        ColourbarOwner::Panel(BAR_PANEL),
+        ColourbarOwner::Axes(AXES),
+        ColourbarOwner::Legend(LegendOwner::Panel(LEGEND_PANEL)),
     ];
-    let bar_of = |hit: &HitMap, owner: ColorbarOwner| -> ColorbarHit {
-        hit.colorbars
+    let bar_of = |hit: &HitMap, owner: ColourbarOwner| -> ColourbarHit {
+        hit.colourbars
             .iter()
             .find(|c| c.owner == owner && c.scale == AUTO)
             .unwrap_or_else(|| panic!("{owner:?} draws a bar of the scale"))
             .clone()
     };
-    let panel = bar_of(&hit, ColorbarOwner::Panel(BAR_PANEL));
+    let panel = bar_of(&hit, ColourbarOwner::Panel(BAR_PANEL));
     let map = panel.map.expect("the bar publishes its mapping");
     assert_eq!(
         (map.min, map.max),
@@ -1212,7 +1213,7 @@ fn after_a_gesture_every_bar_of_the_scale_shows_the_new_limits() {
             "{owner:?} shows the new limits"
         );
     }
-    let panel = bar_of(&again, ColorbarOwner::Panel(BAR_PANEL));
+    let panel = bar_of(&again, ColourbarOwner::Panel(BAR_PANEL));
     assert_close(
         panel.map.unwrap().to_data(at.y),
         value,

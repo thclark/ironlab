@@ -50,7 +50,7 @@ fn path(segments: Vec<PathSegment>, depth: Option<Depth>) -> PathItem {
     PathItem {
         segments,
         fill: Some(Fill {
-            color: Rgba::BLACK,
+            colour: Rgba::BLACK,
             rule: FillRule::NonZero,
         }),
         stroke: None,

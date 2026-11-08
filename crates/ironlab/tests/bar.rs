@@ -4,8 +4,8 @@
 //! These tests assert the figure description the facade stores, not its rendering, which the scene tests own. They
 //! assume that `AxesMut::bar(positions, values)` and `AxesMut::barh(positions, values)` return a `BarMut`, exported
 //! in the prelude, whose setters are `label`, `width_pitch`, `width`, `widths`, `offset_widths`, `offset`, `base`,
-//! `base_data`, `margin`, `face_color`, `edge_color`, `edge_width`, `face_opacity`, `edge_opacity`, `color_data`,
-//! `color_scale` and `colors`, named as the setters of `SurfaceMut` and `SeriesMut` are.
+//! `base_data`, `margin`, `face_colour`, `edge_colour`, `edge_width`, `face_opacity`, `edge_opacity`, `colour_data`,
+//! `colour_scale` and `colours`, named as the setters of `SurfaceMut` and `SeriesMut` are.
 //!
 //! They assume too that `AxesMut::bars(positions)` returns a `BarsMut`, exported in the prelude, which holds one
 //! set of positions and adds series to it:
@@ -33,12 +33,13 @@ mod common;
 use common::{bar, data, has_error_at};
 use ironlab::IssueKind;
 use ironlab::ir::{
-    BarOffset, BarWidth, ColorScaleKind, ColorSpec, DashStyle, NdArray, NodeId, Orientation, PerBar,
+    BarOffset, BarWidth, ColourScaleKind, ColourSpec, DashStyle, NdArray, NodeId, Orientation,
+    PerBar,
 };
 use ironlab::prelude::*;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREY: Color = Color::rgb(0.6, 0.6, 0.6);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREY: Colour = Colour::rgb(0.6, 0.6, 0.6);
 
 /// Agreement expected of the arithmetic of the helper.
 const TOL: f64 = 1e-12;
@@ -121,18 +122,18 @@ fn bar_stores_the_positions_and_values_with_the_defaults_of_a_bar_chart() {
     assert_eq!(b.offset, BarOffset::Widths(0.0));
     assert_eq!(b.margin, 0.05);
     assert_eq!(b.binning, None);
-    assert_eq!(b.face, ColorSpec::Auto);
+    assert_eq!(b.face, ColourSpec::Auto);
     assert_eq!(
-        b.edge.color,
-        ColorSpec::Rgba {
-            color: Color::BLACK
+        b.edge.colour,
+        ColourSpec::Rgba {
+            colour: Colour::BLACK
         }
     );
     assert_eq!(b.edge.width_pt, 0.5);
     assert_eq!(b.edge.dash, DashStyle::Solid);
-    assert_eq!((b.color_data, b.color_scale), (None, None));
+    assert_eq!((b.colour_data, b.colour_scale), (None, None));
     assert!(
-        fig.ir().color_scales.is_empty(),
+        fig.ir().colour_scales.is_empty(),
         "no colour scale is created"
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
@@ -182,8 +183,8 @@ fn bar_setters_write_the_properties_they_name() {
         .offset_widths(-1.0)
         .base(1.0)
         .margin(0.0)
-        .face_color(RED)
-        .edge_color(None)
+        .face_colour(RED)
+        .edge_colour(None)
         .edge_width(1.25)
         .face_opacity(0.5)
         .edge_opacity(0.25)
@@ -194,8 +195,8 @@ fn bar_setters_write_the_properties_they_name() {
     assert_eq!(b.offset, BarOffset::Widths(-1.0));
     assert_eq!(b.base, PerBar::Constant(1.0));
     assert_eq!(b.margin, 0.0);
-    assert_eq!(b.face, ColorSpec::Rgba { color: RED });
-    assert_eq!(b.edge.color, ColorSpec::None);
+    assert_eq!(b.face, ColourSpec::Rgba { colour: RED });
+    assert_eq!(b.edge.colour, ColourSpec::None);
     assert_eq!(b.edge.width_pt, 1.25);
     assert_eq!((b.face_opacity, b.edge_opacity), (0.5, 0.25));
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
@@ -256,48 +257,48 @@ fn colour_data_colours_the_faces_through_the_default_scale_or_a_named_one() {
     let id = fig
         .axes(0, 0)
         .bar([0.0, 1.0, 2.0], [3.0, 1.0, 2.0])
-        .color_data([0.1, 0.5, 0.9])
+        .colour_data([0.1, 0.5, 0.9])
         .id();
-    let default = fig.axes(0, 0).color_scale().id();
+    let default = fig.axes(0, 0).colour_scale().id();
     let b = bar(&fig, id);
-    let colours = b.color_data.expect("the bars have colour data");
+    let colours = b.colour_data.expect("the bars have colour data");
     assert_eq!(data(&fig, colours), &NdArray::vector(vec![0.1, 0.5, 0.9]));
-    assert_eq!(b.face, ColorSpec::Colormapped);
-    assert_eq!(b.color_scale, Some(default));
+    assert_eq!(b.face, ColourSpec::Colourmapped);
+    assert_eq!(b.colour_scale, Some(default));
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 
     let mut fig = Figure::new();
-    let chosen = fig.indexed_scale([Color::BLACK, Color::WHITE]).id();
+    let chosen = fig.indexed_scale([Colour::BLACK, Colour::WHITE]).id();
     let id = fig
         .axes(0, 0)
         .bar([0.0, 1.0], [3.0, 1.0])
-        .color_data([0.0, 1.0])
-        .color_scale(chosen)
+        .colour_data([0.0, 1.0])
+        .colour_scale(chosen)
         .id();
-    assert_eq!(bar(&fig, id).color_scale, Some(chosen));
-    assert_eq!(fig.ir().color_scales.len(), 1, "the default is deleted");
+    assert_eq!(bar(&fig, id).colour_scale, Some(chosen));
+    assert_eq!(fig.ir().colour_scales.len(), 1, "the default is deleted");
     assert!(fig.validate().is_valid());
 }
 
 // WHY: highlighting one bar, or colouring bars by category, is the most common reason to colour bars individually;
-// `colors` gives one colour per bar and stores it the way the model colours individual bars: an indexed colour scale
+// `colours` gives one colour per bar and stores it the way the model colours individual bars: an indexed colour scale
 // of the distinct colours, and per bar the index of its colour as colour data, so that each bar is drawn in exactly
 // the colour given and a key of the scale lists each colour once. Giving colours again replaces them, and the
 // figure keeps no scale the author no longer uses.
 #[test]
-fn colors_stores_an_indexed_scale_of_the_distinct_colours_and_each_bars_index() {
+fn colours_stores_an_indexed_scale_of_the_distinct_colours_and_each_bars_index() {
     let given = [GREY, GREY, RED, GREY];
     let mut fig = Figure::new();
     let id = fig
         .axes(0, 0)
         .bar([0.0, 1.0, 2.0, 3.0], [3.0, 1.0, 4.0, 2.0])
-        .colors(given)
+        .colours(given)
         .id();
     let b = bar(&fig, id).clone();
-    assert_eq!(b.face, ColorSpec::Colormapped);
-    let scale = b.color_scale.expect("the bars name a scale");
-    let palette = match &fig.ir().color_scale(scale).expect("the scale exists").kind {
-        ColorScaleKind::Indexed(indexed) => indexed.colors.clone(),
+    assert_eq!(b.face, ColourSpec::Colourmapped);
+    let scale = b.colour_scale.expect("the bars name a scale");
+    let palette = match &fig.ir().colour_scale(scale).expect("the scale exists").kind {
+        ColourScaleKind::Indexed(indexed) => indexed.colours.clone(),
         other => panic!("the scale is indexed, not {other:?}"),
     };
     assert_eq!(
@@ -305,7 +306,7 @@ fn colors_stores_an_indexed_scale_of_the_distinct_colours_and_each_bars_index() 
         2,
         "one entry per distinct colour: {palette:?}"
     );
-    let indices = data(&fig, b.color_data.expect("the bars have colour data"))
+    let indices = data(&fig, b.colour_data.expect("the bars have colour data"))
         .as_f64()
         .expect("indices are stored as numbers")
         .to_vec();
@@ -322,22 +323,22 @@ fn colors_stores_an_indexed_scale_of_the_distinct_colours_and_each_bars_index() 
     let id = fig
         .axes(0, 0)
         .bar([0.0, 1.0], [1.0, 2.0])
-        .colors([RED, GREY])
-        .colors([GREY, GREY])
+        .colours([RED, GREY])
+        .colours([GREY, GREY])
         .id();
     let b = bar(&fig, id);
     assert_eq!(
-        fig.ir().color_scales.len(),
+        fig.ir().colour_scales.len(),
         2,
         "the replaced scale is not kept: {:?}",
-        fig.ir().color_scales
+        fig.ir().colour_scales
     );
-    let ColorScaleKind::Indexed(indexed) =
-        &fig.ir().color_scale(b.color_scale.unwrap()).unwrap().kind
+    let ColourScaleKind::Indexed(indexed) =
+        &fig.ir().colour_scale(b.colour_scale.unwrap()).unwrap().kind
     else {
         panic!("the scale is indexed");
     };
-    assert_eq!(indexed.colors, vec![GREY]);
+    assert_eq!(indexed.colours, vec![GREY]);
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
 }
 
@@ -404,7 +405,11 @@ fn series_of_the_helper_are_columns_a_third_of_the_drawn_cluster_wide_side_by_si
             &NdArray::vector(vec![0.0, 1.0, 2.0])
         );
         assert_eq!(b.orientation, Orientation::Vertical);
-        assert_eq!(b.face, ColorSpec::Auto, "column {k} takes the colour order");
+        assert_eq!(
+            b.face,
+            ColourSpec::Auto,
+            "column {k} takes the colour order"
+        );
         assert_eq!(b.margin, 0.05, "column {k} keeps the default margin");
         assert_close(pitch_fraction(&fig, id), 0.55 / 3.0, "a third of 0.55");
         assert_close(
@@ -479,9 +484,9 @@ fn a_lone_series_of_the_helper_is_stored_exactly_as_bar_stores_it() {
             plain.edge_opacity, helper.edge_opacity,
             "{what}: edge opacity"
         );
-        assert_eq!(plain.color_data, helper.color_data, "{what}: colour data");
+        assert_eq!(plain.colour_data, helper.colour_data, "{what}: colour data");
         assert_eq!(
-            plain.color_scale, helper.color_scale,
+            plain.colour_scale, helper.colour_scale,
             "{what}: colour scale"
         );
     }
@@ -762,16 +767,16 @@ fn the_helper_hands_out_each_series_for_styling_and_keeps_its_style_through_late
         let mut ax = fig.axes(0, 0);
         let mut bars = ax.bars([0.0, 1.0]);
         bars.series("A", [1.0, 2.0]);
-        bars.last().face_color(RED).edge_width(1.5);
+        bars.last().face_colour(RED).edge_width(1.5);
         bars.series("B", [2.0, 1.0]);
-        bars.get(1).face_color(GREY);
+        bars.get(1).face_colour(GREY);
         bars.series("C", [1.0, 1.0]);
         bars.ids()
     };
-    assert_eq!(bar(&fig, ids[0]).face, ColorSpec::Rgba { color: RED });
+    assert_eq!(bar(&fig, ids[0]).face, ColourSpec::Rgba { colour: RED });
     assert_eq!(bar(&fig, ids[0]).edge.width_pt, 1.5);
-    assert_eq!(bar(&fig, ids[1]).face, ColorSpec::Rgba { color: GREY });
-    assert_eq!(bar(&fig, ids[2]).face, ColorSpec::Auto);
+    assert_eq!(bar(&fig, ids[1]).face, ColourSpec::Rgba { colour: GREY });
+    assert_eq!(bar(&fig, ids[2]).face, ColourSpec::Auto);
     assert_close(
         pitch_fraction(&fig, ids[0]),
         0.55 / 3.0,

@@ -10,7 +10,7 @@ The figure model grew without one rule for structuring properties. A part was tu
 - a `visible` flag;
 - a noun used as a flag, such as `grid` and `box`;
 - other flags, such as `boxed` and `show_key`;
-- an "off" variant of an enumeration, such as `TickLabels::Hidden`, `DashStyle::None`, `MarkerShape::None` and `ColorSpec::None`;
+- an "off" variant of an enumeration, such as `TickLabels::Hidden`, `DashStyle::None`, `MarkerShape::None` and `ColourSpec::None`;
 - the absence of an optional value;
 - an empty list of ticks.
 

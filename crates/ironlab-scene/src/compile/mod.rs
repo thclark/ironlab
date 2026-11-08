@@ -6,14 +6,14 @@
 //!    it, and `data` resolves every artist's arrays, checks their shapes and colour scales, and reports invalid
 //!    artists.
 //! 2. `panel` prepares and measures the content of every panel (with `legend` for the entries of a legend and
-//!    `colorbar` for a colourbar), from which `layout` sizes the fitted rows and columns of the tile layout.
+//!    `colourbar` for a colourbar), from which `layout` sizes the fitted rows and columns of the tile layout.
 //! 3. `layout` divides the page into tile cells.
 //! 4. `limits` computes axis limits (over link groups) and ticks.
 //! 5. `decor` measures titles, labels and tick labels, from which `layout` derives each plot rectangle. When the
 //!    layout has fitted rows or columns, steps 3 to 5 are repeated with their sizes recomputed from the margins found,
 //!    until the sizes settle.
 //! 6. `axes2d`, `axes_polar`, `axes3d` and `axes_curved3d` draw each axes (two-dimensional Cartesian, polar,
-//!    three-dimensional Cartesian, and cylindrical or spherical), using `artists` for the data, `colorbar` for a colourbar inside the plot
+//!    three-dimensional Cartesian, and cylindrical or spherical), using `artists` for the data, `colourbar` for a colourbar inside the plot
 //!    area and `legend` for a legend inside it.
 //! 7. `layout` places the panels, and `panel` draws the content of each.
 //!
@@ -28,7 +28,7 @@ mod axes_curved3d;
 mod axes_polar;
 mod bars;
 mod cells;
-mod colorbar;
+mod colourbar;
 mod data;
 mod decor;
 mod image;
@@ -291,7 +291,7 @@ fn arrange(
 ///   stroke of a line drawn segment by segment keeps the dash array of the line, with a dash offset equal (modulo
 ///   the pattern) to its distance from the start of its run, so that the pattern runs on across segments and
 ///   pieces. The colour of a series is its line colour, which an automatic marker face or edge follows: with a
-///   colour-mapped line and one value per point, the colour of each point. A colormapped marker face or edge takes
+///   colour-mapped line and one value per point, the colour of each point. A colourmapped marker face or edge takes
 ///   its point's colour, and without colour data the colour of the series. A point whose colour value its scale
 ///   draws nothing for draws no marker and breaks the line, so neither segment that meets it is drawn. Size data
 ///   gives each marker its own diameter in points. A series that draws a line strokes its marker edges at its line
@@ -318,31 +318,31 @@ fn arrange(
 ///   because a backend that cannot draw a warped raster writes it as one path per pixel.
 /// - **Colour order.** Automatic colours are taken from the Okabe–Ito palette without black, starting at orange:
 ///   `#E69F00`, `#56B4E9`, `#009E73`, `#F0E442`, `#0072B2`, `#D55E00`, `#CC79A7`, after which the order repeats.
-///   Within each axes, every series and quiver whose primary colour, its `line.color`, is `ColorSpec::Auto` takes
+///   Within each axes, every series and quiver whose primary colour, its `line.colour`, is `ColourSpec::Auto` takes
 ///   the next entry, in the order in which the axes lists its artists and including hidden artists. Artists with an
-///   explicit or colormapped primary colour, and contour and surface artists, take no entry, with one exception: a
+///   explicit or colourmapped primary colour, and contour and surface artists, take no entry, with one exception: a
 ///   series whose line is colour-mapped by one value per segment and that draws markers with an automatic face or
 ///   edge takes the next entry as its own colour, in which those markers are drawn. A marker face or edge set to
-///   `ColorSpec::Auto` takes the resolved primary colour of its artist and takes no entry of its own.
+///   `ColourSpec::Auto` takes the resolved primary colour of its artist and takes no entry of its own.
 /// - **Colour scales.** Every artist maps numbers to colours through the colour scale it names, by one rule
-///   (`ResolvedScale::colour` in the `style` module): a continuous scale interpolates its colormap between its
-///   limits in linear or logarithmic space; a discrete scale gives band `i` of `k` the colormap colour at `i / (k − 1)`, a value on an
+///   (`ResolvedScale::colour` in the `style` module): a continuous scale interpolates its colourmap between its
+///   limits in linear or logarithmic space; a discrete scale gives band `i` of `k` the colourmap colour at `i / (k − 1)`, a value on an
 ///   inner edge belonging to the upper band; an indexed or categorical scale gives a whole number `i` entry `i`. A
-///   named colormap of 256 entries gives position `t` entry `min(⌊256 t⌋, 255)`, counted from its end when it is
-///   reversed, and a listed colormap is interpolated linearly in sRGB between its colours. A value the scale cannot
+///   named colourmap of 256 entries gives position `t` entry `min(⌊256 t⌋, 255)`, counted from its end when it is
+///   reversed, and a listed colourmap is interpolated linearly in sRGB between its colours. A value the scale cannot
 ///   place (below or above its range, outside its entries, or not finite) follows the policy of that category of the
 ///   scale, for every artist alike. Automatic limits are the exact range of the finite numbers (the positive ones
 ///   under a logarithmic norm) of every artist that names the scale, in every axes, hidden artists included, and
 ///   automatic band edges are the two limits with nice values between them. A scale whose limits, band edges or
-///   listed colormap cannot be used is drawn with automatic limits, ten automatic bands or viridis, and a warning
+///   listed colourmap cannot be used is drawn with automatic limits, ten automatic bands or viridis, and a warning
 ///   names it. An artist that maps numbers but names no colour scale, or names a node that is not one, and an
 ///   artist of which a number falls in a category whose policy is strict, is skipped with one warning naming it.
-/// - **Colormapped colours.** `ColorSpec::Auto` on the isolines of a contour and on the faces or edges of a surface
-///   means `ColorSpec::Colormapped`. A quiver whose colour is colormapped, and the colormapped line of a series
+/// - **Colourmapped colours.** `ColourSpec::Auto` on the isolines of a contour and on the faces or edges of a surface
+///   means `ColourSpec::Colourmapped`. A quiver whose colour is colourmapped, and the colourmapped line of a series
 ///   without colour data, has no number to map, so it takes the middle colour of viridis whatever scales the axes
 ///   uses; so does
-///   a colormapped contour or surface colour of an artist that names no usable scale. The isolines of a filled
-///   contour are drawn only when their colour is an explicit colour, because colormapped isolines would coincide
+///   a colourmapped contour or surface colour of an artist that names no usable scale. The isolines of a filled
+///   contour are drawn only when their colour is an explicit colour, because colourmapped isolines would coincide
 ///   with the band colours.
 /// - **Contour levels.** A contour without levels of its own takes them from its colour scale: the band edges of a
 ///   discrete scale, so that the contour agrees with the bands of the scale; the half-integers 0.5, 1.5, …, n − 1.5
@@ -361,7 +361,7 @@ fn arrange(
 ///   log axis is dropped and does not contribute to the limits. Automatic colour limits are the exact (unrounded)
 ///   range of the numbers mapped through each colour scale (see **Colour scales**); the components of true-colour
 ///   images are not such numbers.
-/// - **Surface colour.** A colormapped face takes the colour its scale gives the mean of its four corner colour
+/// - **Surface colour.** A colourmapped face takes the colour its scale gives the mean of its four corner colour
 ///   values (`c` when present, otherwise `z`), except through an indexed or categorical scale, where it takes the
 ///   value of its first corner (lower `i`, lower `j`), because the mean of indices is not an index. A face with a NaN
 ///   corner is not drawn.
@@ -500,7 +500,7 @@ fn arrange(
 ///   rectangle per band, as long as the range of values it holds in the space of the norm; a categorical scale is one
 ///   square per category, filled with its colour and outlined in black, from category 0 at the top of a standing key
 ///   and the left of a lying one. Image samples run from row 0 at the top, so the low end is always the bottom of a
-///   standing bar and the left of a lying one, whether or not the colormap is reversed. A bar is outlined as an axes
+///   standing bar and the left of a lying one, whether or not the colourmap is reversed. A bar is outlined as an axes
 ///   box is and its ends are flat; no out-of-range colour is drawn at an end. Its ticks are those of an axis built
 ///   from the scale's limits (the first and last band edges of a discrete scale, and the entries −0.5 to n − 0.5 of an
 ///   indexed scale, so that entry `k` is ticked at the centre of its block), ticks and tick labels, measured as an
@@ -526,12 +526,12 @@ fn arrange(
 ///   cell of that row needs; the title of the panel lies above both. In a fitted track, a panel colourbar takes its
 ///   thickness, ticks, labels and titles across its length, whatever its length. An inside colourbar lies along its
 ///   edge of the plot area, inset by one margin on every side, its bar and keys together `length` of the edge and
-///   centred along it (a categorical key its own length), its labels toward the interior and kept within the plot
+///   centred along it (a categorical key its own length), its labels towards the interior and kept within the plot
 ///   area along the bar; a title along it lies beyond its labels, and a title above heads the top end of a standing
 ///   bar and lies on the side of a lying bar away from its labels. It takes no margin, so the plot area is the same
 ///   with or without it. A colourbar whose
 ///   scale reference names no colour scale is not drawn, with one warning naming its holder. The hit map records
-///   every colourbar drawn as a [`crate::hit::ColorbarHit`].
+///   every colourbar drawn as a [`crate::hit::ColourbarHit`].
 /// - **Warnings.** A warning names the node that owns the offending data or text: the artist for invalid or dropped
 ///   data, for data that gives it nothing to draw, for a placement or plane that cannot be drawn, for a pixel a
 ///   strict policy refuses and for its label, the axes for its title and axis labels, and the figure for its

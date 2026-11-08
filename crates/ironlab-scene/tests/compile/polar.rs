@@ -14,7 +14,7 @@
 use std::f64::consts::{PI, TAU};
 
 use ironlab_ir::{
-    AngleUnits, BarWidth, CellEdges, CellGap, Color, ColorScaleKind, IndexedColorScale, Limits,
+    AngleUnits, BarWidth, CellEdges, CellGap, Colour, ColourScaleKind, IndexedColourScale, Limits,
     NodeId, Orientation, PerBar, PolarView, Projection, Scale,
 };
 use ironlab_scene::Scene;
@@ -33,8 +33,8 @@ const TOL: f64 = 1e-6;
 /// the sagitta of each chord.
 const CHORD: f64 = 0.05;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Probes
@@ -155,14 +155,14 @@ fn filled_outlines(scene: &Scene, id: NodeId) -> Vec<Vec<Point>> {
         .collect()
 }
 
-/// Returns the outlines that `id` filled with `color`.
-fn filled_in(scene: &Scene, id: NodeId, color: Color) -> Vec<Vec<Point>> {
+/// Returns the outlines that `id` filled with `colour`.
+fn filled_in(scene: &Scene, id: NodeId, colour: Colour) -> Vec<Vec<Point>> {
     from_source(&leaves(scene), id)
         .iter()
         .filter(|l| {
             l.path()
                 .and_then(|p| p.fill)
-                .is_some_and(|f| rgb8(f.color) == rgb8(rgba(color)))
+                .is_some_and(|f| rgb8(f.colour) == rgb8(rgba(colour)))
         })
         .flat_map(Leaf::subpaths)
         .collect()
@@ -1212,9 +1212,9 @@ fn a_cartesian_step_hit_is_the_two_ends_of_its_run() {
 fn two_cells(gap: CellGap) -> (Scene, NodeId, NodeId) {
     let mut fx = Fx::new();
     let ax = polar_axes(&mut fx, PolarView::default());
-    let scale = fx.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![RED, BLUE],
-        ..IndexedColorScale::default()
+    let scale = fx.colour_scale(ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![RED, BLUE],
+        ..IndexedColourScale::default()
     }));
     let cells = fx.cells(ax, vec![1, 2], vec![0.0, 1.0], Some(scale), |c, fx| {
         c.columns = CellEdges::Edges(fx.vector(&[0.0, 90.0, 180.0]));
@@ -1233,8 +1233,8 @@ fn each_cell_is_an_annular_sector_between_its_edges() {
     let (scene, ax, cells) = two_cells(CellGap::default());
     assert!(scene.warnings.is_empty(), "{:?}", scene.warnings);
     let frame = full_circle(&scene, ax, 0.0);
-    for (color, a0, a1) in [(RED, 0.0, 90.0), (BLUE, 90.0, 180.0)] {
-        let outlines = filled_in(&scene, cells, color);
+    for (colour, a0, a1) in [(RED, 0.0, 90.0), (BLUE, 90.0, 180.0)] {
+        let outlines = filled_in(&scene, cells, colour);
         assert_eq!(outlines.len(), 1, "one outline per cell");
         assert_annular_sector(
             &frame,
@@ -1303,9 +1303,9 @@ fn the_gap_of_a_cell_is_applied_to_its_angle_and_its_radius() {
 fn a_cartesian_cell_keeps_its_rectangle_as_its_hit_area() {
     let mut fx = Fx::new();
     let ax = fx.axes2d(0, 0);
-    let scale = fx.color_scale(ColorScaleKind::Indexed(IndexedColorScale {
-        colors: vec![RED, BLUE],
-        ..IndexedColorScale::default()
+    let scale = fx.colour_scale(ColourScaleKind::Indexed(IndexedColourScale {
+        colours: vec![RED, BLUE],
+        ..IndexedColourScale::default()
     }));
     let cells = fx.cells(ax, vec![1, 2], vec![0.0, 1.0], Some(scale), |c, _| {
         c.gap = CellGap { x: 0.2, y: 0.5 };

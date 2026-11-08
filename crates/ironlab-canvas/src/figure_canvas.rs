@@ -30,7 +30,7 @@ use ironlab_text::TextEngine;
 use crate::canvas::{MAX_TILE_SIDE, Resolution, ScreenTransform, premultiplied, tessellate};
 use crate::gpu::DrawList;
 use crate::interaction::{
-    BarDatatip, BinReading, CellDatatip, ColorbarReading, ColorbarTip, Datatip, FigureState,
+    BarDatatip, BinReading, CellDatatip, ColourbarReading, ColourbarTip, Datatip, FigureState,
     PixelDatatip, PixelValue, StepDatatip, Tip, Tool,
 };
 use crate::problems::Problem;
@@ -96,8 +96,8 @@ pub fn datatip_text(tip: &Datatip) -> String {
     if let Some(z) = tip.z {
         lines.push(format!("z = {}", datatip_value(z)));
     }
-    if let Some(color) = tip.color {
-        lines.push(format!("c = {}", datatip_value(color)));
+    if let Some(colour) = tip.colour {
+        lines.push(format!("c = {}", datatip_value(colour)));
     }
     lines.push(format!("index {}", tip.index));
     lines.join("\n")
@@ -241,23 +241,25 @@ fn push_bin(lines: &mut Vec<String>, bin: Option<BinReading>) {
 /// as a pixel of a categorical image reads; and a key its label alone, which is the whole statement of what it stands
 /// for.
 #[must_use]
-pub fn colorbar_tip_text(tip: &ColorbarTip) -> String {
+pub fn colourbar_tip_text(tip: &ColourbarTip) -> String {
     let mut lines = Vec::new();
     if let Some(title) = &tip.title {
         lines.push(title.clone());
     }
     lines.push(match &tip.reading {
-        ColorbarReading::Value(value) => format!("value = {}", datatip_value(*value)),
-        ColorbarReading::Band { low, high } => {
+        ColourbarReading::Value(value) => format!("value = {}", datatip_value(*value)),
+        ColourbarReading::Band { low, high } => {
             format!("band = {} – {}", datatip_value(*low), datatip_value(*high))
         }
-        ColorbarReading::Entry {
+        ColourbarReading::Entry {
             index,
             label: Some(label),
         } => format!("entry = {label} (index {index})"),
-        ColorbarReading::Entry { index, label: None } => format!("index = {index}"),
-        ColorbarReading::Category { index, label } => format!("category = {label} (index {index})"),
-        ColorbarReading::Key { label, .. } => label.clone(),
+        ColourbarReading::Entry { index, label: None } => format!("index = {index}"),
+        ColourbarReading::Category { index, label } => {
+            format!("category = {label} (index {index})")
+        }
+        ColourbarReading::Key { label, .. } => label.clone(),
     });
     lines.join("\n")
 }
@@ -708,9 +710,9 @@ impl FigureCanvas {
                 marker: ring(tip.position),
                 text: step_datatip_text(&tip),
             },
-            Tip::Colorbar(tip) => Callout {
+            Tip::Colourbar(tip) => Callout {
                 marker: tip.piece.map_or_else(|| ring(tip.position), outline),
-                text: colorbar_tip_text(&tip),
+                text: colourbar_tip_text(&tip),
             },
         })
     }

@@ -5,11 +5,11 @@
 //! cells. Each test therefore draws a scalar image through the same scale beside the cells and compares the two
 //! samples colour for colour, so that the expectation is the behaviour the reader already knows from images rather
 //! than a second account of the sweep. The samples are found as the items of a legend panel drawn left of the label
-//! of their entry, as in `legend_color_keys`.
+//! of their entry, as in `legend_colour_keys`.
 
 use ironlab_ir::{
-    CategoricalColorScale, Color, ColorCategory, ColorScaleKind, ColorScaleLevels, Colormap,
-    ContinuousColorScale, DiscreteColorScale, LegendEntryColumns, LegendEntryLayout,
+    CategoricalColourScale, Colour, ColourCategory, ColourScaleKind, ColourScaleLevels, Colourmap,
+    ContinuousColourScale, DiscreteColourScale, LegendEntryColumns, LegendEntryLayout,
     LegendEntryOrder, Limits, NodeId, OutOfRange, Text,
 };
 use ironlab_scene::Scene;
@@ -18,9 +18,9 @@ use ironlab_scene::display::{Point, Rect, Rgba};
 use crate::common::{Fx, cell, compile_figure, out_of_range, rgb8, text, xy};
 use crate::probe::{ImageRect, Leaf, from_source, leaves, pixel, runs_with_text, text_bbox, union};
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 0.6, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 0.6, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Fixtures and probes
@@ -30,7 +30,7 @@ const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
 /// scalar image labelled "Image", both mapped through one scale of `kind` and holding `values` (a 1 × n row), each
 /// edited by its own closure. Returns the compiled scene and the panel.
 fn keyed_beside_an_image(
-    kind: ColorScaleKind,
+    kind: ColourScaleKind,
     values: Vec<f64>,
     edit_cells: impl FnOnce(&mut ironlab_ir::Cells, &mut Fx),
     edit_image: impl FnOnce(&mut ironlab_ir::ScalarImage),
@@ -44,7 +44,7 @@ fn keyed_beside_an_image(
         order: LegendEntryOrder::ColumnMajor,
     };
     fx.legend_in(ax, panel);
-    let scale = fx.color_scale(kind);
+    let scale = fx.colour_scale(kind);
     let n = values.len();
     fx.cells(ax, vec![1, n], values.clone(), Some(scale), |c, fx| {
         c.label = text("Cells");
@@ -113,7 +113,7 @@ fn fill_under(leaves: &[Leaf], p: Point) -> Option<Rgba> {
             ));
         }
         let fill = l.path()?.fill?;
-        l.bbox().filter(|b| b.contains(p)).map(|_| fill.color)
+        l.bbox().filter(|b| b.contains(p)).map(|_| fill.colour)
     })
 }
 
@@ -163,12 +163,12 @@ fn assert_keyed_alike(scene: &Scene, panel: NodeId, fractions: &[f64], what: &st
 // discrete one, and the entries side by side for a categorical one.
 #[test]
 fn the_sample_of_cells_is_the_sweep_of_their_scale_as_for_a_scalar_image() {
-    let continuous = ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, BLUE],
+    let continuous = ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     });
     let (scene, panel) = keyed_beside_an_image(continuous, vec![0.2, 0.8], |_, _| {}, |_| {});
     let (left, right) = (
@@ -182,23 +182,23 @@ fn the_sample_of_cells_is_the_sweep_of_their_scale_as_for_a_scalar_image() {
     );
     assert_keyed_alike(&scene, panel, &[0.08, 0.3, 0.5, 0.7, 0.92], "continuous");
 
-    let banded = ColorScaleKind::Discrete(DiscreteColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, BLUE],
+    let banded = ColourScaleKind::Discrete(DiscreteColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
-        levels: ColorScaleLevels::Explicit {
+        levels: ColourScaleLevels::Explicit {
             values: vec![0.0, 1.0, 2.0, 3.0],
         },
-        ..DiscreteColorScale::default()
+        ..DiscreteColourScale::default()
     });
     let (scene, panel) = keyed_beside_an_image(banded, vec![0.5, 2.5], |_, _| {}, |_| {});
     assert_keyed_alike(&scene, panel, &[1.0 / 6.0, 0.5, 5.0 / 6.0], "discrete");
 
-    let categorical = ColorScaleKind::Categorical(CategoricalColorScale {
+    let categorical = ColourScaleKind::Categorical(CategoricalColourScale {
         categories: [(RED, "taken"), (GREEN, "not taken"), (BLUE, "unreachable")]
             .into_iter()
-            .map(|(color, label)| ColorCategory {
-                color,
+            .map(|(colour, label)| ColourCategory {
+                colour,
                 label: Text::plain(label),
             })
             .collect(),
@@ -213,12 +213,12 @@ fn the_sample_of_cells_is_the_sweep_of_their_scale_as_for_a_scalar_image() {
 // carry into the key, as the alpha of an image does not.
 #[test]
 fn the_face_opacity_of_cells_carries_into_their_sample_but_their_alpha_does_not() {
-    let kind = ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, BLUE],
+    let kind = ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, BLUE],
         },
         limits: Limits::Manual { min: 0.0, max: 1.0 },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     });
     let (scene, panel) = keyed_beside_an_image(
         kind,

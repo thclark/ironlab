@@ -113,11 +113,11 @@ fn without_depth(list: &DisplayList) -> DisplayList {
 }
 
 /// A filled rectangle at a constant depth, as every path inside a depth group carries one.
-fn deep_rect(r: Rect, color: Rgba, depth: f64) -> Item {
+fn deep_rect(r: Rect, colour: Rgba, depth: f64) -> Item {
     item(ItemKind::Path(PathItem {
         segments: rect_segments(r),
         fill: Some(Fill {
-            color,
+            colour,
             rule: FillRule::NonZero,
         }),
         stroke: None,
@@ -212,12 +212,12 @@ fn assert_drawn_in_order_as_vectors(pdf: &Path, what: &str) {
     );
 }
 
-/// A flat image of `width` by `height` pixels of `color`.
-fn flat(width: u32, height: u32, color: [u8; 4]) -> RasterImage {
+/// A flat image of `width` by `height` pixels of `colour`.
+fn flat(width: u32, height: u32, colour: [u8; 4]) -> RasterImage {
     RasterImage {
         width,
         height,
-        rgba: color
+        rgba: colour
             .iter()
             .copied()
             .cycle()
@@ -226,16 +226,16 @@ fn flat(width: u32, height: u32, color: [u8; 4]) -> RasterImage {
     }
 }
 
-/// The image with the pixels at each `(column, row)` of `at` painted `color`.
+/// The image with the pixels at each `(column, row)` of `at` painted `colour`.
 fn with_pixels(
     image: &RasterImage,
     at: impl IntoIterator<Item = (u32, u32)>,
-    color: [u8; 4],
+    colour: [u8; 4],
 ) -> RasterImage {
     let mut painted = image.clone();
     for (x, y) in at {
         let start = (y * image.width + x) as usize * 4;
-        painted.rgba[start..start + 4].copy_from_slice(&color);
+        painted.rgba[start..start + 4].copy_from_slice(&colour);
     }
     painted
 }

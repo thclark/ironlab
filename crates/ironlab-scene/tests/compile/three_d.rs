@@ -1,13 +1,13 @@
 //! Three-dimensional axes: surfaces, painter's ordering, 3D artists and box decorations.
 
 use ironlab_ir::{
-    Color, ColorSpec, ContourPlacement, Levels, Limits, NodeId, Scale, TickLabels, View3d,
+    Colour, ColourSpec, ContourPlacement, Levels, Limits, NodeId, Scale, TickLabels, View3d,
 };
 use ironlab_scene::Scene;
 use ironlab_scene::display::Point;
 use ironlab_scene::hit::AxesHitKind;
 use ironlab_scene::maths::camera::{Camera, normalise_box};
-use ironlab_scene::maths::colormap::{VIRIDIS, normalise};
+use ironlab_scene::maths::colourmap::{VIRIDIS, normalise};
 
 use crate::common::{Fx, compile_figure, linspace, nearest_lut_index, rgb8, rgb8_close};
 use crate::probe::{
@@ -171,8 +171,8 @@ fn surface_draws_one_face_per_grid_cell() {
     assert_eq!(axes_hit(&scene, ax).kind, AxesHitKind::ThreeD);
 }
 
-// Why: `surf` colours each flat face through the colormap by its height and outlines it in black
-// (MATLAB `shading faceted`). The flat colour of a face is the colormap sample of the mean of its four
+// Why: `surf` colours each flat face through the colourmap by its height and outlines it in black
+// (MATLAB `shading faceted`). The flat colour of a face is the colourmap sample of the mean of its four
 // corner heights, scaled by automatic colour limits equal to the height range, so a face's colour
 // represents the whole face rather than one arbitrary corner.
 #[test]
@@ -191,7 +191,7 @@ fn surface_faces_take_the_colour_of_their_mean_height_with_black_edges() {
     let cmax = nodes.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let order = painted_face_order(&scene, surf, camera);
     for (painted, data_face) in order.iter().enumerate() {
-        let colour = faces[painted].path().unwrap().fill.unwrap().color;
+        let colour = faces[painted].path().unwrap().fill.unwrap().colour;
         assert!(
             VIRIDIS.iter().any(|v| rgb8_close(*v, rgb8(colour))),
             "{colour:?} is a viridis colour"
@@ -202,7 +202,7 @@ fn surface_faces_take_the_colour_of_their_mean_height_with_black_edges() {
         let actual = nearest_lut_index(&VIRIDIS, colour);
         assert!(
             actual.abs_diff(expected) <= 1,
-            "face {data_face} with mean height {mean} has colormap entry {actual}, expected {expected}"
+            "face {data_face} with mean height {mean} has colourmap entry {actual}, expected {expected}"
         );
     }
 
@@ -221,21 +221,21 @@ fn surface_faces_take_the_colour_of_their_mean_height_with_black_edges() {
     assert!(
         rings
             .iter()
-            .all(|r| rgb8(r.path().unwrap().fill.unwrap().color) == [0, 0, 0])
-            && strokes.iter().all(|s| rgb8(s.color) == [0, 0, 0]),
+            .all(|r| rgb8(r.path().unwrap().fill.unwrap().colour) == [0, 0, 0])
+            && strokes.iter().all(|s| rgb8(s.colour) == [0, 0, 0]),
         "edges are black"
     );
 }
 
 // Why: `mesh` is a wireframe: faces painted in the background colour (hiding what is behind them)
-// with edges coloured through the colormap.
+// with edges coloured through the colourmap.
 #[test]
-fn mesh_faces_take_background_and_edges_are_colormapped() {
+fn mesh_faces_take_background_and_edges_are_colourmapped() {
     let (fx, _, surf) = surface_axes(View3d::default(), |s| {
-        s.face = ColorSpec::Rgba {
-            color: Color::WHITE,
+        s.face = ColourSpec::Rgba {
+            colour: Colour::WHITE,
         };
-        s.edge = ColorSpec::Colormapped;
+        s.edge = ColourSpec::Colourmapped;
     });
     let scene = compile_figure(&fx.build());
     let leaves = leaves(&scene);
@@ -244,11 +244,11 @@ fn mesh_faces_take_background_and_edges_are_colormapped() {
     assert!(
         faces
             .iter()
-            .all(|f| rgb8(f.path().unwrap().fill.unwrap().color) == [255, 255, 255])
+            .all(|f| rgb8(f.path().unwrap().fill.unwrap().colour) == [255, 255, 255])
     );
     let mut edge_colours: Vec<[u8; 3]> = edge_rings(&leaves, surf)
         .iter()
-        .map(|l| rgb8(l.path().unwrap().fill.unwrap().color))
+        .map(|l| rgb8(l.path().unwrap().fill.unwrap().colour))
         .collect();
     assert!(
         edge_colours

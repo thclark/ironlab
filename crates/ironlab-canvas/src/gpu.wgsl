@@ -88,13 +88,13 @@ struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) z: f32,
     @location(2) uv: vec2<f32>,
-    @location(3) color: vec4<f32>,
+    @location(3) colour: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) color: vec4<f32>,
+    @location(1) colour: vec4<f32>,
     // The position in figure points, which the sector test reads.
     @location(2) figure: vec2<f32>,
 };
@@ -104,7 +104,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.clip_position = clip_of(in.position, in.z);
     out.uv = in.uv;
-    out.color = in.color;
+    out.colour = in.colour;
     out.figure = in.position;
     return out;
 }
@@ -114,15 +114,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // The vertex colour and the texture both hold premultiplied colour in gamma space, as egui's do, so their
     // product is the premultiplied gamma-space output that the blend state expects. Scaling premultiplied colour by
     // the sector's coverage fades it as a whole.
-    let color = in.color * textureSample(texture, texture_sampler, in.uv);
+    let colour = in.colour * textureSample(texture, texture_sampler, in.uv);
     if sector.enabled != 0u {
         let coverage = sector_coverage(in.figure);
         if coverage <= 0.0 {
             discard;
         }
-        return color * coverage;
+        return colour * coverage;
     }
-    return color;
+    return colour;
 }
 
 // One triangle covering the whole target at the far plane, drawn with depth writes and no colour writes, clears
@@ -146,7 +146,7 @@ struct StrokeParams {
     linear: vec4<f32>,
     offset: vec4<f32>,
     // Premultiplied sRGB colour.
-    color: vec4<f32>,
+    colour: vec4<f32>,
     // The width in item units, or 0 for one screen point.
     width: f32,
     // 0 butt, 1 round, 2 square.
@@ -604,7 +604,7 @@ fn fs_stroke(in: StrokeOutput) -> @location(0) vec4<f32> {
     if coverage <= 0.0 {
         discard;
     }
-    return stroke.color * coverage;
+    return stroke.colour * coverage;
 }
 
 // ---- Markers ----
@@ -613,7 +613,7 @@ struct MarkerVertexInput {
     @location(0) pos: vec2<f32>,
     @location(1) offset: vec2<f32>,
     @location(2) slot: u32,
-    @location(3) center: vec2<f32>,
+    @location(3) centre: vec2<f32>,
     @location(4) z: f32,
     @location(5) size: f32,
     @location(6) face: vec4<f32>,
@@ -622,7 +622,7 @@ struct MarkerVertexInput {
 
 struct MarkerOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
+    @location(0) colour: vec4<f32>,
     // The position in figure points, which the sector test reads.
     @location(1) figure: vec2<f32>,
 };
@@ -632,7 +632,7 @@ struct MarkerOutput {
 @vertex
 fn vs_marker(in: MarkerVertexInput) -> MarkerOutput {
     var out: MarkerOutput;
-    let item = in.center + in.size * in.pos + in.offset;
+    let item = in.centre + in.size * in.pos + in.offset;
     var z = in.z;
     if stroke.vertex_z == 0u {
         z = 0.0;
@@ -640,7 +640,7 @@ fn vs_marker(in: MarkerVertexInput) -> MarkerOutput {
     let figure = item_to_figure(item);
     out.clip_position = clip_of(figure, z);
     out.figure = figure;
-    out.color = select(in.face, in.edge, in.slot == 1u);
+    out.colour = select(in.face, in.edge, in.slot == 1u);
     return out;
 }
 
@@ -651,7 +651,7 @@ fn fs_marker(in: MarkerOutput) -> @location(0) vec4<f32> {
         if coverage <= 0.0 {
             discard;
         }
-        return in.color * coverage;
+        return in.colour * coverage;
     }
-    return in.color;
+    return in.colour;
 }

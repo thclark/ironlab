@@ -26,12 +26,12 @@ const FILES: [(&str, &[(&str, usize)]); 3] = [
 ];
 
 /// The statuses of a branch, in the order of the categories of the scale.
-const STATUSES: [(Color, &str); 5] = [
-    (Color::rgb(0.00, 0.60, 0.45), "taken by the finite set"),
-    (Color::rgb(0.34, 0.71, 0.91), "taken by the non-finite set"),
-    (Color::rgb(0.90, 0.62, 0.00), "taken only in pathological cases"),
-    (Color::rgb(0.70, 0.70, 0.70), "not reachable"),
-    (Color::rgb(0.84, 0.37, 0.00), "not taken"),
+const STATUSES: [(Colour, &str); 5] = [
+    (Colour::rgb(0.00, 0.60, 0.45), "taken by the finite set"),
+    (Colour::rgb(0.34, 0.71, 0.91), "taken by the non-finite set"),
+    (Colour::rgb(0.90, 0.62, 0.00), "taken only in pathological cases"),
+    (Colour::rgb(0.70, 0.70, 0.70), "not reachable"),
+    (Colour::rgb(0.84, 0.37, 0.00), "not taken"),
 ];
 
 /// A small deterministic generator, so that the statuses are the same on every run.
@@ -85,7 +85,7 @@ pub fn figure() -> Figure {
         .fit_row(1)
         .title("Branch coverage of a panel-method code")
         .tag("cells")
-        .tag("color-scale")
+        .tag("colour-scale")
         .tag("categorical")
         .tag("aspect")
         .tag("simulations")
@@ -108,7 +108,7 @@ pub fn figure() -> Figure {
             .collect();
         (*file, names)
     }));
-    ax.occupancy(rows.place(&branches)).color_scale(status);
+    ax.occupancy(rows.place(&branches)).colour_scale(status);
     ax.aspect(Aspect::Equal);
 
     fig.panel(1, 0)

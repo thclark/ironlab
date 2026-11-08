@@ -39,14 +39,14 @@ fn code(elevation: f64) -> u8 {
 
 /// Returns `count` colours interpolated linearly between the given colours, which are evenly spaced along the ramp,
 /// from the first colour to the last.
-fn ramp(colors: &[Color], count: usize) -> Vec<Color> {
-    let last = colors.len() - 1;
+fn ramp(colours: &[Colour], count: usize) -> Vec<Colour> {
+    let last = colours.len() - 1;
     (0..count)
         .map(|k| {
             let position = k as f32 / (count - 1) as f32 * last as f32;
             let i = (position.floor() as usize).min(last - 1);
-            let (a, b, f) = (colors[i], colors[i + 1], position - i as f32);
-            Color::rgb(a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f, a.b + (b.b - a.b) * f)
+            let (a, b, f) = (colours[i], colours[i + 1], position - i as f32);
+            Colour::rgb(a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f, a.b + (b.b - a.b) * f)
         })
         .collect()
 }
@@ -57,16 +57,16 @@ pub fn figure() -> Figure {
     let codes = ByteMatrix::from_fn(ROWS, COLUMNS, |row, col| code(elevation(x[col], y[row])));
 
     // The palette: 64 blues for water, 128 greens and browns for land and 64 greys for ice.
-    let mut palette = ramp(&[Color::rgb(0.05, 0.15, 0.40), Color::rgb(0.55, 0.78, 0.92)], 64);
+    let mut palette = ramp(&[Colour::rgb(0.05, 0.15, 0.40), Colour::rgb(0.55, 0.78, 0.92)], 64);
     palette.extend(ramp(
         &[
-            Color::rgb(0.25, 0.55, 0.25),
-            Color::rgb(0.75, 0.75, 0.45),
-            Color::rgb(0.55, 0.40, 0.25),
+            Colour::rgb(0.25, 0.55, 0.25),
+            Colour::rgb(0.75, 0.75, 0.45),
+            Colour::rgb(0.55, 0.40, 0.25),
         ],
         128,
     ));
-    palette.extend(ramp(&[Color::rgb(0.78, 0.80, 0.82), Color::WHITE], 64));
+    palette.extend(ramp(&[Colour::rgb(0.78, 0.80, 0.82), Colour::WHITE], 64));
 
     let mut fig = Figure::new()
         .size_mm(160.0, 95.0)
@@ -74,8 +74,8 @@ pub fn figure() -> Figure {
         .fit_col(1)
         .title("An 8-bit elevation raster and its palette")
         .tag("image")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .tag("aspect")
         .tag("map")
         .parameter("dimensionality", "2D")
@@ -92,12 +92,12 @@ pub fn figure() -> Figure {
     ax.scalar_image(&codes)
         .pixel_columns(x[0], x[COLUMNS - 1])
         .pixel_rows(y[0], y[ROWS - 1])
-        .color_scale(terrain);
+        .colour_scale(terrain);
     ax.xlabel("Distance east (km)")
         .ylabel("Distance north (km)")
         .aspect(Aspect::Equal);
     fig.panel(0, 1)
-        .colorbar(terrain)
-        .title_placement(ColorbarTitlePlacement::Above);
+        .colourbar(terrain)
+        .title_placement(ColourbarTitlePlacement::Above);
     fig
 }

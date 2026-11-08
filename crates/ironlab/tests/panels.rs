@@ -16,7 +16,7 @@
 //!   `custom_item`, `collect_all` and `id`), without `align`, which is now the panel's.
 //!   The `id` of that handle is the identifier of the panel.
 //! - A panel created without a call to `legend` holds a default legend, because a legend is
-//!   the only content a panel has in this stage; `legend` (and `colorbar` in stage 4)
+//!   the only content a panel has in this stage; `legend` (and `colourbar` in stage 4)
 //!   replaces content of another kind and keeps content of its own kind.
 //! - `PanelLocation` is exported by the prelude, as `LegendLocation` is.
 
@@ -60,7 +60,7 @@ fn panel_span_legend_creates_a_legend_panel_in_its_cells_with_the_panel_defaults
             col_span: 2
         }
     );
-    assert_eq!(p.align, PanelLocation::Center);
+    assert_eq!(p.align, PanelLocation::Centre);
     let l = legend(&fig, id);
     assert!(l.boxed);
     assert_eq!(l.layout.columns, LegendEntryColumns::Auto);
@@ -175,7 +175,7 @@ fn legend_item_setters_build_an_explicit_list_in_call_order() {
     let mut ax = fig.axes(0, 0);
     let member = ax.plot(&x, &x).label("Member").id();
     let base = ax.plot(&x, &x).label("Base").id();
-    let swatch = LegendSample::swatch(Color::rgb(0.9, 0.6, 0.0));
+    let swatch = LegendSample::swatch(Colour::rgb(0.9, 0.6, 0.0));
     let key = fig
         .panel(1, 0)
         .legend()

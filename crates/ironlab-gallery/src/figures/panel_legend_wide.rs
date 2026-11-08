@@ -48,18 +48,18 @@ pub fn figure() -> Figure {
 
     for (k, &zeta) in DAMPING_RATIOS.iter().enumerate() {
         // The lightly damped responses are red and the heavily damped ones violet.
-        let color = hsl_to_rgb(0.75 * k as f64 / 11.0, 0.7, 0.45);
+        let colour = hsl_to_rgb(0.75 * k as f64 / 11.0, 0.7, 0.45);
         let name = format!(r"$\zeta = {zeta}$");
         let response: Vec<f64> = t.iter().map(|&t| step_response(t, zeta)).collect();
         let gain: Vec<f64> = omega.iter().map(|&omega| gain_db(omega, zeta)).collect();
         fig.axes(0, 0)
             .plot(&t, &response)
             .label(name.as_str())
-            .color(color);
+            .colour(colour);
         fig.axes(0, 1)
             .semilogx(&omega, &gain)
             .label(name.as_str())
-            .color(color);
+            .colour(colour);
     }
 
     fig.axes(0, 0)

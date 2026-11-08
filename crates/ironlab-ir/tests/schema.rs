@@ -299,19 +299,19 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
             ][..],
         ),
         (
-            "color_scale.schema.json",
+            "colour_scale.schema.json",
             &[
-                "ColorScale",
-                "ColorScaleKind",
-                "ColorScaleOutOfRange",
-                "ContinuousColorScale",
-                "DiscreteColorScale",
-                "IndexedColorScale",
-                "CategoricalColorScale",
-                "ColorCategory",
-                "Colormap",
-                "ColorScaleNorm",
-                "ColorScaleLevels",
+                "ColourScale",
+                "ColourScaleKind",
+                "ColourScaleOutOfRange",
+                "ContinuousColourScale",
+                "DiscreteColourScale",
+                "IndexedColourScale",
+                "CategoricalColourScale",
+                "ColourCategory",
+                "Colourmap",
+                "ColourScaleNorm",
+                "ColourScaleLevels",
                 "OutOfRange",
             ][..],
         ),
@@ -366,12 +366,12 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
         ),
         ("Artist", &["image", "scalar_image"][..]),
         (
-            "ColorScaleKind",
+            "ColourScaleKind",
             &["continuous", "discrete", "indexed", "categorical"][..],
         ),
-        ("Colormap", &["named", "listed"][..]),
-        ("ColorScaleLevels", &["auto", "explicit"][..]),
-        ("ColorScaleNorm", &["linear", "log"][..]),
+        ("Colourmap", &["named", "listed"][..]),
+        ("ColourScaleLevels", &["auto", "explicit"][..]),
+        ("ColourScaleNorm", &["linear", "log"][..]),
     ] {
         let allowed = strings_under(name);
         for variant in variants {
@@ -563,7 +563,7 @@ fn the_binning_record_is_described_but_not_required_and_bar_groups_are_gone() {
 fn the_opacities_of_bars_stairs_and_cells_are_described_but_not_required() {
     let schema = ironlab_ir::json_schema();
     for (name, opacities, gone) in [
-        ("Bar", &["face_opacity", "edge_opacity"][..], "colors"),
+        ("Bar", &["face_opacity", "edge_opacity"][..], "colours"),
         ("Stairs", &["line_opacity", "fill_opacity"][..], "opacity"),
         ("Cells", &["face_opacity", "edge_opacity"][..], "opacity"),
     ] {
@@ -881,7 +881,7 @@ fn every_omittable_property_states_its_default() {
     );
 }
 
-// Why: a misspelt key in a hand-written figure (such as `colour_scale` for `color_scale`)
+// Why: a misspelt key in a hand-written figure (such as `colour_scale` for `colour_scale`)
 // would otherwise validate against the schema and then be silently ignored, leaving the
 // author puzzled about why the figure looks wrong. Every object schema therefore states
 // `"additionalProperties": false`, or `"unevaluatedProperties": false` for an object

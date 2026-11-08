@@ -34,8 +34,8 @@ pub fn figure() -> Figure {
         .title("Bathymetry around a volcanic island")
         .tag("image")
         .tag("contour")
-        .tag("color-scale")
-        .tag("colorbar")
+        .tag("colour-scale")
+        .tag("colourbar")
         .tag("out-of-range")
         .tag("aspect")
         .tag("map")
@@ -45,11 +45,11 @@ pub fn figure() -> Figure {
         .parameter("has_legend", false);
     let z = fig.data("elevation (m)", z).id();
     let depth = fig
-        .color_scale()
-        .colormap(Colormap::Cividis)
+        .colour_scale()
+        .colourmap(Colourmap::Cividis)
         .limits(-4000.0, 0.0)
-        .above(Color::rgb(0.55, 0.42, 0.28))
-        .key_label(ColorScaleKey::Above, "Land")
+        .above(Colour::rgb(0.55, 0.42, 0.28))
+        .key_label(ColourScaleKey::Above, "Land")
         .tick_step(1000.0)
         .title("Elevation (m)")
         .id();
@@ -58,12 +58,12 @@ pub fn figure() -> Figure {
     ax.scalar_image(z)
         .pixel_columns(x[0], x[COLUMNS - 1])
         .pixel_rows(y[0], y[ROWS - 1])
-        .color_scale(depth);
+        .colour_scale(depth);
     ax.contour(&x, &y, z)
         .level_values([0.0])
-        .color(Color::BLACK)
+        .colour(Colour::BLACK)
         .line_width(0.75);
-    ax.colorbar(depth, InsideColorbarSide::East).length(0.7);
+    ax.colourbar(depth, InsideColourbarSide::East).length(0.7);
     ax.xlabel("Distance east (km)")
         .ylabel("Distance north (km)")
         .aspect(Aspect::Equal);

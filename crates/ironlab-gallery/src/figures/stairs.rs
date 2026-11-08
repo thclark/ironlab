@@ -88,13 +88,13 @@ pub fn figure() -> Figure {
     ax.stairs(&edges, BANDS.map(|b| b.1))
         .label("Pump")
         .base(0.0)
-        .fill(Color::rgb(0.55, 0.70, 0.88))
-        .color(Color::rgb(0.10, 0.30, 0.60))
+        .fill(Colour::rgb(0.55, 0.70, 0.88))
+        .colour(Colour::rgb(0.10, 0.30, 0.60))
         .line_width(1.0);
     ax.stairs(&edges, BANDS.map(|b| b.2))
         .label("Background")
         .base(0.0)
-        .color(Color::rgb(0.80, 0.30, 0.10))
+        .colour(Colour::rgb(0.80, 0.30, 0.10))
         .line_width(1.0);
     ax.xscale(Scale::Log)
         .xlim(edges[0], edges[edges.len() - 1])

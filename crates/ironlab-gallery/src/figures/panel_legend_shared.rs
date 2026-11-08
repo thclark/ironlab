@@ -9,9 +9,9 @@ pub const DESCRIPTION: &str = "Three days of synthetic hourly readings from five
      the panel holds three entries for thirteen series; in the viewer, clicking an entry hides that series in every \
      axes.";
 
-const AIR: Color = Color::rgb(0.80, 0.24, 0.16);
-const DEW_POINT: Color = Color::rgb(0.13, 0.40, 0.70);
-const SEA: Color = Color::rgb(0.10, 0.55, 0.50);
+const AIR: Colour = Colour::rgb(0.80, 0.24, 0.16);
+const DEW_POINT: Colour = Colour::rgb(0.13, 0.40, 0.70);
+const SEA: Colour = Colour::rgb(0.10, 0.55, 0.50);
 
 /// Each station's name, the mean and the daily range of its air temperature, and the temperature of the sea beside
 /// it if it is on the coast, in degrees Celsius.
@@ -63,15 +63,15 @@ pub fn figure() -> Figure {
         // The same display name and the same look in every axes make one entry in the panel.
         ax.plot(&hours, &air)
             .label("Air temperature")
-            .color(AIR);
+            .colour(AIR);
         ax.plot(&hours, &dew_point)
             .label("Dew point")
-            .color(DEW_POINT)
+            .colour(DEW_POINT)
             .dash(Dash::Dashed);
         if let Some(sea) = sea {
             ax.plot(&hours, vec![sea; hours.len()])
                 .label("Sea surface temperature")
-                .color(SEA)
+                .colour(SEA)
                 .dash(Dash::Dotted);
         }
         ax.title(name)

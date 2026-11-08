@@ -23,7 +23,7 @@ use super::paths::{self, PathBuilder};
 use super::plane::{Plane, Warp, polar_point, unit_sector_box};
 use super::style::{self, GRID, INK};
 use super::text::TextBlock;
-use super::{colorbar, legend};
+use super::{colourbar, legend};
 
 /// Distances used to arrange the decorations of a polar axes, in points.
 struct Spacing {
@@ -235,7 +235,7 @@ pub(super) fn emit(
 
     draw_frame(input, &g, out);
     draw_labels(ctx, input, &g, out);
-    colorbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
+    colourbar::draw_inside(ctx, axes, plot, input.scales, out, hits);
     legend::draw_inside(ctx, input, &primaries, &data_points, out, hits);
 
     hits.axes.push(AxesHit {

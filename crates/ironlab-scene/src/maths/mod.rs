@@ -5,7 +5,7 @@
 //!
 //! - [`aspect`] widens limits and fits plot areas to a fixed ratio of the lengths of data units.
 //! - [`ticks`] chooses tick positions, axis limits and tick label strings.
-//! - [`colormap`] holds the 256-entry colour lookup tables and maps values into them.
+//! - [`colourmap`] holds the 256-entry colour lookup tables and maps values into them.
 //! - [`image`] quantises the colours of the pixels of images into eight bits.
 //! - [`contour`] extracts isolines and filled isobands from gridded scalar fields.
 //! - [`quiver`] scales vector fields and builds arrow geometry.
@@ -15,8 +15,8 @@
 
 pub mod aspect;
 pub mod camera;
-pub mod colormap;
-mod colormap_data;
+pub mod colourmap;
+mod colourmap_data;
 pub mod contour;
 pub mod decimate;
 pub mod image;

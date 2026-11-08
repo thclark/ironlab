@@ -1,27 +1,28 @@
 //! Colour scales: the handle to a colour scale of the figure, the default scale of an
-//! axes, and the sampling of a colormap into a palette.
+//! axes, and the sampling of a colourmap into a palette.
 
 use ironlab_ir::{
-    Artist, CategoricalColorScale, Color, ColorCategory, ColorScale, ColorScaleKey, ColorScaleKind,
-    ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange, ColormapName, ContinuousColorScale,
-    DiscreteColorScale, IndexedColorScale, Limits, NodeId, OutOfRange, Text, TickLabels, Ticks,
+    Artist, CategoricalColourScale, Colour, ColourCategory, ColourScale, ColourScaleKey,
+    ColourScaleKind, ColourScaleLevels, ColourScaleNorm, ColourScaleOutOfRange, ColourmapName,
+    ContinuousColourScale, DiscreteColourScale, IndexedColourScale, Limits, NodeId, OutOfRange,
+    Text, TickLabels, Ticks,
 };
-use ironlab_scene::maths::colormap::{self, Lut};
+use ironlab_scene::maths::colourmap::{self, Lut};
 
-/// A handle to one colour scale of a figure, through which its colormap, limits, norm,
+/// A handle to one colour scale of a figure, through which its colourmap, limits, norm,
 /// bands and out-of-range policies are set.
 ///
 /// A colour scale turns the numbers of colour-mapped artists into colours. It is a node
-/// of the figure that artists name by its [`id`](ColorScaleMut::id), so one scale may
+/// of the figure that artists name by its [`id`](ColourScaleMut::id), so one scale may
 /// colour artists in several axes, which then share its limits and its colours. Scales
-/// are created with [`Figure::color_scale`](crate::Figure::color_scale) (continuous),
+/// are created with [`Figure::colour_scale`](crate::Figure::colour_scale) (continuous),
 /// [`Figure::indexed_scale`](crate::Figure::indexed_scale) and
 /// [`Figure::categorical_scale`](crate::Figure::categorical_scale), and the scale that
 /// the colour-mapped artists of an axes share by default is returned by
-/// [`AxesMut::color_scale`](crate::AxesMut::color_scale).
+/// [`AxesMut::colour_scale`](crate::AxesMut::colour_scale).
 ///
 /// The kind of a scale decides which setters have an effect. A continuous or discrete
-/// scale has a colormap, limits, a norm and the `below` and `above` policies; an indexed
+/// scale has a colourmap, limits, a norm and the `below` and `above` policies; an indexed
 /// or categorical scale has its entries and the `outside` policy. A setter that does not
 /// apply to the kind of the scale leaves the scale as it is.
 ///
@@ -36,22 +37,22 @@ use ironlab_scene::maths::colormap::{self, Lut};
 ///
 /// let mut fig = Figure::new().tiles(1, 2);
 /// let shared = fig
-///     .color_scale()
-///     .colormap(Colormap::Coolwarm)
+///     .colour_scale()
+///     .colourmap(Colourmap::Coolwarm)
 ///     .limits(-1.0, 1.0)
 ///     .title("Product")
 ///     .id();
-/// fig.axes(0, 0).surface(&x, &x, &z).color_scale(shared);
-/// fig.axes(0, 1).contourf(&x, &x, &z).color_scale(shared);
+/// fig.axes(0, 0).surface(&x, &x, &z).colour_scale(shared);
+/// fig.axes(0, 1).contourf(&x, &x, &z).colour_scale(shared);
 /// assert!(fig.validate().is_valid());
 /// ```
 #[derive(Debug)]
-pub struct ColorScaleMut<'f> {
+pub struct ColourScaleMut<'f> {
     fig: &'f mut ironlab_ir::Figure,
     id: NodeId,
 }
 
-impl<'f> ColorScaleMut<'f> {
+impl<'f> ColourScaleMut<'f> {
     /// Creates a handle to the colour scale with the given identifier, which must be a
     /// colour scale of the figure.
     pub(crate) fn new(fig: &'f mut ironlab_ir::Figure, id: NodeId) -> Self {
@@ -59,19 +60,19 @@ impl<'f> ColorScaleMut<'f> {
     }
 
     /// Adds a colour scale of the given kind to the figure and returns a handle to it.
-    pub(crate) fn add(fig: &'f mut ironlab_ir::Figure, kind: ColorScaleKind) -> Self {
+    pub(crate) fn add(fig: &'f mut ironlab_ir::Figure, kind: ColourScaleKind) -> Self {
         let id = fig.alloc_node_id();
-        fig.color_scales.push(ColorScale {
+        fig.colour_scales.push(ColourScale {
             id,
             kind,
-            ..ColorScale::default()
+            ..ColourScale::default()
         });
         Self::new(fig, id)
     }
 }
 
-impl ColorScaleMut<'_> {
-    /// Returns the node identifier of the scale, which the `color_scale` setters of
+impl ColourScaleMut<'_> {
+    /// Returns the node identifier of the scale, which the `colour_scale` setters of
     /// artist handles accept.
     #[must_use]
     pub fn id(&self) -> NodeId {
@@ -86,26 +87,26 @@ impl ColorScaleMut<'_> {
         self
     }
 
-    /// Sets the colormap of a continuous or discrete scale (MATLAB's `colormap`): a
-    /// bundled [`Colormap`](crate::Colormap), or an [`ir::Colormap`](crate::ir::Colormap)
-    /// that reverses a bundled colormap or lists colours of its own.
+    /// Sets the colourmap of a continuous or discrete scale (MATLAB's `colormap`): a
+    /// bundled [`Colourmap`](crate::Colourmap), or an [`ir::Colourmap`](crate::ir::Colourmap)
+    /// that reverses a bundled colourmap or lists colours of its own.
     ///
     /// ```
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new();
-    /// fig.color_scale().colormap(Colormap::Magma);
-    /// fig.color_scale().colormap(ironlab::ir::Colormap::Listed {
-    ///     colors: vec![Color::rgb(0.0, 0.2, 0.6), Color::WHITE, Color::rgb(0.7, 0.1, 0.1)],
+    /// fig.colour_scale().colourmap(Colourmap::Magma);
+    /// fig.colour_scale().colourmap(ironlab::ir::Colourmap::Listed {
+    ///     colours: vec![Colour::rgb(0.0, 0.2, 0.6), Colour::WHITE, Colour::rgb(0.7, 0.1, 0.1)],
     /// });
     /// assert!(fig.validate().is_valid());
     /// ```
-    pub fn colormap(&mut self, colormap: impl Into<ironlab_ir::Colormap>) -> &mut Self {
-        let colormap = colormap.into();
+    pub fn colourmap(&mut self, colourmap: impl Into<ironlab_ir::Colourmap>) -> &mut Self {
+        let colourmap = colourmap.into();
         match &mut self.scale().kind {
-            ColorScaleKind::Continuous(scale) => scale.colormap = colormap,
-            ColorScaleKind::Discrete(scale) => scale.colormap = colormap,
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {}
+            ColourScaleKind::Continuous(scale) => scale.colourmap = colourmap,
+            ColourScaleKind::Discrete(scale) => scale.colourmap = colourmap,
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {}
         }
         self
     }
@@ -122,15 +123,15 @@ impl ColorScaleMut<'_> {
     pub fn limits(&mut self, min: f64, max: f64) -> &mut Self {
         let limits = Limits::Manual { min, max };
         match &mut self.scale().kind {
-            ColorScaleKind::Continuous(scale) => scale.limits = limits,
-            ColorScaleKind::Discrete(scale) => {
+            ColourScaleKind::Continuous(scale) => scale.limits = limits,
+            ColourScaleKind::Discrete(scale) => {
                 let count = match &scale.levels {
-                    ColorScaleLevels::Auto { count, .. } => *count,
-                    ColorScaleLevels::Explicit { values } => band_count(values),
+                    ColourScaleLevels::Auto { count, .. } => *count,
+                    ColourScaleLevels::Explicit { values } => band_count(values),
                 };
-                scale.levels = ColorScaleLevels::Auto { count, limits };
+                scale.levels = ColourScaleLevels::Auto { count, limits };
             }
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {}
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {}
         }
         self
     }
@@ -140,23 +141,23 @@ impl ColorScaleMut<'_> {
     ///
     /// Under a logarithmic norm, automatic limits range over the positive values only,
     /// and a value that is not positive lies below the range.
-    pub fn norm(&mut self, norm: ColorScaleNorm) -> &mut Self {
+    pub fn norm(&mut self, norm: ColourScaleNorm) -> &mut Self {
         match &mut self.scale().kind {
-            ColorScaleKind::Continuous(scale) => scale.norm = norm,
-            ColorScaleKind::Discrete(scale) => scale.norm = norm,
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {}
+            ColourScaleKind::Continuous(scale) => scale.norm = norm,
+            ColourScaleKind::Discrete(scale) => scale.norm = norm,
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {}
         }
         self
     }
 
     /// Makes the scale discrete, with bands between the given edges, each drawn in one
-    /// colour of the colormap.
+    /// colour of the colourmap.
     ///
-    /// A continuous scale keeps its colormap, norm and out-of-range policies; a discrete
+    /// A continuous scale keeps its colourmap, norm and out-of-range policies; a discrete
     /// scale keeps everything but its edges; and an indexed or categorical scale becomes
     /// a discrete scale with the defaults of that kind. A filled contour that names the
     /// scale, and has no levels of its own, fills exactly these bands (MATLAB's
-    /// `contourf` with a vector of levels and a matching `colormap`). Edges that are not
+    /// `contourf` with a vector of levels and a matching `colourmap`). Edges that are not
     /// at least two finite, strictly increasing values are reported by
     /// [`Figure::validate`](crate::Figure::validate).
     ///
@@ -167,12 +168,12 @@ impl ColorScaleMut<'_> {
     /// let z = Matrix::from_fn(x.len(), x.len(), |row, col| x[col] + x[row]);
     ///
     /// let mut fig = Figure::new();
-    /// let bands = fig.color_scale().discrete([0.0, 0.5, 1.0, 1.5, 2.0]).id();
-    /// fig.axes(0, 0).contourf(&x, &x, &z).color_scale(bands);
+    /// let bands = fig.colour_scale().discrete([0.0, 0.5, 1.0, 1.5, 2.0]).id();
+    /// fig.axes(0, 0).contourf(&x, &x, &z).colour_scale(bands);
     /// assert!(fig.validate().is_valid());
     /// ```
     pub fn discrete(&mut self, edges: impl AsRef<[f64]>) -> &mut Self {
-        let levels = ColorScaleLevels::Explicit {
+        let levels = ColourScaleLevels::Explicit {
             values: edges.as_ref().to_vec(),
         };
         self.make_discrete(|_| levels);
@@ -186,7 +187,7 @@ impl ColorScaleMut<'_> {
     /// continuous scale's limits become the limits of the edges, and a discrete scale
     /// with explicit edges keeps its first and last edges as the limits.
     pub fn bands(&mut self, count: u32) -> &mut Self {
-        self.make_discrete(|limits| ColorScaleLevels::Auto { count, limits });
+        self.make_discrete(|limits| ColourScaleLevels::Auto { count, limits });
         self
     }
 
@@ -194,27 +195,27 @@ impl ColorScaleMut<'_> {
     /// below its lower limit or first edge, or not positive under a logarithmic norm.
     ///
     /// The policy is [`OutOfRange::Clamp`] by default, which draws the first colour of
-    /// the colormap. A [`Color`] draws that colour, [`OutOfRange::Transparent`] draws
+    /// the colourmap. A [`Colour`] draws that colour, [`OutOfRange::Transparent`] draws
     /// nothing, and [`OutOfRange::Strict`] makes such a value a validation error.
     pub fn below(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
         let policy = policy.into();
         match &mut self.scale().kind {
-            ColorScaleKind::Continuous(scale) => scale.below.policy = policy,
-            ColorScaleKind::Discrete(scale) => scale.below.policy = policy,
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {}
+            ColourScaleKind::Continuous(scale) => scale.below.policy = policy,
+            ColourScaleKind::Discrete(scale) => scale.below.policy = policy,
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {}
         }
         self
     }
 
     /// Sets what is drawn for a value above the range of a continuous or discrete scale,
     /// as [`below`](Self::below) does for values below it; a clamp draws the last colour
-    /// of the colormap.
+    /// of the colourmap.
     pub fn above(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
         let policy = policy.into();
         match &mut self.scale().kind {
-            ColorScaleKind::Continuous(scale) => scale.above.policy = policy,
-            ColorScaleKind::Discrete(scale) => scale.above.policy = policy,
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => {}
+            ColourScaleKind::Continuous(scale) => scale.above.policy = policy,
+            ColourScaleKind::Discrete(scale) => scale.above.policy = policy,
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => {}
         }
         self
     }
@@ -224,14 +225,14 @@ impl ColorScaleMut<'_> {
     /// that is not a whole number.
     ///
     /// The policy is [`OutOfRange::Strict`] by default, so such a value is a validation
-    /// error. [`OutOfRange::Clamp`] truncates the value toward zero and clamps it to the
+    /// error. [`OutOfRange::Clamp`] truncates the value towards zero and clamps it to the
     /// first or last entry, which suits indices computed as floating-point numbers.
     pub fn outside(&mut self, policy: impl Into<OutOfRange>) -> &mut Self {
         let policy = policy.into();
         match &mut self.scale().kind {
-            ColorScaleKind::Indexed(scale) => scale.outside.policy = policy,
-            ColorScaleKind::Categorical(scale) => scale.outside.policy = policy,
-            ColorScaleKind::Continuous(_) | ColorScaleKind::Discrete(_) => {}
+            ColourScaleKind::Indexed(scale) => scale.outside.policy = policy,
+            ColourScaleKind::Categorical(scale) => scale.outside.policy = policy,
+            ColourScaleKind::Continuous(_) | ColourScaleKind::Discrete(_) => {}
         }
         self
     }
@@ -279,7 +280,7 @@ impl ColorScaleMut<'_> {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new();
-    /// fig.indexed_scale(Colormap::Gray.sample(256))
+    /// fig.indexed_scale(Colourmap::Grey.sample(256))
     ///     .tick_labels([(0, "water"), (128, "land"), (255, "ice")]);
     /// assert!(fig.validate().is_valid());
     /// ```
@@ -320,12 +321,12 @@ impl ColorScaleMut<'_> {
     /// use ironlab::prelude::*;
     ///
     /// let mut fig = Figure::new();
-    /// fig.color_scale()
+    /// fig.colour_scale()
     ///     .limits(0.0, 40.0)
-    ///     .above(Color::rgb(1.0, 0.0, 1.0))
-    ///     .show_key(ColorScaleKey::Above);
+    ///     .above(Colour::rgb(1.0, 0.0, 1.0))
+    ///     .show_key(ColourScaleKey::Above);
     /// ```
-    pub fn show_key(&mut self, key: ColorScaleKey) -> &mut Self {
+    pub fn show_key(&mut self, key: ColourScaleKey) -> &mut Self {
         if let Some(category) = self.key(key) {
             category.show_key = true;
         }
@@ -334,7 +335,7 @@ impl ColorScaleMut<'_> {
 
     /// Shows the key of one out-of-range category with the given label, as
     /// [`show_key`](Self::show_key) does with the default label.
-    pub fn key_label(&mut self, key: ColorScaleKey, label: impl Into<Text>) -> &mut Self {
+    pub fn key_label(&mut self, key: ColourScaleKey, label: impl Into<Text>) -> &mut Self {
         if let Some(category) = self.key(key) {
             category.show_key = true;
             category.label = Some(label.into());
@@ -346,53 +347,53 @@ impl ColorScaleMut<'_> {
     /// scale, leaving a categorical scale as it is.
     fn with_ticks(&mut self, change: impl FnOnce(&mut Ticks, &mut TickLabels)) -> &mut Self {
         match &mut self.scale().kind {
-            ColorScaleKind::Continuous(s) => change(&mut s.ticks, &mut s.tick_labels),
-            ColorScaleKind::Discrete(s) => change(&mut s.ticks, &mut s.tick_labels),
-            ColorScaleKind::Indexed(s) => change(&mut s.ticks, &mut s.tick_labels),
-            ColorScaleKind::Categorical(_) => {}
+            ColourScaleKind::Continuous(s) => change(&mut s.ticks, &mut s.tick_labels),
+            ColourScaleKind::Discrete(s) => change(&mut s.ticks, &mut s.tick_labels),
+            ColourScaleKind::Indexed(s) => change(&mut s.ticks, &mut s.tick_labels),
+            ColourScaleKind::Categorical(_) => {}
         }
         self
     }
 
     /// Returns the out-of-range category behind a key, or `None` when the kind of the scale
-    /// does not have the key, as [`ColorScale::key`] does.
-    fn key(&mut self, key: ColorScaleKey) -> Option<&mut ColorScaleOutOfRange> {
+    /// does not have the key, as [`ColourScale::key`] does.
+    fn key(&mut self, key: ColourScaleKey) -> Option<&mut ColourScaleOutOfRange> {
         let scale = self.scale();
         match (&mut scale.kind, key) {
-            (_, ColorScaleKey::NonFinite) => Some(&mut scale.non_finite),
-            (ColorScaleKind::Continuous(s), ColorScaleKey::Below) => Some(&mut s.below),
-            (ColorScaleKind::Continuous(s), ColorScaleKey::Above) => Some(&mut s.above),
-            (ColorScaleKind::Discrete(s), ColorScaleKey::Below) => Some(&mut s.below),
-            (ColorScaleKind::Discrete(s), ColorScaleKey::Above) => Some(&mut s.above),
-            (ColorScaleKind::Indexed(s), ColorScaleKey::Outside) => Some(&mut s.outside),
-            (ColorScaleKind::Categorical(s), ColorScaleKey::Outside) => Some(&mut s.outside),
+            (_, ColourScaleKey::NonFinite) => Some(&mut scale.non_finite),
+            (ColourScaleKind::Continuous(s), ColourScaleKey::Below) => Some(&mut s.below),
+            (ColourScaleKind::Continuous(s), ColourScaleKey::Above) => Some(&mut s.above),
+            (ColourScaleKind::Discrete(s), ColourScaleKey::Below) => Some(&mut s.below),
+            (ColourScaleKind::Discrete(s), ColourScaleKey::Above) => Some(&mut s.above),
+            (ColourScaleKind::Indexed(s), ColourScaleKey::Outside) => Some(&mut s.outside),
+            (ColourScaleKind::Categorical(s), ColourScaleKey::Outside) => Some(&mut s.outside),
             _ => None,
         }
     }
 
     /// Returns the scale in the figure IR.
-    fn scale(&mut self) -> &mut ColorScale {
+    fn scale(&mut self) -> &mut ColourScale {
         self.fig
-            .color_scale_mut(self.id)
+            .colour_scale_mut(self.id)
             .expect("a colour scale handle always refers to a colour scale of its figure")
     }
 
     /// Makes the scale discrete with the levels that `levels` builds from the limits the
-    /// scale had, keeping the colormap, norm and policies of a continuous or discrete
+    /// scale had, keeping the colourmap, norm and policies of a continuous or discrete
     /// scale.
-    fn make_discrete(&mut self, levels: impl FnOnce(Limits) -> ColorScaleLevels) {
+    fn make_discrete(&mut self, levels: impl FnOnce(Limits) -> ColourScaleLevels) {
         let scale = self.scale();
         let discrete = match std::mem::take(&mut scale.kind) {
-            ColorScaleKind::Continuous(ContinuousColorScale {
-                colormap,
+            ColourScaleKind::Continuous(ContinuousColourScale {
+                colourmap,
                 limits,
                 norm,
                 below,
                 above,
                 ticks,
                 tick_labels,
-            }) => DiscreteColorScale {
-                colormap,
+            }) => DiscreteColourScale {
+                colourmap,
                 levels: levels(limits),
                 norm,
                 below,
@@ -400,27 +401,27 @@ impl ColorScaleMut<'_> {
                 ticks,
                 tick_labels,
             },
-            ColorScaleKind::Discrete(discrete) => {
+            ColourScaleKind::Discrete(discrete) => {
                 let limits = match &discrete.levels {
-                    ColorScaleLevels::Auto { limits, .. } => *limits,
-                    ColorScaleLevels::Explicit { values } => {
+                    ColourScaleLevels::Auto { limits, .. } => *limits,
+                    ColourScaleLevels::Explicit { values } => {
                         match (values.first(), values.last()) {
                             (Some(&min), Some(&max)) => Limits::Manual { min, max },
                             _ => Limits::Auto,
                         }
                     }
                 };
-                DiscreteColorScale {
+                DiscreteColourScale {
                     levels: levels(limits),
                     ..discrete
                 }
             }
-            ColorScaleKind::Indexed(_) | ColorScaleKind::Categorical(_) => DiscreteColorScale {
+            ColourScaleKind::Indexed(_) | ColourScaleKind::Categorical(_) => DiscreteColourScale {
                 levels: levels(Limits::Auto),
-                ..DiscreteColorScale::default()
+                ..DiscreteColourScale::default()
             },
         };
-        scale.kind = ColorScaleKind::Discrete(discrete);
+        scale.kind = ColourScaleKind::Discrete(discrete);
     }
 }
 
@@ -430,33 +431,33 @@ fn band_count(edges: &[f64]) -> u32 {
 }
 
 /// Returns a continuous scale kind with the defaults of its kind.
-pub(crate) fn continuous() -> ColorScaleKind {
-    ColorScaleKind::Continuous(ContinuousColorScale::default())
+pub(crate) fn continuous() -> ColourScaleKind {
+    ColourScaleKind::Continuous(ContinuousColourScale::default())
 }
 
 /// Returns an indexed scale kind with the given entries and the defaults of its kind.
-pub(crate) fn indexed(colors: impl IntoIterator<Item = Color>) -> ColorScaleKind {
-    ColorScaleKind::Indexed(IndexedColorScale {
-        colors: colors.into_iter().collect(),
-        outside: ColorScaleOutOfRange::new(OutOfRange::Strict),
-        ..IndexedColorScale::default()
+pub(crate) fn indexed(colours: impl IntoIterator<Item = Colour>) -> ColourScaleKind {
+    ColourScaleKind::Indexed(IndexedColourScale {
+        colours: colours.into_iter().collect(),
+        outside: ColourScaleOutOfRange::new(OutOfRange::Strict),
+        ..IndexedColourScale::default()
     })
 }
 
 /// Returns a categorical scale kind with the given categories and the defaults of its
 /// kind.
 pub(crate) fn categorical<T: Into<Text>>(
-    categories: impl IntoIterator<Item = (Color, T)>,
-) -> ColorScaleKind {
-    ColorScaleKind::Categorical(CategoricalColorScale {
+    categories: impl IntoIterator<Item = (Colour, T)>,
+) -> ColourScaleKind {
+    ColourScaleKind::Categorical(CategoricalColourScale {
         categories: categories
             .into_iter()
-            .map(|(color, label)| ColorCategory {
-                color,
+            .map(|(colour, label)| ColourCategory {
+                colour,
                 label: label.into(),
             })
             .collect(),
-        ..CategoricalColorScale::default()
+        ..CategoricalColourScale::default()
     })
 }
 
@@ -467,8 +468,8 @@ pub(crate) fn default_scale(fig: &ironlab_ir::Figure, axes: NodeId) -> Option<No
     fig.axes(axes)?
         .artists
         .iter()
-        .filter_map(Artist::color_scale)
-        .find(|&scale| fig.color_scale(scale).is_some())
+        .filter_map(Artist::colour_scale)
+        .find(|&scale| fig.colour_scale(scale).is_some())
 }
 
 /// Returns the default colour scale of an axes, creating a continuous scale with the
@@ -476,7 +477,7 @@ pub(crate) fn default_scale(fig: &ironlab_ir::Figure, axes: NodeId) -> Option<No
 pub(crate) fn default_or_new(fig: &mut ironlab_ir::Figure, axes: NodeId) -> (NodeId, bool) {
     match default_scale(fig, axes) {
         Some(scale) => (scale, false),
-        None => (ColorScaleMut::add(fig, continuous()).id(), true),
+        None => (ColourScaleMut::add(fig, continuous()).id(), true),
     }
 }
 
@@ -490,12 +491,12 @@ pub(crate) fn replace_scale(
     created: Option<NodeId>,
 ) -> Option<NodeId> {
     let previous = match fig.artist_mut(artist) {
-        Some(Artist::ScalarImage(a)) => a.color_scale.replace(scale),
-        Some(Artist::Contour(a)) => a.color_scale.replace(scale),
-        Some(Artist::Surface(a)) => a.color_scale.replace(scale),
-        Some(Artist::Series(a)) => a.color_scale.replace(scale),
-        Some(Artist::Bar(a)) => a.color_scale.replace(scale),
-        Some(Artist::Cells(a)) => a.color_scale.replace(scale),
+        Some(Artist::ScalarImage(a)) => a.colour_scale.replace(scale),
+        Some(Artist::Contour(a)) => a.colour_scale.replace(scale),
+        Some(Artist::Surface(a)) => a.colour_scale.replace(scale),
+        Some(Artist::Series(a)) => a.colour_scale.replace(scale),
+        Some(Artist::Bar(a)) => a.colour_scale.replace(scale),
+        Some(Artist::Cells(a)) => a.colour_scale.replace(scale),
         _ => unreachable!("only an artist that takes a colour scale is given one"),
     };
     let Some(created) = created.filter(|&created| Some(created) == previous && created != scale)
@@ -506,56 +507,56 @@ pub(crate) fn replace_scale(
         .axes
         .iter()
         .flat_map(|axes| &axes.artists)
-        .any(|artist| artist.color_scale() == Some(created));
+        .any(|artist| artist.colour_scale() == Some(created));
     if named {
         Some(created)
     } else {
-        fig.color_scales.retain(|s| s.id != created);
+        fig.colour_scales.retain(|s| s.id != created);
         None
     }
 }
 
-/// The colours of a colormap sampled at evenly spaced positions, the palette from which
+/// The colours of a colourmap sampled at evenly spaced positions, the palette from which
 /// an indexed scale is built.
 ///
-/// The trait is implemented for a bundled [`Colormap`](crate::Colormap) and for an
-/// [`ir::Colormap`](crate::ir::Colormap), and is in the prelude.
+/// The trait is implemented for a bundled [`Colourmap`](crate::Colourmap) and for an
+/// [`ir::Colourmap`](crate::ir::Colourmap), and is in the prelude.
 ///
 /// ```
 /// use ironlab::prelude::*;
 ///
 /// // The 256 entries of a grey palette, of which an 8-bit value takes its own entry.
-/// let grey = Colormap::Gray.sample(256);
+/// let grey = Colourmap::Grey.sample(256);
 /// assert_eq!(grey.len(), 256);
-/// assert_eq!(grey[0], Color::BLACK);
-/// assert_eq!(grey[255], Color::WHITE);
+/// assert_eq!(grey[0], Colour::BLACK);
+/// assert_eq!(grey[255], Colour::WHITE);
 ///
 /// let mut fig = Figure::new();
 /// let palette = fig.indexed_scale(grey).id();
 /// let codes = ByteMatrix::from_fn(16, 16, |row, col| (row * 16 + col) as u8);
-/// fig.axes(0, 0).scalar_image(&codes).color_scale(palette);
+/// fig.axes(0, 0).scalar_image(&codes).colour_scale(palette);
 /// assert!(fig.validate().is_valid());
 /// ```
-pub trait ColormapSample {
-    /// Returns `count` colours of the colormap, from its start to its end at evenly
+pub trait ColourmapSample {
+    /// Returns `count` colours of the colourmap, from its start to its end at evenly
     /// spaced positions, as a continuous scale draws them; one colour is the colour at
     /// the start.
     ///
-    /// A bundled colormap has 256 entries, so `count` of 256 returns exactly those
-    /// entries, in order. A listed colormap is interpolated linearly in sRGB between its
+    /// A bundled colourmap has 256 entries, so `count` of 256 returns exactly those
+    /// entries, in order. A listed colourmap is interpolated linearly in sRGB between its
     /// colours; one of fewer than two colours returns its colours repeated, or black when
     /// it has none.
-    fn sample(&self, count: usize) -> Vec<Color>;
+    fn sample(&self, count: usize) -> Vec<Colour>;
 }
 
-impl ColormapSample for ColormapName {
-    fn sample(&self, count: usize) -> Vec<Color> {
-        ironlab_ir::Colormap::from(*self).sample(count)
+impl ColourmapSample for ColourmapName {
+    fn sample(&self, count: usize) -> Vec<Colour> {
+        ironlab_ir::Colourmap::from(*self).sample(count)
     }
 }
 
-impl ColormapSample for ironlab_ir::Colormap {
-    fn sample(&self, count: usize) -> Vec<Color> {
+impl ColourmapSample for ironlab_ir::Colourmap {
+    fn sample(&self, count: usize) -> Vec<Colour> {
         let position = |k: usize| {
             if count > 1 {
                 k as f64 / (count - 1) as f64
@@ -567,13 +568,13 @@ impl ColormapSample for ironlab_ir::Colormap {
     }
 }
 
-/// Returns the colour of a colormap at a position from 0 to 1, as the scene compiler
+/// Returns the colour of a colourmap at a position from 0 to 1, as the scene compiler
 /// draws a continuous scale.
-fn colour_at(colormap: &ironlab_ir::Colormap, t: f64) -> Color {
-    match colormap {
-        ironlab_ir::Colormap::Named { name, reverse } => {
+fn colour_at(colourmap: &ironlab_ir::Colourmap, t: f64) -> Colour {
+    match colourmap {
+        ironlab_ir::Colourmap::Named { name, reverse } => {
             // The entry is chosen as the scene compiler chooses it: each of the 256
-            // entries takes an equal share of the positions, and a reversed colormap
+            // entries takes an equal share of the positions, and a reversed colourmap
             // takes the entry at the mirrored index.
             #[expect(
                 clippy::cast_possible_truncation,
@@ -583,15 +584,15 @@ fn colour_at(colormap: &ironlab_ir::Colormap, t: f64) -> Color {
             let index = ((t.clamp(0.0, 1.0) * 256.0).floor() as usize).min(255);
             let index = if *reverse { 255 - index } else { index };
             let [r, g, b] = lut(*name)[index];
-            Color::rgb(
+            Colour::rgb(
                 f32::from(r) / 255.0,
                 f32::from(g) / 255.0,
                 f32::from(b) / 255.0,
             )
         }
-        ironlab_ir::Colormap::Listed { colors } => match colors.len() {
-            0 => Color::BLACK,
-            1 => colors[0],
+        ironlab_ir::Colourmap::Listed { colours } => match colours.len() {
+            0 => Colour::BLACK,
+            1 => colours[0],
             n => {
                 let last = n - 1;
                 let x = t.clamp(0.0, 1.0) * last as f64;
@@ -607,23 +608,23 @@ fn colour_at(colormap: &ironlab_ir::Colormap, t: f64) -> Color {
                     reason = "the fraction lies from 0 to 1"
                 )]
                 let f = (x - i as f64) as f32;
-                let (a, b) = (colors[i], colors[i + 1]);
+                let (a, b) = (colours[i], colours[i + 1]);
                 let mix = |p: f32, q: f32| p + (q - p) * f;
-                Color::rgba(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b), mix(a.a, b.a))
+                Colour::rgba(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b), mix(a.a, b.a))
             }
         },
     }
 }
 
-/// Returns the lookup table of a bundled colormap.
-fn lut(name: ColormapName) -> &'static Lut {
+/// Returns the lookup table of a bundled colourmap.
+fn lut(name: ColourmapName) -> &'static Lut {
     match name {
-        ColormapName::Viridis => &colormap::VIRIDIS,
-        ColormapName::Cividis => &colormap::CIVIDIS,
-        ColormapName::Magma => &colormap::MAGMA,
-        ColormapName::Inferno => &colormap::INFERNO,
-        ColormapName::Plasma => &colormap::PLASMA,
-        ColormapName::Coolwarm => &colormap::COOLWARM,
-        ColormapName::Gray => &colormap::GRAY,
+        ColourmapName::Viridis => &colourmap::VIRIDIS,
+        ColourmapName::Cividis => &colourmap::CIVIDIS,
+        ColourmapName::Magma => &colourmap::MAGMA,
+        ColourmapName::Inferno => &colourmap::INFERNO,
+        ColourmapName::Plasma => &colourmap::PLASMA,
+        ColourmapName::Coolwarm => &colourmap::COOLWARM,
+        ColourmapName::Grey => &colourmap::GREY,
     }
 }

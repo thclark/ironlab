@@ -7,7 +7,7 @@
 //! writes, so nothing here relates one series to another. The geometry is in data units and is computed once, when
 //! the data of the series is resolved, because the automatic limits cover it.
 
-use ironlab_ir::{Bar, BarOffset, BarWidth, ColorSpec, PerBar, Stairs};
+use ironlab_ir::{Bar, BarOffset, BarWidth, ColourSpec, PerBar, Stairs};
 
 use crate::display::{Point, Rect, Rgba};
 use crate::hit::{AxisMap, BarHit, BinReading, HitArea, StepHit};
@@ -171,7 +171,7 @@ fn bin_of(
         .filter(|v| v.is_finite())
         .unwrap_or(0.0);
     BinReading::recover(
-        binning.normalization,
+        binning.normalisation,
         binning.total,
         values[index],
         before,
@@ -238,13 +238,17 @@ fn value_on_page(map: &AxisMap, value: f64) -> f64 {
     }
 }
 
-/// Returns the colour of a face or outline of a bar: `series` for an automatic colour, and for a colormapped one
-/// without colour data or a usable scale; the colour of the bar's value through the scale for a colormapped one with
+/// Returns the colour of a face or outline of a bar: `series` for an automatic colour, and for a colourmapped one
+/// without colour data or a usable scale; the colour of the bar's value through the scale for a colourmapped one with
 /// both.
-fn bar_colour(spec: ColorSpec, series: Option<Rgba>, mapped: Option<Option<Rgba>>) -> Option<Rgba> {
+fn bar_colour(
+    spec: ColourSpec,
+    series: Option<Rgba>,
+    mapped: Option<Option<Rgba>>,
+) -> Option<Rgba> {
     match style::resolve(spec, Paint::Fixed(series)) {
         Paint::Fixed(colour) => colour,
-        Paint::Colormapped => mapped.unwrap_or(series),
+        Paint::Colourmapped => mapped.unwrap_or(series),
     }
 }
 
@@ -268,8 +272,8 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
     };
     let series = series_colour(primary);
     let scale = bar
-        .color_data
-        .and(bar.color_scale)
+        .colour_data
+        .and(bar.colour_scale)
         .and_then(|id| draw.scales.get(id));
     let width = style::width_or(bar.edge.width_pt, 0.5);
     let dash = style::dash_array(bar.edge.dash, width);
@@ -305,8 +309,11 @@ pub(super) fn draw_bars(draw: &mut Draw, bar: &Bar, data: &BarsData, primary: Pa
             })
         });
         let fill = faded(bar_colour(bar.face, series, mapped), bar.face_opacity).map(paths::fill);
-        let stroke = faded(bar_colour(bar.edge.color, series, mapped), bar.edge_opacity)
-            .and_then(|colour| Some(paths::stroke(colour, width, dash.clone()?)));
+        let stroke = faded(
+            bar_colour(bar.edge.colour, series, mapped),
+            bar.edge_opacity,
+        )
+        .and_then(|colour| Some(paths::stroke(colour, width, dash.clone()?)));
         let mut path = PathBuilder::new();
         let outline = add_rect(&mut path, &plane, rect);
         if draw.push(0.0, paths::item(bar.id, path.finish(), fill, stroke)) {
@@ -357,10 +364,10 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
         return;
     };
     let series = series_colour(primary);
-    let colour = |spec: ColorSpec| match style::resolve(spec, Paint::Fixed(series)) {
+    let colour = |spec: ColourSpec| match style::resolve(spec, Paint::Fixed(series)) {
         Paint::Fixed(colour) => colour,
-        // A colormapped line or fill is invalid, because stairs have no colour data; it is drawn as an automatic one.
-        Paint::Colormapped => series,
+        // A colourmapped line or fill is invalid, because stairs have no colour data; it is drawn as an automatic one.
+        Paint::Colourmapped => series,
     };
     let bounds = plane.bounds(draw.clip);
     let unclamped = |along: f64, level: f64| {
@@ -434,7 +441,7 @@ pub(super) fn draw_stairs(draw: &mut Draw, stairs: &Stairs, data: &StairsGeometr
         );
     }
     let width = style::width_or(stairs.line.width_pt, 0.75);
-    let stroke = faded(colour(stairs.line.color), stairs.line_opacity).and_then(|colour| {
+    let stroke = faded(colour(stairs.line.colour), stairs.line_opacity).and_then(|colour| {
         style::dash_array(stairs.line.dash, width).map(|dash| paths::stroke(colour, width, dash))
     });
     draw.push(0.0, paths::item(stairs.id, outline.finish(), None, stroke));

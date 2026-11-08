@@ -2,18 +2,18 @@
 //! scale's title is drawn beside a bar, how long a panel colourbar is, how many rows a bar
 //! item fills, and the title of a panel.
 //!
-//! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/colorbar_layout.rs`:
+//! The API these tests assume, beyond the IR of `crates/ironlab-ir/tests/colourbar_layout.rs`:
 //!
 //! ```text
-//! impl PanelColorbarMut<'_> {
+//! impl PanelColourbarMut<'_> {
 //!     /// Sets the length of the bar, keys included, as a fraction of the span of the plot
 //!     /// boxes beside it; the default is automatic (the whole span standing, half lying).
 //!     pub fn length(&mut self, fraction: f64) -> &mut Self;
 //!     /// Sets where the scale's title is drawn beside the bar.
-//!     pub fn title_placement(&mut self, placement: ColorbarTitlePlacement) -> &mut Self;
+//!     pub fn title_placement(&mut self, placement: ColourbarTitlePlacement) -> &mut Self;
 //! }
-//! impl InsideColorbarMut<'_> {
-//!     pub fn title_placement(&mut self, placement: ColorbarTitlePlacement) -> &mut Self;
+//! impl InsideColourbarMut<'_> {
+//!     pub fn title_placement(&mut self, placement: ColourbarTitlePlacement) -> &mut Self;
 //! }
 //! impl PanelMut<'_> {
 //!     /// Sets the heading drawn at the top of the panel's content.
@@ -21,10 +21,10 @@
 //!     /// Sets how that heading is aligned with the content; the default is `Left`.
 //!     pub fn title_align(&mut self, align: TitleAlign) -> &mut Self;
 //! }
-//! // A bar item of other than five rows is `LegendItem::color_scale(id).with_rows(n)`,
+//! // A bar item of other than five rows is `LegendItem::colour_scale(id).with_rows(n)`,
 //! // passed to `PanelLegendMut::item` or listed in `AxesMut::legend_entries` as any item
 //! // is; no setter of its own is added, as none was added for a scale item.
-//! // The prelude exports `ColorbarTitlePlacement` beside `ColorbarOrientation`; `TitleAlign` is
+//! // The prelude exports `ColourbarTitlePlacement` beside `ColourbarOrientation`; `TitleAlign` is
 //! // already exported.
 //! ```
 //!
@@ -41,7 +41,7 @@ mod common;
 
 use common::has_error_at;
 use ironlab::IssueKind;
-use ironlab::ir::{InsideColorbar, Panel, PanelColorbar, PanelContent};
+use ironlab::ir::{InsideColourbar, Panel, PanelColourbar, PanelContent};
 use ironlab::prelude::*;
 
 /// Returns the panel with the given identifier.
@@ -54,20 +54,20 @@ fn panel(fig: &Figure, id: NodeId) -> &Panel {
 
 /// Returns the colourbar that the panel with the given identifier holds.
 #[track_caller]
-fn panel_colorbar(fig: &Figure, id: NodeId) -> PanelColorbar {
+fn panel_colourbar(fig: &Figure, id: NodeId) -> PanelColourbar {
     match &panel(fig, id).content {
-        PanelContent::Colorbar(colorbar) => *colorbar,
+        PanelContent::Colourbar(colourbar) => *colourbar,
         other => panic!("panel {id} holds {other:?}, not a colourbar"),
     }
 }
 
 /// Returns the colourbar inside the axes with the given identifier.
 #[track_caller]
-fn inside_colorbar(fig: &Figure, id: NodeId) -> InsideColorbar {
+fn inside_colourbar(fig: &Figure, id: NodeId) -> InsideColourbar {
     fig.ir()
         .axes(id)
         .unwrap_or_else(|| panic!("{id} is not an axes"))
-        .colorbar
+        .colourbar
         .unwrap_or_else(|| panic!("{id} shows no colourbar"))
 }
 
@@ -95,19 +95,19 @@ fn field() -> Matrix {
 #[test]
 fn bars_and_panels_built_through_the_facade_have_the_settled_defaults() {
     let mut fig = Figure::new().tiles(1, 2).fit_col(1);
-    let s = fig.color_scale().title("Speed (m/s)").id();
-    fig.axes(0, 0).scalar_image(field()).color_scale(s);
+    let s = fig.colour_scale().title("Speed (m/s)").id();
+    fig.axes(0, 0).scalar_image(field()).colour_scale(s);
     let ax = fig.axes(0, 0).id();
-    fig.axes(0, 0).colorbar(s, InsideColorbarSide::South);
-    let bar = fig.panel(0, 1).colorbar(s).id();
-    assert_eq!(panel_colorbar(&fig, bar).length, None);
+    fig.axes(0, 0).colourbar(s, InsideColourbarSide::South);
+    let bar = fig.panel(0, 1).colourbar(s).id();
+    assert_eq!(panel_colourbar(&fig, bar).length, None);
     assert_eq!(
-        panel_colorbar(&fig, bar).title_placement,
-        ColorbarTitlePlacement::Along
+        panel_colourbar(&fig, bar).title_placement,
+        ColourbarTitlePlacement::Along
     );
     assert_eq!(
-        inside_colorbar(&fig, ax).title_placement,
-        ColorbarTitlePlacement::Along
+        inside_colourbar(&fig, ax).title_placement,
+        ColourbarTitlePlacement::Along
     );
     assert_eq!(panel(&fig, bar).title, None);
     assert_eq!(panel(&fig, bar).title_align, TitleAlign::Left);
@@ -119,24 +119,28 @@ fn bars_and_panels_built_through_the_facade_have_the_settled_defaults() {
 #[test]
 fn a_panel_bar_s_length_and_title_placement_are_set_on_its_handle() {
     let mut fig = Figure::new().tiles(2, 3).fit_row(1);
-    let s = fig.color_scale().limits(0.0, 1.0).title("Speed (m/s)").id();
+    let s = fig
+        .colour_scale()
+        .limits(0.0, 1.0)
+        .title("Speed (m/s)")
+        .id();
     for col in 0..3 {
-        fig.axes(0, col).scalar_image(field()).color_scale(s);
+        fig.axes(0, col).scalar_image(field()).colour_scale(s);
     }
     let bar = fig
         .panel_span(1, 0, 1, 3)
-        .colorbar(s)
-        .orientation(ColorbarOrientation::Horizontal)
+        .colourbar(s)
+        .orientation(ColourbarOrientation::Horizontal)
         .length(0.6)
-        .title_placement(ColorbarTitlePlacement::Above)
+        .title_placement(ColourbarTitlePlacement::Above)
         .id();
     assert_eq!(
-        panel_colorbar(&fig, bar),
-        PanelColorbar {
+        panel_colourbar(&fig, bar),
+        PanelColourbar {
             scale: s,
-            orientation: ColorbarOrientation::Horizontal,
+            orientation: ColourbarOrientation::Horizontal,
             length: Some(0.6),
-            title_placement: ColorbarTitlePlacement::Above,
+            title_placement: ColourbarTitlePlacement::Above,
         }
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
@@ -148,28 +152,28 @@ fn a_panel_bar_s_length_and_title_placement_are_set_on_its_handle() {
 #[test]
 fn pointing_a_bar_at_another_scale_keeps_its_length_and_title_placement() {
     let mut fig = Figure::new().tiles(1, 2).fit_col(1);
-    let first = fig.color_scale().limits(0.0, 1.0).id();
-    let second = fig.color_scale().limits(0.0, 2.0).id();
+    let first = fig.colour_scale().limits(0.0, 1.0).id();
+    let second = fig.colour_scale().limits(0.0, 2.0).id();
     let ax = fig.axes(0, 0).id();
     fig.axes(0, 0)
-        .colorbar(first, InsideColorbarSide::East)
-        .title_placement(ColorbarTitlePlacement::Above);
+        .colourbar(first, InsideColourbarSide::East)
+        .title_placement(ColourbarTitlePlacement::Above);
     let bar = fig
         .panel(0, 1)
-        .colorbar(first)
+        .colourbar(first)
         .length(0.5)
-        .title_placement(ColorbarTitlePlacement::Above)
+        .title_placement(ColourbarTitlePlacement::Above)
         .id();
-    fig.panel(0, 1).colorbar(second);
-    fig.axes(0, 0).colorbar(second, InsideColorbarSide::West);
-    let kept = panel_colorbar(&fig, bar);
+    fig.panel(0, 1).colourbar(second);
+    fig.axes(0, 0).colourbar(second, InsideColourbarSide::West);
+    let kept = panel_colourbar(&fig, bar);
     assert_eq!(kept.scale, second);
     assert_eq!(kept.length, Some(0.5));
-    assert_eq!(kept.title_placement, ColorbarTitlePlacement::Above);
-    let inside = inside_colorbar(&fig, ax);
+    assert_eq!(kept.title_placement, ColourbarTitlePlacement::Above);
+    let inside = inside_colourbar(&fig, ax);
     assert_eq!(inside.scale, second);
-    assert_eq!(inside.side, InsideColorbarSide::West);
-    assert_eq!(inside.title_placement, ColorbarTitlePlacement::Above);
+    assert_eq!(inside.side, InsideColourbarSide::West);
+    assert_eq!(inside.title_placement, ColourbarTitlePlacement::Above);
 }
 
 // PROMISE: a panel's title heads whatever the panel holds, so it is set on the panel, and it
@@ -177,7 +181,7 @@ fn pointing_a_bar_at_another_scale_keeps_its_length_and_title_placement() {
 #[test]
 fn a_panel_title_is_the_panel_s_and_survives_a_change_of_content() {
     let mut fig = Figure::new().tiles(1, 2);
-    let s = fig.color_scale().id();
+    let s = fig.colour_scale().id();
     let id = fig
         .panel(0, 1)
         .title("Key")
@@ -186,7 +190,7 @@ fn a_panel_title_is_the_panel_s_and_survives_a_change_of_content() {
         .id();
     assert_eq!(panel(&fig, id).title, Some(Text::from("Key")));
     assert_eq!(panel(&fig, id).title_align, TitleAlign::Right);
-    fig.panel(0, 1).colorbar(s);
+    fig.panel(0, 1).colourbar(s);
     assert_eq!(panel(&fig, id).title, Some(Text::from("Key")));
     assert_eq!(panel(&fig, id).title_align, TitleAlign::Right);
     fig.panel(0, 1).legend();
@@ -200,28 +204,28 @@ fn a_panel_title_is_the_panel_s_and_survives_a_change_of_content() {
 #[test]
 fn a_bar_item_of_other_rows_is_listed_as_any_item_is() {
     let mut fig = Figure::new().tiles(2, 1);
-    let s = fig.color_scale().limits(0.0, 1.0).title("Speed").id();
+    let s = fig.colour_scale().limits(0.0, 1.0).title("Speed").id();
     let key = fig
         .panel(1, 0)
         .legend()
-        .item(LegendItem::color_scale(s).with_rows(8))
+        .item(LegendItem::colour_scale(s).with_rows(8))
         .item(s)
         .id();
     assert_eq!(
         items(&fig, key),
         vec![
-            LegendItem::color_scale(s).with_rows(8),
-            LegendItem::color_scale(s),
+            LegendItem::colour_scale(s).with_rows(8),
+            LegendItem::colour_scale(s),
         ]
     );
     let ax = fig.axes(0, 0).id();
     fig.axes(0, 0).legend_entries(LegendEntries::Explicit(vec![
-        LegendItem::color_scale(s).with_rows(3),
+        LegendItem::colour_scale(s).with_rows(3),
     ]));
     match &fig.ir().axes(ax).unwrap().legend {
         Some(ironlab::ir::Legend::Inside(inside)) => assert_eq!(
             inside.entries,
-            LegendEntries::Explicit(vec![LegendItem::color_scale(s).with_rows(3)])
+            LegendEntries::Explicit(vec![LegendItem::colour_scale(s).with_rows(3)])
         ),
         other => panic!("the axes shows an inside legend, not {other:?}"),
     }
@@ -232,16 +236,16 @@ fn a_bar_item_of_other_rows_is_listed_as_any_item_is() {
 #[test]
 fn an_unusable_length_or_row_count_is_reported_by_validate_against_the_panel() {
     let mut fig = Figure::new().tiles(1, 3);
-    let s = fig.color_scale().id();
-    let bar = fig.panel(0, 1).colorbar(s).length(0.0).id();
+    let s = fig.colour_scale().id();
+    let bar = fig.panel(0, 1).colourbar(s).length(0.0).id();
     let key = fig
         .panel(0, 2)
         .legend()
-        .item(LegendItem::color_scale(s).with_rows(0))
+        .item(LegendItem::colour_scale(s).with_rows(0))
         .id();
     let report = fig.validate();
     assert!(
-        has_error_at(&report, IssueKind::InvalidColorbarLength, bar),
+        has_error_at(&report, IssueKind::InvalidColourbarLength, bar),
         "{report:?}"
     );
     assert!(
@@ -255,20 +259,20 @@ fn an_unusable_length_or_row_count_is_reported_by_validate_against_the_panel() {
 #[test]
 fn the_layout_choices_survive_a_save_and_reload() {
     let mut fig = Figure::new().tiles(1, 3);
-    let s = fig.color_scale().title("Speed").id();
-    fig.axes(0, 0).scalar_image(field()).color_scale(s);
+    let s = fig.colour_scale().title("Speed").id();
+    fig.axes(0, 0).scalar_image(field()).colour_scale(s);
     fig.axes(0, 0)
-        .colorbar(s, InsideColorbarSide::East)
-        .title_placement(ColorbarTitlePlacement::Above);
+        .colourbar(s, InsideColourbarSide::East)
+        .title_placement(ColourbarTitlePlacement::Above);
     fig.panel(0, 1)
         .title("Bar")
-        .title_align(TitleAlign::Center)
-        .colorbar(s)
+        .title_align(TitleAlign::Centre)
+        .colourbar(s)
         .length(0.4);
     fig.panel(0, 2)
         .title("Key")
         .legend()
-        .item(LegendItem::color_scale(s).with_rows(7));
+        .item(LegendItem::colour_scale(s).with_rows(7));
     let reloaded = Figure::from_protobuf(&fig.to_protobuf()).unwrap();
     assert_eq!(reloaded.ir(), fig.ir());
 }

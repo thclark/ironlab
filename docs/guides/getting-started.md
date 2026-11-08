@@ -62,23 +62,23 @@ Every point-plotting function (`plot`, `plot3`, `loglog`, `semilogx`, `semilogy`
 let mut ax = fig.axes(0, 0);
 ax.plot(&x, &y)
     .label("$x^2$")
-    .color(Color::rgb(0.0, 0.45, 0.7))
+    .colour(Colour::rgb(0.0, 0.45, 0.7))
     .line_width(1.5)
     .dash(Dash::DashDot)       // Solid, Dashed, Dotted, DashDot, DashDotDot, LongDash, or None to draw only markers
     .marker(Marker::Square)    // Circle, Square, Diamond, TriangleUp, TriangleDown, Plus, Cross, Point, VLine, HLine
     .marker_size(5.0)
-    .marker_face(Color::WHITE)
-    .marker_edge(Color::BLACK);
+    .marker_face(Colour::WHITE)
+    .marker_edge(Colour::BLACK);
 ```
 
 Non-finite values (such as `f64::NAN`) break a line into separate pieces.
 
-A series can fill the area between its line and a constant value of y, its base. `base(y)` sets the base and `fill(colour)` the colour of the fill, which `ColorSpec::Auto` makes the colour of the series; `fill_opacity(a)` fades the fill without fading the line. The fill of each unbroken piece of the line is the polygon of its points closed straight down to the base at its first and last points, drawn beneath the line and the markers. The facade does not choose a base, because 0 is the wrong base for data far from 0 and has no place on a logarithmic axis, so a fill set without a base is reported by [`validate`](#validating-a-figure) as `FillWithoutBase`. A fill is drawn only in two-dimensional axes, Cartesian or [polar](#polar-axes).
+A series can fill the area between its line and a constant value of y, its base. `base(y)` sets the base and `fill(colour)` the colour of the fill, which `ColourSpec::Auto` makes the colour of the series; `fill_opacity(a)` fades the fill without fading the line. The fill of each unbroken piece of the line is the polygon of its points closed straight down to the base at its first and last points, drawn beneath the line and the markers. The facade does not choose a base, because 0 is the wrong base for data far from 0 and has no place on a logarithmic axis, so a fill set without a base is reported by [`validate`](#validating-a-figure) as `FillWithoutBase`. A fill is drawn only in two-dimensional axes, Cartesian or [polar](#polar-axes).
 
 ```rust
 ax.plot(&t, &power)
     .base(0.0)
-    .fill(ColorSpec::Auto)  // the colour of the series
+    .fill(ColourSpec::Auto)  // the colour of the series
     .fill_opacity(0.3);
 ```
 
@@ -100,12 +100,12 @@ fig.axes(0, 0).loglog(&f, &gain);
 fig.axes(0, 0)
     .scatter(&x, &y)
     .size_data(&sizes)       // one diameter in points per marker; or .marker_size(6.0) for all markers
-    .color_data(&values)     // one value per marker, mapped through a colour scale; or .color(Color::BLACK)
+    .colour_data(&values)     // one value per marker, mapped through a colour scale; or .colour(Colour::BLACK)
     .marker(Marker::Diamond)
     .filled();
 ```
 
-`color_data` colours a line too: with one value per point, each segment of the line is a gradient between the colours of its two points, and with one value per segment, each segment takes a single colour. [Colouring a series by data](colour.md#colouring-a-series-by-data) describes both forms.
+`colour_data` colours a line too: with one value per point, each segment of the line is a gradient between the colours of its two points, and with one value per segment, each segment takes a single colour. [Colouring a series by data](colour.md#colouring-a-series-by-data) describes both forms.
 
 ### Reference lines and edge markers
 
@@ -115,7 +115,7 @@ A reference line is a line that a reader judges the data against, such as a tole
 let mut ax = fig.axes(0, 0);
 ax.semilogy(&alpha, &error);
 ax.hline(1.0).dash(Dash::Dotted);                 // a tolerance at 1
-ax.vline(0.0).dash(Dash::Dotted).color(Color::BLACK);
+ax.vline(0.0).dash(Dash::Dotted).colour(Colour::BLACK);
 ```
 
 A reference line spans the plot area because each of its dimensions is placed in its own coordinates. Along the axis it crosses, its value is data, placed through the limits and the scale of that axis. Along the axis it spans, its values are the fractions 0 and 1 of the plot area, which map to the left and right edges (or the bottom and top edges) whatever the limits, the scale or the pan and zoom of the axis. The data value takes part in the automatic limits of its axis, as it does in matplotlib, so a tolerance above the data is in view without fixing the limits; the fractions take part in none, so the line never stretches the axis it spans.
@@ -135,7 +135,7 @@ ax.plot(&missing, vec![0.985; missing.len()])
     .clip(false)                      // drawn whole where it overhangs the top edge; still clipped in x
     .dash(Dash::None)
     .marker(Marker::VLine)
-    .color(Color::rgb(0.9, 0.62, 0.0));
+    .colour(Colour::rgb(0.9, 0.62, 0.0));
 ```
 
 Only a two-dimensional axes has a plot area to take a fraction of, so axes-fraction coordinates in a three-dimensional axes are reported as an error by [validation](#validating-a-figure), and a three-dimensional axes clips every artist to its tile whatever `clip` says. A datatip on such a series in the [viewer](viewer.md#datatips) reports its data coordinate only. The [comparison sheet](../gallery/comparison_sheet.md) in the gallery uses reference lines and edge markers together, and the [categorical strip chart](../gallery/strip_chart.md) uses vertical reference lines across its rows. The reasons for the design are recorded in [ADR 0019](../adrs/0019-axis-direction-ticks-blended-coordinates-and-aspect.md#blended-coordinates-place-a-coordinate-relative-to-the-plot-area).
@@ -149,8 +149,8 @@ let mut ax = fig.axes(0, 0);
 ax.bar([0.0, 1.0, 2.0, 3.0], [12.0, 7.5, 9.0, 4.0])
     .label("Revenue")
     .width_pitch(0.7)                 // seven tenths of the pitch; 1 for bars that touch
-    .face_color(Color::rgb(0.3, 0.5, 0.7))
-    .edge_color(None);                // no outline
+    .face_colour(Colour::rgb(0.3, 0.5, 0.7))
+    .edge_colour(None);                // no outline
 ax.xticks([0.0, 1.0, 2.0, 3.0])
     .xtick_labels(["North", "South", "East", "West"]);
 ```
@@ -207,19 +207,19 @@ bars.stacked("2025", "Gains 2025", [3.0, 2.0, 4.0])
     .stacked("2025", "Losses 2025", [-1.0, -2.5, -0.5])
     .stacked("2026", "Gains 2026", [3.5, 2.5, 3.0])
     .stacked("2026", "Losses 2026", [-1.5, -1.0, -2.0]);
-bars.last().face_color(Color::rgb(0.8, 0.1, 0.1));
+bars.last().face_colour(Colour::rgb(0.8, 0.1, 0.1));
 ```
 
 Because each series draws only its own bars, hiding one by its legend entry moves no other bar: a hidden column leaves its place empty, and a hidden part of a stack leaves a gap in its column.
 
-`colors` gives each bar its own colour, such as one that highlights a bar among grey ones; it stores an indexed [colour scale](colour.md) of the distinct colours and, per bar, the index of its colour. `color_data` colours the bars by a quantity through the colour scale of the axes instead, as it colours the markers of a series.
+`colours` gives each bar its own colour, such as one that highlights a bar among grey ones; it stores an indexed [colour scale](colour.md) of the distinct colours and, per bar, the index of its colour. `colour_data` colours the bars by a quantity through the colour scale of the axes instead, as it colours the markers of a series.
 
 ```rust
-let grey = Color::rgb(0.6, 0.6, 0.6);
-let red = Color::rgb(0.8, 0.1, 0.1);
+let grey = Colour::rgb(0.6, 0.6, 0.6);
+let red = Colour::rgb(0.8, 0.1, 0.1);
 fig.axes(0, 0)
     .bar([0.0, 1.0, 2.0, 3.0], [3.0, 1.0, 4.0, 2.0])
-    .colors([grey, grey, red, grey]);   // the third bar stands out
+    .colours([grey, grey, red, grey]);   // the third bar stands out
 ```
 
 A datatip in the [viewer](viewer.md#datatips) names the bar under the pointer with its position, value and base, the segment it spans from its base to its end, and the name of its category when the axis names it with a text tick label. The [figure schema](../reference/figure-schema.md#bar) states the rules of bars in full. The [grouped bar chart](../gallery/bar_chart.md) in the gallery compares three series across four categories, and [stacked, horizontal, floating and highlighted bars](../gallery/bar_variants.md) shows a stack with negative parts, bars lying flat beside long names, floating ranges and per-bar colours.
@@ -228,7 +228,7 @@ A datatip in the [viewer](viewer.md#datatips) names the bar under the pointer wi
 
 `stairs(edges, values)` draws a stepped outline that holds each value between two neighbouring edges, of which there is one more than values, as the outline of a histogram is drawn (matplotlib's `stairs`). `stairs_at(x, values, step)` holds each value at a sample instead (MATLAB's `stairs` and matplotlib's `step`), and `step` says where each step occurs: `StepAt::Post` holds a value from its sample up to the next, `StepAt::Pre` from the previous sample up to its own, and `StepAt::Mid` changes value midway between the samples. Both return a `StairsMut`.
 
-The outline is open by default: it starts at the first value and ends at the last, in the next colour of the colour order. `base(b)` drops the outline to `b` at both ends, without drawing a line along the base, and `fill(color)` then fills the area between the outline and the base. Stairs are a line that may shade an area, so their colours are set by `color` and `fill`, whereas bars and cells, whose mark is a closed shape, have a face and an edge, as [ADR 0028](../adrs/0028-closed-shapes-have-faces-and-lines-have-fills.md) records. A value that is not finite breaks the outline, and each unbroken piece of a based outline drops to the base at both of its ends.
+The outline is open by default: it starts at the first value and ends at the last, in the next colour of the colour order. `base(b)` drops the outline to `b` at both ends, without drawing a line along the base, and `fill(colour)` then fills the area between the outline and the base. Stairs are a line that may shade an area, so their colours are set by `colour` and `fill`, whereas bars and cells, whose mark is a closed shape, have a face and an edge, as [ADR 0028](../adrs/0028-closed-shapes-have-faces-and-lines-have-fills.md) records. A value that is not finite breaks the outline, and each unbroken piece of a based outline drops to the base at both of its ends.
 
 ```rust
 let edges = [0.0, 1.0, 2.0, 4.0, 5.0];
@@ -237,9 +237,9 @@ let mut ax = fig.axes(0, 0);
 ax.stairs(edges, counts)
     .label("Counts")
     .base(0.0)
-    .fill(Color::rgb(0.6, 0.75, 0.9))
+    .fill(Colour::rgb(0.6, 0.75, 0.9))
     .fill_opacity(0.6)
-    .color(Color::rgb(0.1, 0.3, 0.6))
+    .colour(Colour::rgb(0.1, 0.3, 0.6))
     .line_width(1.25);
 ax.stairs_at([0.0, 1.0, 2.0, 4.0], [1.0, 3.0, 2.0, 5.0], StepAt::Post)
     .label("Set point")
@@ -250,7 +250,7 @@ ax.stairs_at([0.0, 1.0, 2.0, 4.0], [1.0, 3.0, 2.0, 5.0], StepAt::Post)
 
 ### Cells and categorical rows
 
-`cells(values)` draws a grid of rectangular cells, each coloured by its value through the default [colour scale](colour.md) of the axes, as MATLAB's `heatmap` and matplotlib's `pcolormesh` do. The values are a `Matrix`, or a `ByteMatrix` of whole numbers such as the indices of categories, of `ny` rows and `nx` columns, and cell `(j, i)` holds the value in row `j` and column `i`. Without explicit edges the cells are centred on whole numbers, so that cell `(j, i)` is centred on `(i, j)`; `column_edges(edges)` and `row_edges(edges)` place them between edges of any spacing instead, one more than the columns or rows, which is how a [two-dimensional histogram](#histograms) of unequal bins is drawn. The cells are seamless and have no outline by default. `gap(x, y)` leaves the given fractions of the width and the height of each cell empty, measured on the page, and `edge_color` and `edge_width` outline every cell; an automatic or colormapped outline takes the colour of its cell. The automatic limits end exactly at the outer edges of the cells. `cells` returns a `CellsMut`. Cells are an artist of their own rather than a form of scalar image or surface, because their values belong to the cells rather than to the nodes between them, and their edges may be uneven, lie along a logarithmic axis and be set apart by gaps, as [ADR 0027](../adrs/0027-cells-are-an-artist-of-their-own.md) records.
+`cells(values)` draws a grid of rectangular cells, each coloured by its value through the default [colour scale](colour.md) of the axes, as MATLAB's `heatmap` and matplotlib's `pcolormesh` do. The values are a `Matrix`, or a `ByteMatrix` of whole numbers such as the indices of categories, of `ny` rows and `nx` columns, and cell `(j, i)` holds the value in row `j` and column `i`. Without explicit edges the cells are centred on whole numbers, so that cell `(j, i)` is centred on `(i, j)`; `column_edges(edges)` and `row_edges(edges)` place them between edges of any spacing instead, one more than the columns or rows, which is how a [two-dimensional histogram](#histograms) of unequal bins is drawn. The cells are seamless and have no outline by default. `gap(x, y)` leaves the given fractions of the width and the height of each cell empty, measured on the page, and `edge_colour` and `edge_width` outline every cell; an automatic or colourmapped outline takes the colour of its cell. The automatic limits end exactly at the outer edges of the cells. `cells` returns a `CellsMut`. Cells are an artist of their own rather than a form of scalar image or surface, because their values belong to the cells rather than to the nodes between them, and their edges may be uneven, lie along a logarithmic axis and be set apart by gaps, as [ADR 0027](../adrs/0027-cells-are-an-artist-of-their-own.md) records.
 
 ```rust
 let counts = Matrix::from_rows(&[[1.0, 4.0, 2.0], [3.0, 9.0, 5.0]]);
@@ -258,7 +258,7 @@ fig.axes(0, 0)
     .cells(&counts)
     .column_edges([0.0, 1.0, 3.0, 7.0])
     .row_edges([0.0, 0.5, 2.0])
-    .edge_color(Color::WHITE)
+    .edge_colour(Colour::WHITE)
     .label("Counts");
 ```
 
@@ -270,9 +270,9 @@ A categorical axis places its categories at 0, 1, …, N − 1 and names them wi
 let mut fig = Figure::new().tiles(2, 1).fit_row(1);
 let status = fig
     .categorical_scale([
-        (Color::rgb(0.0, 0.6, 0.3), "taken"),
-        (Color::rgb(0.8, 0.2, 0.1), "not taken"),
-        (Color::rgb(0.6, 0.6, 0.6), "not reachable"),
+        (Colour::rgb(0.0, 0.6, 0.3), "taken"),
+        (Colour::rgb(0.8, 0.2, 0.1), "not taken"),
+        (Colour::rgb(0.6, 0.6, 0.6), "not reachable"),
     ])
     .id();
 let mut ax = fig.axes(0, 0);
@@ -282,7 +282,7 @@ let rows = ax.ycategory_groups([
 ]);
 let branches = [vec![0.0, 1.0, 0.0, 2.0], vec![1.0, 1.0], vec![0.0, 0.0, 0.0]];
 ax.occupancy(rows.place(&branches))
-    .color_scale(status)
+    .colour_scale(status)
     .label("Branches");
 fig.panel(1, 0).legend().item(status); // a key of the statuses under the plot
 ```
@@ -302,16 +302,16 @@ The figure stores the binned values, not the sample. With the bars it stores a r
 - `Bins::Edges(edges)` gives the bins between the edges, which may differ in width; samples outside the first and last edges are left out.
 - `Bins::Rule(rule)` lets a rule choose a number of equal bins from the sample: `BinRule::Auto` (numpy's `'auto'`, the default), `Sturges`, `Scott`, `FreedmanDiaconis`, `Sqrt`, or `Integers`, which gives one bin of unit width centred on each whole number, for samples of counts.
 
-`range(min, max)` bins that range instead of the range of the sample, and leaves out the samples outside it. `weights(data)` counts each sample as its weight, so that a bin holds the sum of the weights of its samples. `normalize(norm)` chooses what the height of a bar means, with MATLAB's names: `HistNorm::Count` (the default), `Probability` (the count divided by the number of samples counted), `Percentage`, `CountDensity` (the count divided by the width of the bin), `Density` (the probability divided by the width of the bin, so that the bars enclose unit area, as a probability density function laid over them does), `CumulativeCount` and `Cdf` (the cumulative probability, which ends at 1). The samples left out by a range or because they are not finite are left out of the total too, as numpy leaves them out.
+`range(min, max)` bins that range instead of the range of the sample, and leaves out the samples outside it. `weights(data)` counts each sample as its weight, so that a bin holds the sum of the weights of its samples. `normalise(norm)` chooses what the height of a bar means, with MATLAB's names: `HistNorm::Count` (the default), `Probability` (the count divided by the number of samples counted), `Percentage`, `CountDensity` (the count divided by the width of the bin), `Density` (the probability divided by the width of the bin, so that the bars enclose unit area, as a probability density function laid over them does), `CumulativeCount` and `Cdf` (the cumulative probability, which ends at 1). The samples left out by a range or because they are not finite are left out of the total too, as numpy leaves them out.
 
-`style(style)` chooses how the bins are drawn: `HistStyle::Bar` (the default), `HistStyle::Step`, the outline of the bins as [stairs](#stairs) closed down to 0 at both ends, which is how several samples are overlaid without hiding one another, or `HistStyle::FilledStep`, the same outline filled in its own colour. `color(c)` sets the colour of the bars or of the outline and its fill, `label(text)` names the histogram in a legend, and `orientation(Orientation::Horizontal)` lays the bins along y, as a marginal histogram beside the y axis of a scatter plot lies.
+`style(style)` chooses how the bins are drawn: `HistStyle::Bar` (the default), `HistStyle::Step`, the outline of the bins as [stairs](#stairs) closed down to 0 at both ends, which is how several samples are overlaid without hiding one another, or `HistStyle::FilledStep`, the same outline filled in its own colour. `colour(c)` sets the colour of the bars or of the outline and its fill, `label(text)` names the histogram in a legend, and `orientation(Orientation::Horizontal)` lays the bins along y, as a marginal histogram beside the y axis of a scatter plot lies.
 
 ```rust
 let mut ax = fig.axes(0, 0);
 for (sample, name) in [(&before, "Before"), (&after, "After")] {
     ax.hist(sample)
         .bins(Bins::Edges(edges.clone()))     // the same bins, so that the outlines compare
-        .normalize(HistNorm::Density)
+        .normalise(HistNorm::Density)
         .style(HistStyle::Step)
         .label(name);
 }
@@ -322,7 +322,7 @@ Each setter that changes the binning bins the sample again and replaces what the
 
 `hist_counts(edges, counts)` draws counts binned elsewhere, by MATLAB's `histcounts`, numpy or an instrument, as the touching bars that `hist` would draw, one fewer than the edges. It returns the `BarMut` of ordinary bars, which carry no record, because the figure cannot know how many samples the counts hold or how they were binned; `stairs(edges, counts)` draws the same counts as an outline.
 
-`hists(bins)` draws several samples as stacked or grouped histograms, the counterpart of [`bars`](#bar-charts), and returns a `HistsMut`. `series(label, sample)` adds a histogram as a column of its own, and `stacked(column, label, sample)` adds one to the stacked column of that name. Every sample is binned on one shared set of edges, so that the samples compare bin by bin: explicit edges are used as given, and any other specification is applied to all the samples pooled together. The histograms are placed by the same code that places the series of `bars`: grouped histograms split each bin into equal parts in the order they were added, the first at the low end, and each stacked histogram spans its bin and rests on those added to its column before it. `normalize(norm)` and `range(min, max)` apply to every histogram, and how each is normalised depends on how it is placed, as [normalising stacked and side-by-side histograms](#normalising-stacked-and-side-by-side-histograms) describes. `horizontal()` lays every histogram flat, with the bins along y. `ids()`, `last()` and `get(index)` return the histograms for styling, and `error()` returns the reason when the specification cannot be applied. A datatip on a member of a grouped histogram reports the count and density of the whole bin, although the member draws only its share of it.
+`hists(bins)` draws several samples as stacked or grouped histograms, the counterpart of [`bars`](#bar-charts), and returns a `HistsMut`. `series(label, sample)` adds a histogram as a column of its own, and `stacked(column, label, sample)` adds one to the stacked column of that name. Every sample is binned on one shared set of edges, so that the samples compare bin by bin: explicit edges are used as given, and any other specification is applied to all the samples pooled together. The histograms are placed by the same code that places the series of `bars`: grouped histograms split each bin into equal parts in the order they were added, the first at the low end, and each stacked histogram spans its bin and rests on those added to its column before it. `normalise(norm)` and `range(min, max)` apply to every histogram, and how each is normalised depends on how it is placed, as [normalising stacked and side-by-side histograms](#normalising-stacked-and-side-by-side-histograms) describes. `horizontal()` lays every histogram flat, with the bins along y. `ids()`, `last()` and `get(index)` return the histograms for styling, and `error()` returns the reason when the specification cannot be applied. A datatip on a member of a grouped histogram reports the count and density of the whole bin, although the member draws only its share of it.
 
 ```rust
 fig.axes(0, 0)
@@ -331,7 +331,7 @@ fig.axes(0, 0)
     .stacked("all", "Treated", &treated);
 ```
 
-`hist2d(x, y)` bins pairs of samples along x and y and draws each bin as a [cell](#cells-and-categorical-rows) between its edges, seamless, coloured by its count through the default [colour scale](colour.md) of the axes (MATLAB's `histogram2` viewed from above, Matplotlib's `hist2d`). It returns a `Hist2dMut`, whose `bins(x, y)`, `range(x, y)`, `weights` and `normalize` apply along both dimensions as those of `hist` apply to one, a density being divided by the area of its bin. `min_count(c)` makes every bin with fewer than `c` samples NaN, so that it draws nothing and the background shows through, as Matplotlib's `cmin` does; this also keeps empty bins off a logarithmic colour scale, which cannot place a count of 0. `gap(x, y)`, `color_scale(id)` and `label(text)` set the properties of the cells. The cells store their own record of how they were binned, so a datatip on a cell reports its count and density as one on a bar does.
+`hist2d(x, y)` bins pairs of samples along x and y and draws each bin as a [cell](#cells-and-categorical-rows) between its edges, seamless, coloured by its count through the default [colour scale](colour.md) of the axes (MATLAB's `histogram2` viewed from above, Matplotlib's `hist2d`). It returns a `Hist2dMut`, whose `bins(x, y)`, `range(x, y)`, `weights` and `normalise` apply along both dimensions as those of `hist` apply to one, a density being divided by the area of its bin. `min_count(c)` makes every bin with fewer than `c` samples NaN, so that it draws nothing and the background shows through, as Matplotlib's `cmin` does; this also keeps empty bins off a logarithmic colour scale, which cannot place a count of 0. `gap(x, y)`, `colour_scale(id)` and `label(text)` set the properties of the cells. The cells store their own record of how they were binned, so a datatip on a cell reports its count and density as one on a bar does.
 
 ```rust
 let mut fig = Figure::new().tiles(1, 3).fit_col(1);
@@ -339,17 +339,17 @@ let mut ax = fig.axes(0, 0);
 ax.hist2d(&x, &y)
     .bins(Bins::Count(40), Bins::Count(40))
     .min_count(1.0);                           // empty bins draw nothing
-let counts = ax.color_scale().norm(ColorScaleNorm::Log).title("Count").id();
-fig.panel(0, 1).colorbar(counts);              // the colourbar in its own column
+let counts = ax.colour_scale().norm(ColourScaleNorm::Log).title("Count").id();
+fig.panel(0, 1).colourbar(counts);              // the colourbar in its own column
 fig.axes(0, 2)
     .density_contour(&x, &y)
     .bins(Bins::Count(25), Bins::Count(25))
-    .normalize(HistNorm::Density)
+    .normalise(HistNorm::Density)
     .levels(8)
     .filled(true);
 ```
 
-`density_contour(x, y)` bins pairs as `hist2d` does and draws the [contours](#contours) of the binned values on the grid of the bin centres (Plotly's `histogram2dcontour`). It returns a `DensityContourMut`, whose binning setters are those of `Hist2dMut`, and whose `levels(n)`, `level_values(levels)`, `filled(true)` and `color_scale(id)` set the contour as `contour` and `contourf` do. A contour stores no record of its binning, because its field is sampled at the bin centres rather than held in bins.
+`density_contour(x, y)` bins pairs as `hist2d` does and draws the [contours](#contours) of the binned values on the grid of the bin centres (Plotly's `histogram2dcontour`). It returns a `DensityContourMut`, whose binning setters are those of `Hist2dMut`, and whose `levels(n)`, `level_values(levels)`, `filled(true)` and `colour_scale(id)` set the contour as `contour` and `contourf` do. A contour stores no record of its binning, because its field is sampled at the bin centres rather than held in bins.
 
 The gallery's [histograms](../gallery/histogram.md) overlay two samples as step outlines of their densities with fitted normal densities, and stack the same samples as counts; its [two-dimensional histogram and density contour](../gallery/histogram_2d.md) draws a correlated sample as cells on a logarithmic colour scale and as filled contours of its density. A histogram of angles, which wraps round a turn, is drawn by [`polar_hist`](#polar-histograms-and-wind-roses) in a polar axes.
 
@@ -365,14 +365,14 @@ Histograms that stand side by side, each in a column of its own, are normalised 
 // The outline of the stack is the density of the pooled sample.
 fig.axes(0, 0)
     .hists(Bins::Count(20))
-    .normalize(HistNorm::Density)
+    .normalise(HistNorm::Density)
     .stacked("all", "Control", &control)
     .stacked("all", "Treated", &treated);
 
 // Each layer encloses unit area of its own, so the stack encloses an area of 2.
 fig.axes(0, 1)
     .hists(Bins::Count(20))
-    .normalize(HistNorm::Density)
+    .normalise(HistNorm::Density)
     .common_norm(false)
     .stacked("all", "Control", &control)
     .stacked("all", "Treated", &treated);
@@ -387,7 +387,7 @@ Each histogram keeps a record of the total its values were normalised by, which 
 ```rust
 let mut ax = fig.axes(0, 0);
 ax.contourf(&x, &y, &z).levels(12);                        // about 12 levels at round values
-ax.contour(&x, &y, &z).level_values([-1.0, 0.0, 1.0]).color(Color::BLACK);
+ax.contour(&x, &y, &z).level_values([-1.0, 0.0, 1.0]).colour(Colour::BLACK);
 ```
 
 The coordinates `x` and `y` of any gridded plot are either vectors, which describe a rectilinear grid with one coordinate per column or row, or matrices of the same shape as `z`, which describe a curvilinear grid with coordinates for every node.
@@ -403,7 +403,7 @@ fig.axes(0, 0)
     .scale(0.8)          // multiply the automatic scale; or .no_scale() to use lengths in data units
     .head_size(0.3)      // head length as a fraction of arrow length
     .line_width(0.5)
-    .color(Color::BLACK);
+    .colour(Colour::BLACK);
 ```
 
 ### Surfaces
@@ -413,19 +413,19 @@ fig.axes(0, 0)
 ```rust
 fig.axes3(0, 0)
     .surf(&x, &y, &z)
-    .edge_color(None)                   // hide the edges
-    .face_color(ColorSpec::Colormapped) // the default for surf
+    .edge_colour(None)                   // hide the edges
+    .face_colour(ColourSpec::Colourmapped) // the default for surf
     .edge_width(0.25)
-    .color_data(&c);                    // colour by another matrix instead of by height
+    .colour_data(&c);                    // colour by another matrix instead of by height
 ```
 
-Wherever a colour is set, a `Color` gives a fixed colour, `None` draws nothing, and a `ColorSpec` chooses the automatic colour (`ColorSpec::Auto`) or a colour mapped through the artist's colour scale (`ColorSpec::Colormapped`). On the faces and edges of a surface and the isolines of a contour, which have no colour of their own, the automatic colour is the mapped colour.
+Wherever a colour is set, a `Colour` gives a fixed colour, `None` draws nothing, and a `ColourSpec` chooses the automatic colour (`ColourSpec::Auto`) or a colour mapped through the artist's colour scale (`ColourSpec::Colourmapped`). On the faces and edges of a surface and the isolines of a contour, which have no colour of their own, the automatic colour is the mapped colour.
 
 A surface of ten thousand faces or more is exported as an image rather than as one path per face; see [dense surfaces](#dense-surfaces).
 
 #### Surfaces in two-dimensional axes
 
-`surface(x, y, z)` draws the same surface as `surf`, with the same defaults, and leaves the axes as it is: a two-dimensional axes stays two-dimensional, and a three-dimensional axes keeps its view. A two-dimensional axes shows a surface from directly above, which makes it a pseudocolour plot: the equivalent of MATLAB's `pcolor`, of matplotlib's `pcolormesh` and `pcolor`, and of Plotly's `Heatmap`. The grid alone places the faces. The field `z` positions nothing, and colours the faces unless `color_data` is given.
+`surface(x, y, z)` draws the same surface as `surf`, with the same defaults, and leaves the axes as it is: a two-dimensional axes stays two-dimensional, and a three-dimensional axes keeps its view. A two-dimensional axes shows a surface from directly above, which makes it a pseudocolour plot: the equivalent of MATLAB's `pcolor`, of matplotlib's `pcolormesh` and `pcolor`, and of Plotly's `Heatmap`. The grid alone places the faces. The field `z` positions nothing, and colours the faces unless `colour_data` is given.
 
 ```rust
 let radius = logspace(0.0, 0.6, 17);                  // rings from r = 1 to r ≈ 4, crowded towards r = 1
@@ -437,8 +437,8 @@ let field = Matrix::from_fn(r.rows(), r.cols(), |row, col| r[(row, col)].ln() * 
 
 let mut ax = fig.axes(0, 0);
 ax.surface(x, y, &field)   // coordinate matrices make a curvilinear grid
-    .edge_color(None);     // no edges, as MATLAB's `shading flat`
-ax.color_scale().colormap(Colormap::Viridis);
+    .edge_colour(None);     // no edges, as MATLAB's `shading flat`
+ax.colour_scale().colourmap(Colourmap::Viridis);
 ```
 
 Out of the box, a surface in a two-dimensional axes and a [scalar image](#images) differ in one respect only: the values of an image are pixels, and the values of a surface are vertices.
@@ -469,7 +469,7 @@ let x = linspace(-2.0, 2.0, 81);
 let y = linspace(-1.0, 1.0, 41);
 let field = Matrix::from_fn(y.len(), x.len(), |row, col| (x[col] * y[row]).sin());
 let classes = ByteMatrix::from_fn(y.len(), x.len(), |row, col| ((row + col) % 4 * 85) as u8);
-let pixels = Pixels::rgb_from_fn(64, 64, |row, col| Color::rgb(row as f32 / 63.0, col as f32 / 63.0, 0.5));
+let pixels = Pixels::rgb_from_fn(64, 64, |row, col| Colour::rgb(row as f32 / 63.0, col as f32 / 63.0, 0.5));
 
 let mut fig = Figure::new().tiles(1, 3);
 let mut ax = fig.axes(0, 0);
@@ -477,14 +477,14 @@ ax.scalar_image(&field)
     .pixel_columns(-2.0, 2.0)  // the centres of the first and last columns
     .pixel_rows(-1.0, 1.0)     // the centres of the first and last rows
     .label(r"$\sin xy$");
-ax.color_scale()               // the scale the image created as the default of its axes
-    .colormap(Colormap::Magma)
+ax.colour_scale()               // the scale the image created as the default of its axes
+    .colourmap(Colourmap::Magma)
     .limits(-1.0, 1.0)
-    .non_finite(Color::BLACK); // a NaN is drawn in black instead of being left transparent
-let palette = fig.indexed_scale(Colormap::Viridis.sample(256)).id();
+    .non_finite(Colour::BLACK); // a NaN is drawn in black instead of being left transparent
+let palette = fig.indexed_scale(Colourmap::Viridis.sample(256)).id();
 fig.axes(0, 1)
     .scalar_image(&classes)    // each byte names an entry of the 256-colour palette
-    .color_scale(palette)
+    .colour_scale(palette)
     .pixel_columns(-2.0, 2.0)
     .pixel_rows(-1.0, 1.0);
 fig.axes(0, 2).image(&pixels).pixel_columns(0.0, 1.0).pixel_rows(1.0, 0.0); // rows count down from the top
@@ -494,7 +494,7 @@ An image is placed by the centres of its first and last pixels along each axis o
 
 What a pixel draws when its value lies outside the range of its colour scale, names no entry of a palette, or is not finite, is decided by the scale rather than by the image, so that every artist that names the scale treats such values alike. [Values out of range](colour.md#values-out-of-range) describes the policies.
 
-A colour scale is shown to the reader by a colourbar, in a panel beside the plots or inside the plot area, as [showing a scale with a colourbar](colour.md#showing-a-scale-with-a-colourbar) describes. In a figure made with `Figure::new().tiles(1, 2).fit_col(1)`, for example, `fig.panel(0, 1).colorbar(scale)` shows the scale with the identifier `scale` beside the plot in the first column.
+A colour scale is shown to the reader by a colourbar, in a panel beside the plots or inside the plot area, as [showing a scale with a colourbar](colour.md#showing-a-scale-with-a-colourbar) describes. In a figure made with `Figure::new().tiles(1, 2).fit_col(1)`, for example, `fig.panel(0, 1).colourbar(scale)` shows the scale with the identifier `scale` beside the plot in the first column.
 
 In a three-dimensional axes an image lies in one of the three coordinate planes, chosen with `plane`. `ImagePlane::Xy { z }` is the floor, `ImagePlane::Xz { y }` and `ImagePlane::Yz { x }` are the walls, and the offset is the coordinate of the plane along the third axis, or `None` for the low end of that axis, so `plane(ImagePlane::Xz { y: Some(0.0) })` stands the image on the wall at y = 0. The columns of the image run along the first axis of its plane and the rows along the second. Placing an image on a wall converts a two-dimensional axes to three dimensions, as `surf` does, whereas the xy plane leaves the axes as it is, because it is the only plane a two-dimensional axes can show. An image on a face of the axes box, as an image without an offset is, is painted behind everything else in the axes when its face is at the back of the current view and in front of everything else when it is at the front; an image at an interior offset is sorted among the faces, lines and markers by its depth.
 
@@ -527,11 +527,11 @@ let frequency = logspace(20f64.log10(), 20e3f64.log10(), 241); // the frequencie
 let power = Matrix::from_fn(frequency.len(), time.len(), |row, col| psd(time[col], frequency[row]));
 
 let mut ax = fig.axes(0, 0);
-ax.surface(&time, &frequency, &power).edge_color(None);
+ax.surface(&time, &frequency, &power).edge_colour(None);
 ax.yscale(Scale::Log);
 ```
 
-The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `color_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
+The values of a surface belong to its vertices, so a grid of n rows and m columns draws (n − 1) × (m − 1) faces, each in the colour of the mean of its four corners, as the [comparison above](#surfaces-in-two-dimensional-axes) describes. A face that touches a vertex at a coordinate that is not positive on a logarithmic axis is left out, and validation warns of it with `NonPositiveOnLogAxis`. In a three-dimensional axes the same values are drawn on the floor by a surface whose field `z` holds the height of the floor at every node and whose colour data, given with `colour_data`, holds the values; on a wall, a curvilinear grid holds the wall's constant coordinate in one of its coordinate matrices. The [Spectrogram on a logarithmic frequency axis](../gallery/sweep_spectrogram.md) gallery entry draws a spectrogram in this way.
 
 An exported PDF embeds every image on linear axes at its own resolution, without resampling, so a PDF grows with the number of pixels rather than with the size of the figure. A `.fig` file stores the bytes of a `Pixels` or a `ByteMatrix` as one byte each, whereas JSON writes one number per component as text, so a large image is saved as `.fig`.
 
@@ -622,7 +622,7 @@ The name of a data array identifies it to tools and is never drawn: the viewer's
 Two rules follow from sharing, and both are worth knowing before a program relies on it.
 
 - **Editing a shared array changes every plot that refers to it.** A data array has one set of values, so replacing or appending to them, for example with the `replace_data` and `append_data` [edits](../reference/figure-schema.md#edits) that stream new values into a figure, changes every plot that draws the array. Plots whose data must change independently need arrays of their own, which is what passing values gives them.
-- **A setter deletes the array it replaces only when that array is no longer used and has no name.** The setters that give an existing plot a new array, namely `size_data` and `color_data` of a series, `color_data`, `face_alpha` and `edge_alpha` of a surface, and `alpha` of an image, accept an identifier or values in the same way as plotting functions. The array that the setter replaces is removed from the figure only when no other plot refers to it and it has no name. An array copied from values has no name, so it is removed as soon as nothing draws it. An array made with `fig.data` always has a name, so it is kept even when no plot refers to it any more, and `validate` then reports it with the warning `UnusedData`, because it is saved with the figure and enlarges every file.
+- **A setter deletes the array it replaces only when that array is no longer used and has no name.** The setters that give an existing plot a new array, namely `size_data` and `colour_data` of a series, `colour_data`, `face_alpha` and `edge_alpha` of a surface, and `alpha` of an image, accept an identifier or values in the same way as plotting functions. The array that the setter replaces is removed from the figure only when no other plot refers to it and it has no name. An array copied from values has no name, so it is removed as soon as nothing draws it. An array made with `fig.data` always has a name, so it is kept even when no plot refers to it any more, and `validate` then reports it with the warning `UnusedData`, because it is saved with the figure and enlarges every file.
 
 The [decimated time series](../gallery/decimated_timeseries.md) of the gallery shares its record between its plots in this way. The reasons for keeping data arrays as nodes of the figure, and for this deletion rule, are recorded in [ADR 0022](../adrs/0022-figure-nodes-in-one-identifier-space-and-panels.md), and the [figure schema](../reference/figure-schema.md#data-arrays) describes how data arrays are stored.
 
@@ -680,10 +680,10 @@ The remaining axes properties are also set on the axes handle.
 | `xaxis_side(side)`, `yaxis_side(side)`, `zaxis_side(side)` | Draws an axis on the low side of the plot (`AxisSide::Low`, the default: the bottom or the left), through its middle (`AxisSide::Centre`) or on its high side (`AxisSide::High`: the top or the right); see [axis sides](#axis-sides). |
 | `aspect(aspect)` | Fixes the ratios of the drawn length of a unit of y, and of z, to that of a unit of x: `Aspect::Equal`, `Aspect::ratio(y)` or `Aspect::Ratio { y, z }`; see [equal aspect](#equal-aspect). |
 | `aspect_adjust(adjust)` | Keeps a fixed aspect by shaping the plot area or the box to the limits (`AspectAdjust::Box`, the default) or by widening the limits (`AspectAdjust::Limits`). |
-| `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Center` (the default), `Left` or `Right`. |
+| `title_align(align)` | Aligns the title with the plot area: `TitleAlign::Centre` (the default), `Left` or `Right`. |
 | `grid(on)` | Shows or hides grid lines along every axis. |
 | `box_on(on)` | Draws the full outline of the plot box, or only the edges that carry tick labels. A three-dimensional axes with the box off keeps only the three edges that carry the ticks of x, y and z, and a cylindrical axes keeps only its floor. |
-| `color_scale()` | Returns the default [colour scale](colour.md) of the axes, which its colour-mapped plots share, so that its colormap (MATLAB's `colormap`) and its limits (MATLAB's `clim`) can be set. |
+| `colour_scale()` | Returns the default [colour scale](colour.md) of the axes, which its colour-mapped plots share, so that its colourmap (MATLAB's `colormap`) and its limits (MATLAB's `clim`) can be set. |
 | `view(azimuth_deg, elevation_deg)` | Sets the camera of a three-dimensional axes. |
 
 Limits that are not set are chosen automatically from the data and rounded outwards to tick values. The x and y limits of contour, surface and image plots are the exact extent of their grid or of their pixel edges instead, so that the field fills the axes, as in MATLAB; other plots in the same axes that reach beyond the grid still extend the limits to the next tick value.
@@ -903,7 +903,7 @@ let radius = gain.map(|g| g + 30.0);
 
 let mut fig = Figure::new();
 let mut ax = fig.spherical_axes(0, 0);
-ax.surf(&azimuth, &elevation, &radius).color_data(&gain);
+ax.surf(&azimuth, &elevation, &radius).colour_data(&gain);
 ax.zlim(0.0, 30.0);
 assert!(fig.validate().is_valid());
 ```

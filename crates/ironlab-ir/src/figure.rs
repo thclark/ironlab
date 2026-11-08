@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::artist::Artist;
 use crate::axes::Axes;
-use crate::color_scale::ColorScale;
+use crate::colour_scale::ColourScale;
 use crate::data::{DataArray, NdArray};
 use crate::error::IrError;
 use crate::ids::NodeId;
 use crate::layout::TileLayout;
 use crate::link::AxisLink;
 use crate::panel::Panel;
-use crate::style::Color;
+use crate::style::Colour;
 use crate::text::Text;
 
 /// The version of the figure schema implemented by this build.
@@ -52,7 +52,7 @@ pub struct Figure {
     #[schemars(!skip_serializing_if)]
     pub embolden: Embolden,
     /// The colour of the figure background.
-    pub background: Color,
+    pub background: Colour,
     /// The grid of cells in which axes and panels are placed.
     pub layout: TileLayout,
     /// The data arrays of the figure, which artists refer to by node identifier.
@@ -64,7 +64,7 @@ pub struct Figure {
     /// The property is omitted from JSON when there are no colour scales.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(!skip_serializing_if)]
-    pub color_scales: Vec<ColorScale>,
+    pub colour_scales: Vec<ColourScale>,
     /// The axes of the figure, in drawing order.
     pub axes: Vec<Axes>,
     /// The panels of the figure, which occupy cells of the tile layout and are drawn
@@ -117,10 +117,10 @@ impl Default for Figure {
             font_set: FontSetId::StixTwo,
             font_size_pt: 9.0,
             embolden: Embolden::Regular,
-            background: Color::WHITE,
+            background: Colour::WHITE,
             layout: TileLayout::default(),
             data: Vec::new(),
-            color_scales: Vec::new(),
+            colour_scales: Vec::new(),
             axes: Vec::new(),
             panels: Vec::new(),
             links: Vec::new(),

@@ -1,5 +1,5 @@
 //! Paths to the entries of a palette: the colour of each entry of an indexed colour scale, the colour and the label of
-//! each category of a categorical one, and each colour of a listed colormap (stage 6 of the colourbar epic).
+//! each category of a categorical one, and each colour of a listed colourmap (stage 6 of the colourbar epic).
 //!
 //! The viewer edits properties only. The entries of a palette come from the program that builds the figure, as its
 //! data does, so their number and their order are structure, which no edit path reaches; but the colour of an entry
@@ -11,19 +11,19 @@
 //! ```text
 //! // Paths. An entry is addressed by a path segment holding its index in canonical decimal form (no sign, no leading
 //! // zero, no exponent), after the segment that names the list:
-//! //   kind.indexed.colors.<i>                      Color  (and .r, .g, .b, .a below it)
-//! //   kind.categorical.categories.<i>.color        Color  (and its components)
+//! //   kind.indexed.colours.<i>                      Colour  (and .r, .g, .b, .a below it)
+//! //   kind.categorical.categories.<i>.colour        Colour  (and its components)
 //! //   kind.categorical.categories.<i>.label        Text   (and .content, .interpreter)
-//! //   kind.continuous.colormap.colors.<i>          Color  (while the colormap is Listed)
-//! //   kind.discrete.colormap.colors.<i>            Color  (while the colormap is Listed)
-//! // The list itself (`kind.indexed.colors`, `kind.categorical.categories`, `….colormap.colors`) stays read-only, so
+//! //   kind.continuous.colourmap.colours.<i>          Colour  (while the colourmap is Listed)
+//! //   kind.discrete.colourmap.colours.<i>            Colour  (while the colourmap is Listed)
+//! // The list itself (`kind.indexed.colours`, `kind.categorical.categories`, `….colourmap.colours`) stays read-only, so
 //! // that no set changes how many entries there are.
 //!
 //! // crates/ironlab-ir/src/edit/mod.rs
 //! pub enum EditError {
 //!     ...,
 //!     /// The path names an entry of a list by an index that the list does not have, such as
-//!     /// `kind.indexed.colors.9` of a palette of nine entries.
+//!     /// `kind.indexed.colours.9` of a palette of nine entries.
 //!     EntryOutOfRange { edit: Option<usize>, node: NodeId, path: PropertyPath, count: usize },
 //! }
 //!
@@ -41,18 +41,18 @@
 mod common;
 
 use common::edits::{applied, path, set, tx};
-use common::{FigureBuilder, color_scale_variants_figure, indexed, out_of_range};
+use common::{FigureBuilder, colour_scale_variants_figure, indexed, out_of_range};
 use ironlab_ir::overlay::Overlay;
 use ironlab_ir::*;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
-const GREY: Color = Color::rgb(0.5, 0.5, 0.5);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
+const GREY: Colour = Colour::rgb(0.5, 0.5, 0.5);
 
 /// A figure of four scales and no artists: an indexed palette of red, green and blue (`palette`), a categorical
-/// scale of the categories Water (blue) and Forest (green) (`classes`), a continuous scale of a listed colormap of
-/// red, grey and blue (`listed`), and a continuous scale of a named colormap (`named`).
+/// scale of the categories Water (blue) and Forest (green) (`classes`), a continuous scale of a listed colourmap of
+/// red, grey and blue (`listed`), and a continuous scale of a named colourmap (`named`).
 struct Palettes {
     figure: Figure,
     palette: NodeId,
@@ -63,27 +63,27 @@ struct Palettes {
 
 fn palettes() -> Palettes {
     let mut b = FigureBuilder::new();
-    let palette = b.color_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict));
-    let classes = b.color_scale(ColorScaleKind::Categorical(CategoricalColorScale {
+    let palette = b.colour_scale(indexed(vec![RED, GREEN, BLUE], OutOfRange::Strict));
+    let classes = b.colour_scale(ColourScaleKind::Categorical(CategoricalColourScale {
         categories: vec![
-            ColorCategory {
-                color: BLUE,
+            ColourCategory {
+                colour: BLUE,
                 label: Text::plain("Water"),
             },
-            ColorCategory {
-                color: GREEN,
+            ColourCategory {
+                colour: GREEN,
                 label: Text::plain("Forest"),
             },
         ],
         outside: out_of_range(OutOfRange::Strict),
     }));
-    let listed = b.color_scale(ColorScaleKind::Continuous(ContinuousColorScale {
-        colormap: Colormap::Listed {
-            colors: vec![RED, GREY, BLUE],
+    let listed = b.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale {
+        colourmap: Colourmap::Listed {
+            colours: vec![RED, GREY, BLUE],
         },
-        ..ContinuousColorScale::default()
+        ..ContinuousColourScale::default()
     }));
-    let named = b.color_scale(ColorScaleKind::Continuous(ContinuousColorScale::default()));
+    let named = b.colour_scale(ColourScaleKind::Continuous(ContinuousColourScale::default()));
     Palettes {
         figure: b.build(),
         palette,
@@ -93,20 +93,20 @@ fn palettes() -> Palettes {
     }
 }
 
-fn colors_of(figure: &Figure, scale: NodeId) -> Vec<Color> {
-    match &figure.color_scale(scale).expect("the scale exists").kind {
-        ColorScaleKind::Indexed(scale) => scale.colors.clone(),
-        ColorScaleKind::Continuous(ContinuousColorScale {
-            colormap: Colormap::Listed { colors },
+fn colours_of(figure: &Figure, scale: NodeId) -> Vec<Colour> {
+    match &figure.colour_scale(scale).expect("the scale exists").kind {
+        ColourScaleKind::Indexed(scale) => scale.colours.clone(),
+        ColourScaleKind::Continuous(ContinuousColourScale {
+            colourmap: Colourmap::Listed { colours },
             ..
-        }) => colors.clone(),
+        }) => colours.clone(),
         other => panic!("the scale has a list of colours: {other:?}"),
     }
 }
 
-fn categories_of(figure: &Figure, scale: NodeId) -> Vec<ColorCategory> {
-    match &figure.color_scale(scale).expect("the scale exists").kind {
-        ColorScaleKind::Categorical(scale) => scale.categories.clone(),
+fn categories_of(figure: &Figure, scale: NodeId) -> Vec<ColourCategory> {
+    match &figure.colour_scale(scale).expect("the scale exists").kind {
+        ColourScaleKind::Categorical(scale) => scale.categories.clone(),
         other => panic!("the scale is categorical: {other:?}"),
     }
 }
@@ -123,22 +123,26 @@ fn setting_one_entry_of_an_indexed_palette_changes_that_entry_alone() {
     let p = palettes();
     assert_eq!(
         p.figure
-            .get(p.palette, &path("kind.indexed.colors.1"))
+            .get(p.palette, &path("kind.indexed.colours.1"))
             .unwrap(),
-        Value::Color(GREEN)
+        Value::Colour(GREEN)
     );
 
     let (edited, inverse) = applied(
         &p.figure,
-        &tx([set(p.palette, "kind.indexed.colors.1", Value::Color(GREY))]),
+        &tx([set(
+            p.palette,
+            "kind.indexed.colours.1",
+            Value::Colour(GREY),
+        )]),
     )
     .unwrap();
-    assert_eq!(colors_of(&edited, p.palette), [RED, GREY, BLUE]);
+    assert_eq!(colours_of(&edited, p.palette), [RED, GREY, BLUE]);
     assert_eq!(
         edited
-            .get(p.palette, &path("kind.indexed.colors.1"))
+            .get(p.palette, &path("kind.indexed.colours.1"))
             .unwrap(),
-        Value::Color(GREY)
+        Value::Colour(GREY)
     );
     let (restored, _) = applied(&edited, &inverse).unwrap();
     assert_eq!(
@@ -148,12 +152,16 @@ fn setting_one_entry_of_an_indexed_palette_changes_that_entry_alone() {
 
     let (edited, _) = applied(
         &p.figure,
-        &tx([set(p.palette, "kind.indexed.colors.2.g", Value::Float(0.5))]),
+        &tx([set(
+            p.palette,
+            "kind.indexed.colours.2.g",
+            Value::Float(0.5),
+        )]),
     )
     .unwrap();
     assert_eq!(
-        colors_of(&edited, p.palette)[2],
-        Color::rgb(0.0, 0.5, 1.0),
+        colours_of(&edited, p.palette)[2],
+        Colour::rgb(0.0, 0.5, 1.0),
         "a component of an entry is addressed below it, as the components of any colour are"
     );
 }
@@ -180,22 +188,22 @@ fn the_colour_and_the_label_of_one_category_are_set_on_their_own() {
             ),
             set(
                 p.classes,
-                "kind.categorical.categories.0.color",
-                Value::Color(GREY),
+                "kind.categorical.categories.0.colour",
+                Value::Colour(GREY),
             ),
         ]),
     )
     .unwrap();
     let categories = categories_of(&edited, p.classes);
     assert_eq!(categories.len(), 2, "no category is added or removed");
-    assert_eq!(categories[0].color, GREY);
+    assert_eq!(categories[0].colour, GREY);
     assert_eq!(
         categories[0].label,
         Text::plain("Water"),
         "the label of the recoloured category stays"
     );
     assert_eq!(
-        categories[1].color, GREEN,
+        categories[1].colour, GREEN,
         "the colour of the renamed category stays"
     );
     assert_eq!(categories[1].label, Text::plain("Woodland"));
@@ -212,30 +220,30 @@ fn the_colour_and_the_label_of_one_category_are_set_on_their_own() {
     assert_eq!(categories_of(&edited, p.classes)[0].label.content, "Sea");
 }
 
-// Why: a listed colormap is a palette the author typed, and its colours are adjusted exactly as the entries of an
-// indexed palette are; while the colormap is a named one there is no list to address, which is the inactive-variant
+// Why: a listed colourmap is a palette the author typed, and its colours are adjusted exactly as the entries of an
+// indexed palette are; while the colourmap is a named one there is no list to address, which is the inactive-variant
 // error that every path into an unset variant gives.
 #[test]
-fn a_colour_of_a_listed_colormap_is_set_by_index_and_a_named_colormap_has_none() {
+fn a_colour_of_a_listed_colourmap_is_set_by_index_and_a_named_colourmap_has_none() {
     let p = palettes();
     let (edited, _) = applied(
         &p.figure,
         &tx([set(
             p.listed,
-            "kind.continuous.colormap.colors.2",
-            Value::Color(GREEN),
+            "kind.continuous.colourmap.colours.2",
+            Value::Colour(GREEN),
         )]),
     )
     .unwrap();
-    assert_eq!(colors_of(&edited, p.listed), [RED, GREY, GREEN]);
+    assert_eq!(colours_of(&edited, p.listed), [RED, GREY, GREEN]);
 
     assert!(
         matches!(
             p.figure
-                .get(p.named, &path("kind.continuous.colormap.colors.0")),
+                .get(p.named, &path("kind.continuous.colourmap.colours.0")),
             Err(EditError::InactiveVariant { edit: None, .. })
         ),
-        "a named colormap has no listed colours"
+        "a named colourmap has no listed colours"
     );
 }
 
@@ -250,12 +258,12 @@ fn a_colour_of_a_listed_colormap_is_set_by_index_and_a_named_colormap_has_none()
 fn the_list_of_entries_itself_stays_read_only() {
     let p = palettes();
     for (node, at, value) in [
-        (p.palette, "kind.indexed.colors", Value::Color(RED)),
-        (p.classes, "kind.categorical.categories", Value::Color(RED)),
+        (p.palette, "kind.indexed.colours", Value::Colour(RED)),
+        (p.classes, "kind.categorical.categories", Value::Colour(RED)),
         (
             p.listed,
-            "kind.continuous.colormap.colors",
-            Value::Color(RED),
+            "kind.continuous.colourmap.colours",
+            Value::Colour(RED),
         ),
     ] {
         assert!(
@@ -284,11 +292,11 @@ fn the_list_of_entries_itself_stays_read_only() {
 fn an_index_past_the_last_entry_is_refused_as_out_of_range() {
     let p = palettes();
     for (node, at, count) in [
-        (p.palette, "kind.indexed.colors.3", 3),
-        (p.palette, "kind.indexed.colors.18446744073709551616", 3),
-        (p.classes, "kind.categorical.categories.2.color", 2),
+        (p.palette, "kind.indexed.colours.3", 3),
+        (p.palette, "kind.indexed.colours.18446744073709551616", 3),
+        (p.classes, "kind.categorical.categories.2.colour", 2),
         (p.classes, "kind.categorical.categories.7.label", 2),
-        (p.listed, "kind.continuous.colormap.colors.3", 3),
+        (p.listed, "kind.continuous.colourmap.colours.3", 3),
     ] {
         assert!(
             matches!(
@@ -300,7 +308,7 @@ fn an_index_past_the_last_entry_is_refused_as_out_of_range() {
             p.figure.get(node, &path(at))
         );
         let mut edited = p.figure.clone();
-        let result = edited.apply(&tx([set(node, at, Value::Color(GREY))]));
+        let result = edited.apply(&tx([set(node, at, Value::Colour(GREY))]));
         assert!(
             matches!(
                 result,
@@ -319,12 +327,12 @@ fn an_index_past_the_last_entry_is_refused_as_out_of_range() {
 fn an_index_that_is_not_canonical_decimal_is_an_unknown_path() {
     let p = palettes();
     for at in [
-        "kind.indexed.colors.01",
-        "kind.indexed.colors.+1",
-        "kind.indexed.colors.-1",
-        "kind.indexed.colors.1e0",
-        "kind.indexed.colors.one",
-        "kind.indexed.colors. 1",
+        "kind.indexed.colours.01",
+        "kind.indexed.colours.+1",
+        "kind.indexed.colours.-1",
+        "kind.indexed.colours.1e0",
+        "kind.indexed.colours.one",
+        "kind.indexed.colours. 1",
     ] {
         assert!(
             matches!(
@@ -345,14 +353,14 @@ fn an_entry_takes_a_value_of_its_own_type_only() {
     for (node, at, value, expected) in [
         (
             p.palette,
-            "kind.indexed.colors.0",
+            "kind.indexed.colours.0",
             Value::Text(Text::plain("red")),
-            ValueType::Color,
+            ValueType::Colour,
         ),
         (
             p.classes,
             "kind.categorical.categories.0.label",
-            Value::Color(RED),
+            Value::Colour(RED),
             ValueType::Text,
         ),
     ] {
@@ -381,15 +389,15 @@ fn the_properties_of_a_node_list_one_path_per_entry_it_holds() {
     let listed: Vec<String> = properties_of(&p.figure, p.palette)
         .into_iter()
         .map(|property| property.path.to_string())
-        .filter(|at| at.starts_with("kind.indexed.colors."))
+        .filter(|at| at.starts_with("kind.indexed.colours."))
         .filter(|at| at.split('.').count() == 4)
         .collect();
     assert_eq!(
         listed,
         [
-            "kind.indexed.colors.0",
-            "kind.indexed.colors.1",
-            "kind.indexed.colors.2"
+            "kind.indexed.colours.0",
+            "kind.indexed.colours.1",
+            "kind.indexed.colours.2"
         ]
     );
 
@@ -405,9 +413,9 @@ fn the_properties_of_a_node_list_one_path_per_entry_it_holds() {
         .map(|property| (property.path.to_string(), property.value_type))
         .collect();
     for (k, field, value_type) in [
-        (0, "color", ValueType::Color),
+        (0, "colour", ValueType::Colour),
         (0, "label", ValueType::Text),
-        (1, "color", ValueType::Color),
+        (1, "colour", ValueType::Colour),
         (1, "label", ValueType::Text),
     ] {
         let at = format!("kind.categorical.categories.{k}.{field}");
@@ -444,10 +452,10 @@ fn the_properties_of_a_node_list_one_path_per_entry_it_holds() {
 // every entry must be marked conditional, because whether it exists depends on the node.
 #[test]
 fn every_property_listed_for_a_node_can_be_read_and_set_to_its_own_value() {
-    for figure in [palettes().figure, color_scale_variants_figure()] {
-        for scale in &figure.color_scales {
+    for figure in [palettes().figure, colour_scale_variants_figure()] {
+        for scale in &figure.colour_scales {
             let node = scale.id;
-            let registry: Vec<PropertyPath> = properties(NodeKind::ColorScale)
+            let registry: Vec<PropertyPath> = properties(NodeKind::ColourScale)
                 .into_iter()
                 .map(|property| property.path)
                 .collect();
@@ -512,22 +520,22 @@ fn composition_drops_the_colour_of_an_entry_the_source_no_longer_has() {
     let mut overlay = Overlay::new();
     overlay
         .record(&tx([
-            set(p.palette, "kind.indexed.colors.0", Value::Color(GREY)),
-            set(p.palette, "kind.indexed.colors.2", Value::Color(GREY)),
+            set(p.palette, "kind.indexed.colours.0", Value::Colour(GREY)),
+            set(p.palette, "kind.indexed.colours.2", Value::Colour(GREY)),
         ]))
         .unwrap();
 
     let mut shrunk = p.figure.clone();
-    match &mut shrunk.color_scale_mut(p.palette).unwrap().kind {
-        ColorScaleKind::Indexed(scale) => scale.colors.truncate(2),
+    match &mut shrunk.colour_scale_mut(p.palette).unwrap().kind {
+        ColourScaleKind::Indexed(scale) => scale.colours.truncate(2),
         other => panic!("the palette is indexed: {other:?}"),
     }
     let composition = overlay.compose(&shrunk);
-    assert_eq!(colors_of(&composition.figure, p.palette), [GREY, GREEN]);
+    assert_eq!(colours_of(&composition.figure, p.palette), [GREY, GREEN]);
     assert_eq!(composition.dropped.len(), 1);
     assert_eq!(
         composition.dropped[0].entry.path,
-        path("kind.indexed.colors.2")
+        path("kind.indexed.colours.2")
     );
     assert!(
         matches!(

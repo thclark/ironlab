@@ -81,7 +81,7 @@ fn real_gallery_renders_and_builds_with_zensical_strict() {
             "--from", ZENSICAL, "zensical", "build", "--clean", "--strict",
         ])
         .current_dir(&site)
-        .env("NO_COLOR", "1")
+        .env("NO_COLOUR", "1")
         .output()
         .expect("uvx runs");
     assert!(

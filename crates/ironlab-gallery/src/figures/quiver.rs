@@ -29,7 +29,7 @@ pub fn figure() -> Figure {
     let mut ax = fig.axes(0, 0);
     ax.contour(&x_fine, &y_fine, &z_fine).levels(12);
     ax.quiver(xx.values(), yy.values(), dzdx.values(), dzdy.values())
-        .color(Color::BLACK)
+        .colour(Colour::BLACK)
         .line_width(0.5)
         .label(r"$\nabla f$");
     ax.xlabel("$x$").ylabel("$y$");

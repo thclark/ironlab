@@ -3,7 +3,7 @@
 
 use std::ops::{Index, IndexMut};
 
-use ironlab_ir::{Color, IrError, NdArray, Values};
+use ironlab_ir::{Colour, IrError, NdArray, Values};
 
 use crate::error::Error;
 use crate::matrix::Matrix;
@@ -29,7 +29,7 @@ use crate::matrix::Matrix;
 /// use ironlab::prelude::*;
 ///
 /// let pixels = Pixels::rgb_from_fn(64, 64, |row, col| {
-///     Color::rgb(row as f32 / 63.0, col as f32 / 63.0, 0.5)
+///     Colour::rgb(row as f32 / 63.0, col as f32 / 63.0, 0.5)
 /// });
 /// assert_eq!((pixels.rows(), pixels.cols(), pixels.channels()), (64, 64, 3));
 ///
@@ -89,13 +89,13 @@ impl Pixels {
     /// three channels; [`rgba_from_fn`](Pixels::rgba_from_fn) keeps it.
     ///
     /// ```
-    /// use ironlab::{Color, Pixels};
+    /// use ironlab::{Colour, Pixels};
     ///
-    /// let pixels = Pixels::rgb_from_fn(1, 2, |_, col| Color::rgb(col as f32, 0.5, 0.0));
+    /// let pixels = Pixels::rgb_from_fn(1, 2, |_, col| Colour::rgb(col as f32, 0.5, 0.0));
     /// assert_eq!(pixels.bytes(), &[0, 128, 0, 255, 128, 0]);
     /// ```
     #[must_use]
-    pub fn rgb_from_fn(rows: usize, cols: usize, f: impl FnMut(usize, usize) -> Color) -> Self {
+    pub fn rgb_from_fn(rows: usize, cols: usize, f: impl FnMut(usize, usize) -> Colour) -> Self {
         Self::from_fn(rows, cols, 3, f)
     }
 
@@ -107,13 +107,13 @@ impl Pixels {
     /// an alpha byte of 255.
     ///
     /// ```
-    /// use ironlab::{Color, Pixels};
+    /// use ironlab::{Colour, Pixels};
     ///
-    /// let pixels = Pixels::rgba_from_fn(1, 2, |_, col| Color::rgba(1.0, 0.0, 0.0, col as f32));
+    /// let pixels = Pixels::rgba_from_fn(1, 2, |_, col| Colour::rgba(1.0, 0.0, 0.0, col as f32));
     /// assert_eq!(pixels.bytes(), &[255, 0, 0, 0, 255, 0, 0, 255]);
     /// ```
     #[must_use]
-    pub fn rgba_from_fn(rows: usize, cols: usize, f: impl FnMut(usize, usize) -> Color) -> Self {
+    pub fn rgba_from_fn(rows: usize, cols: usize, f: impl FnMut(usize, usize) -> Colour) -> Self {
         Self::from_fn(rows, cols, 4, f)
     }
 
@@ -168,9 +168,9 @@ impl Pixels {
     /// pixel, replacing the alpha of pixels that already have one.
     ///
     /// ```
-    /// use ironlab::{Color, Matrix, Pixels};
+    /// use ironlab::{Colour, Matrix, Pixels};
     ///
-    /// let pixels = Pixels::rgb_from_fn(2, 2, |_, _| Color::WHITE);
+    /// let pixels = Pixels::rgb_from_fn(2, 2, |_, _| Colour::WHITE);
     /// let mask = Matrix::from_rows(&[[1.0, 0.0], [0.5, 1.0]]);
     /// let faded = pixels.with_alpha(&mask).unwrap();
     /// assert_eq!(faded.channels(), 4);
@@ -256,12 +256,12 @@ impl Pixels {
         rows: usize,
         cols: usize,
         channels: usize,
-        mut f: impl FnMut(usize, usize) -> Color,
+        mut f: impl FnMut(usize, usize) -> Colour,
     ) -> Self {
         let bytes = (0..rows)
             .flat_map(|row| (0..cols).map(move |col| (row, col)))
             .flat_map(|(row, col)| {
-                let Color { r, g, b, a } = f(row, col);
+                let Colour { r, g, b, a } = f(row, col);
                 [r, g, b, a]
                     .into_iter()
                     .take(channels)

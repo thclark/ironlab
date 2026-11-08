@@ -71,9 +71,9 @@ pub fn nodes(fig: &Figure) -> Vec<(NodeId, NodeKind)> {
     let mut nodes = vec![(fig.id, NodeKind::Figure)];
     nodes.extend(fig.data.iter().map(|data| (data.id, NodeKind::DataArray)));
     nodes.extend(
-        fig.color_scales
+        fig.colour_scales
             .iter()
-            .map(|scale| (scale.id, NodeKind::ColorScale)),
+            .map(|scale| (scale.id, NodeKind::ColourScale)),
     );
     for axes in &fig.axes {
         nodes.push((axes.id, NodeKind::Axes));
@@ -139,7 +139,7 @@ pub fn axes_node(id: NodeId, artists: Vec<Artist>) -> Node {
 /// has a base.
 ///
 /// Together they set every variant of every tagged value (automatic and manual limits,
-/// every projection, every kind of angle units and both polar angles, both grids, both kinds of levels and of band edges, both colormaps,
+/// every projection, every kind of angle units and both polar angles, both grids, both kinds of levels and of band edges, both colourmaps,
 /// every quiver scale, both contour placements, every kind of
 /// colour scale, and for each image kind every plane), so a path below any variant is
 /// reachable in one of them.
@@ -175,11 +175,11 @@ pub fn representative_figures() -> Vec<Figure> {
     for (k, data) in full.data.iter_mut().enumerate() {
         data.name.get_or_insert_with(|| format!("array {k}"));
     }
-    let fixed = ColorSpec::Rgba {
-        color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
+    let fixed = ColourSpec::Rgba {
+        colour: Colour::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
     };
     let painted = OutOfRange::Rgba {
-        color: Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
+        colour: Colour::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0),
     };
     for (k, axes) in full.axes.iter_mut().enumerate() {
         axes.title
@@ -245,7 +245,7 @@ pub fn representative_figures() -> Vec<Figure> {
                 bins,
                 edges: NodeId(1000),
                 range: Some([0.0, 2.0]),
-                normalization: HistNorm::Probability,
+                normalisation: HistNorm::Probability,
                 total: 8.0,
                 excluded_non_finite: 1,
                 excluded_out_of_range: 1,
@@ -273,7 +273,7 @@ pub fn representative_figures() -> Vec<Figure> {
                         y_edges: NodeId(1001),
                         x_range: None,
                         y_range: None,
-                        normalization: HistNorm::Count,
+                        normalisation: HistNorm::Count,
                         min_count: None,
                         total: 6.0,
                         excluded_non_finite: 0,
@@ -293,17 +293,17 @@ pub fn representative_figures() -> Vec<Figure> {
             match artist {
                 Artist::Series(a) => {
                     a.label.get_or_insert_with(|| Text::new("series"));
-                    a.line.color = fixed;
+                    a.line.colour = fixed;
                     a.marker.face = fixed;
                     a.marker.edge = fixed;
                 }
                 Artist::Contour(a) => {
                     a.label.get_or_insert_with(|| Text::new("contour"));
-                    a.line.color = fixed;
+                    a.line.colour = fixed;
                 }
                 Artist::Quiver(a) => {
                     a.label.get_or_insert_with(|| Text::new("quiver"));
-                    a.line.color = fixed;
+                    a.line.colour = fixed;
                 }
                 Artist::Surface(a) => {
                     a.label.get_or_insert_with(|| Text::new("surface"));
@@ -321,18 +321,18 @@ pub fn representative_figures() -> Vec<Figure> {
                 Artist::Bar(a) => {
                     a.label.get_or_insert_with(|| Text::new("bar"));
                     a.face = fixed;
-                    a.edge.color = fixed;
+                    a.edge.colour = fixed;
                 }
                 // A fill needs a base, so every stairs gains one before it is filled.
                 Artist::Stairs(a) => {
                     a.label.get_or_insert_with(|| Text::new("stairs"));
-                    a.line.color = fixed;
+                    a.line.colour = fixed;
                     a.base.get_or_insert(0.0);
                     a.fill = fixed;
                 }
                 Artist::Cells(a) => {
                     a.label.get_or_insert_with(|| Text::new("cells"));
-                    a.edge.color = fixed;
+                    a.edge.colour = fixed;
                 }
             }
             if let Artist::Contour(a) = artist {
@@ -340,9 +340,9 @@ pub fn representative_figures() -> Vec<Figure> {
             }
         }
     }
-    for scale in &mut full.color_scales {
+    for scale in &mut full.colour_scales {
         scale.title.get_or_insert_with(|| Text::plain("scale"));
-        let paint = |category: &mut ColorScaleOutOfRange| {
+        let paint = |category: &mut ColourScaleOutOfRange| {
             category.policy = painted;
             category.label.get_or_insert_with(|| Text::plain("key"));
         };
@@ -366,7 +366,7 @@ pub fn representative_figures() -> Vec<Figure> {
             };
         };
         match &mut scale.kind {
-            ColorScaleKind::Continuous(c) => {
+            ColourScaleKind::Continuous(c) => {
                 paint(&mut c.below);
                 paint(&mut c.above);
                 rotate(&mut c.ticks, &mut c.tick_labels);
@@ -374,21 +374,21 @@ pub fn representative_figures() -> Vec<Figure> {
                     c.limits = manual(1.0, 10.0);
                 }
             }
-            ColorScaleKind::Discrete(d) => {
+            ColourScaleKind::Discrete(d) => {
                 paint(&mut d.below);
                 paint(&mut d.above);
                 rotate(&mut d.ticks, &mut d.tick_labels);
-                if let ColorScaleLevels::Auto { limits, .. } = &mut d.levels
+                if let ColourScaleLevels::Auto { limits, .. } = &mut d.levels
                     && *limits == Limits::Auto
                 {
                     *limits = manual(1.0, 10.0);
                 }
             }
-            ColorScaleKind::Indexed(i) => {
+            ColourScaleKind::Indexed(i) => {
                 paint(&mut i.outside);
                 rotate(&mut i.ticks, &mut i.tick_labels);
             }
-            ColorScaleKind::Categorical(k) => paint(&mut k.outside),
+            ColourScaleKind::Categorical(k) => paint(&mut k.outside),
         }
     }
     // Every panel takes a title, aligned otherwise than in the kitchen-sink figure, and
@@ -397,26 +397,26 @@ pub fn representative_figures() -> Vec<Figure> {
     for panel in &mut full.panels {
         panel.title.get_or_insert_with(|| Text::plain("panel"));
         panel.title_align = match panel.title_align {
-            TitleAlign::Left => TitleAlign::Center,
-            TitleAlign::Center => TitleAlign::Right,
+            TitleAlign::Left => TitleAlign::Centre,
+            TitleAlign::Centre => TitleAlign::Right,
             TitleAlign::Right => TitleAlign::Left,
         };
-        if let PanelContent::Colorbar(colorbar) = &mut panel.content {
-            colorbar.length = match colorbar.length {
+        if let PanelContent::Colourbar(colourbar) = &mut panel.content {
+            colourbar.length = match colourbar.length {
                 None => Some(0.5),
                 Some(_) => None,
             };
-            colorbar.title_placement = match colorbar.title_placement {
-                ColorbarTitlePlacement::Along => ColorbarTitlePlacement::Above,
-                ColorbarTitlePlacement::Above => ColorbarTitlePlacement::Along,
+            colourbar.title_placement = match colourbar.title_placement {
+                ColourbarTitlePlacement::Along => ColourbarTitlePlacement::Above,
+                ColourbarTitlePlacement::Above => ColourbarTitlePlacement::Along,
             };
         }
     }
     for axes in &mut full.axes {
-        if let Some(colorbar) = &mut axes.colorbar {
-            colorbar.title_placement = match colorbar.title_placement {
-                ColorbarTitlePlacement::Along => ColorbarTitlePlacement::Above,
-                ColorbarTitlePlacement::Above => ColorbarTitlePlacement::Along,
+        if let Some(colourbar) = &mut axes.colourbar {
+            colourbar.title_placement = match colourbar.title_placement {
+                ColourbarTitlePlacement::Along => ColourbarTitlePlacement::Above,
+                ColourbarTitlePlacement::Above => ColourbarTitlePlacement::Along,
             };
         }
     }
@@ -521,9 +521,9 @@ pub fn streaming_figure() -> Streaming {
     b.push(other_axes, line(other_line, other_x, other_y));
     // The colour scale of the contour, added last so that the other identifiers are
     // those the figure had before contours named scales.
-    let scale = b.color_scale(ColorScaleKind::default());
+    let scale = b.colour_scale(ColourScaleKind::default());
     if let Some(Artist::Contour(c)) = b.fig.artist_mut(contour) {
-        c.color_scale = Some(scale);
+        c.colour_scale = Some(scale);
     }
     Streaming {
         fig: b.build(),
@@ -557,13 +557,13 @@ pub fn rows(rows: usize, cols: usize, start: f64) -> NdArray {
 /// The match is exhaustive, so a new variant of [`Value`] must be given a perturbation
 /// before the tests compile.
 pub fn perturb(value: &Value) -> Value {
-    let color_spec = |spec: &ColorSpec| match spec {
-        ColorSpec::Auto => ColorSpec::None,
-        ColorSpec::None => ColorSpec::Colormapped,
-        ColorSpec::Colormapped => ColorSpec::Rgba {
-            color: Color::rgb(0.25, 0.5, 0.75),
+    let colour_spec = |spec: &ColourSpec| match spec {
+        ColourSpec::Auto => ColourSpec::None,
+        ColourSpec::None => ColourSpec::Colourmapped,
+        ColourSpec::Colourmapped => ColourSpec::Rgba {
+            colour: Colour::rgb(0.25, 0.5, 0.75),
         },
-        ColorSpec::Rgba { .. } => ColorSpec::Auto,
+        ColourSpec::Rgba { .. } => ColourSpec::Auto,
     };
     match value {
         Value::Unset => Value::Unset,
@@ -607,9 +607,13 @@ pub fn perturb(value: &Value) -> Value {
         Value::FontSetId(id) => Value::FontSetId(*id),
         Value::Embolden(Embolden::Semibold) => Value::Embolden(Embolden::Regular),
         Value::Embolden(_) => Value::Embolden(Embolden::Semibold),
-        Value::Color(color) => {
-            let other = Color::rgb(0.25, 0.5, 0.75);
-            Value::Color(if *color == other { Color::BLACK } else { other })
+        Value::Colour(colour) => {
+            let other = Colour::rgb(0.25, 0.5, 0.75);
+            Value::Colour(if *colour == other {
+                Colour::BLACK
+            } else {
+                other
+            })
         }
         Value::TileLayout(layout) => Value::TileLayout(TileLayout {
             rows: layout.rows + 1,
@@ -744,11 +748,11 @@ pub fn perturb(value: &Value) -> Value {
         Value::Aspect(Aspect::Ratio { .. }) => Value::Aspect(Aspect::Auto),
         Value::AspectAdjust(AspectAdjust::Box) => Value::AspectAdjust(AspectAdjust::Limits),
         Value::AspectAdjust(AspectAdjust::Limits) => Value::AspectAdjust(AspectAdjust::Box),
-        Value::TitleAlign(TitleAlign::Center) => Value::TitleAlign(TitleAlign::Left),
+        Value::TitleAlign(TitleAlign::Centre) => Value::TitleAlign(TitleAlign::Left),
         Value::TitleAlign(TitleAlign::Left) => Value::TitleAlign(TitleAlign::Right),
-        Value::TitleAlign(TitleAlign::Right) => Value::TitleAlign(TitleAlign::Center),
-        Value::ColormapName(ColormapName::Gray) => Value::ColormapName(ColormapName::Viridis),
-        Value::ColormapName(_) => Value::ColormapName(ColormapName::Gray),
+        Value::TitleAlign(TitleAlign::Right) => Value::TitleAlign(TitleAlign::Centre),
+        Value::ColourmapName(ColourmapName::Grey) => Value::ColourmapName(ColourmapName::Viridis),
+        Value::ColourmapName(_) => Value::ColourmapName(ColourmapName::Grey),
         Value::Legend(Legend::Inside(legend)) => Value::Legend(Legend::Inside(InsideLegend {
             boxed: !legend.boxed,
             ..legend.clone()
@@ -782,10 +786,10 @@ pub fn perturb(value: &Value) -> Value {
             Value::LegendLocation(LegendLocation::NorthEast)
         }
         Value::LegendLocation(_) => Value::LegendLocation(LegendLocation::Best),
-        Value::PanelLocation(PanelLocation::Center) => {
+        Value::PanelLocation(PanelLocation::Centre) => {
             Value::PanelLocation(PanelLocation::NorthEast)
         }
-        Value::PanelLocation(_) => Value::PanelLocation(PanelLocation::Center),
+        Value::PanelLocation(_) => Value::PanelLocation(PanelLocation::Centre),
         Value::PanelLegend(legend) => Value::PanelLegend(PanelLegend {
             boxed: !legend.boxed,
             ..legend.clone()
@@ -796,34 +800,34 @@ pub fn perturb(value: &Value) -> Value {
                 ..legend.clone()
             }))
         }
-        Value::PanelContent(PanelContent::Colorbar(colorbar)) => {
-            Value::PanelContent(PanelContent::Colorbar(PanelColorbar {
-                orientation: other_orientation(colorbar.orientation),
-                ..*colorbar
+        Value::PanelContent(PanelContent::Colourbar(colourbar)) => {
+            Value::PanelContent(PanelContent::Colourbar(PanelColourbar {
+                orientation: other_orientation(colourbar.orientation),
+                ..*colourbar
             }))
         }
-        Value::PanelColorbar(colorbar) => Value::PanelColorbar(PanelColorbar {
-            orientation: other_orientation(colorbar.orientation),
-            ..*colorbar
+        Value::PanelColourbar(colourbar) => Value::PanelColourbar(PanelColourbar {
+            orientation: other_orientation(colourbar.orientation),
+            ..*colourbar
         }),
-        Value::ColorbarOrientation(orientation) => {
-            Value::ColorbarOrientation(other_orientation(*orientation))
+        Value::ColourbarOrientation(orientation) => {
+            Value::ColourbarOrientation(other_orientation(*orientation))
         }
-        Value::InsideColorbar(colorbar) => Value::InsideColorbar(InsideColorbar {
-            length: if colorbar.length == 0.5 { 0.8 } else { 0.5 },
-            ..*colorbar
+        Value::InsideColourbar(colourbar) => Value::InsideColourbar(InsideColourbar {
+            length: if colourbar.length == 0.5 { 0.8 } else { 0.5 },
+            ..*colourbar
         }),
-        Value::InsideColorbarSide(InsideColorbarSide::South) => {
-            Value::InsideColorbarSide(InsideColorbarSide::North)
+        Value::InsideColourbarSide(InsideColourbarSide::South) => {
+            Value::InsideColourbarSide(InsideColourbarSide::North)
         }
-        Value::InsideColorbarSide(_) => Value::InsideColorbarSide(InsideColorbarSide::South),
-        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Along) => {
-            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above)
+        Value::InsideColourbarSide(_) => Value::InsideColourbarSide(InsideColourbarSide::South),
+        Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Along) => {
+            Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Above)
         }
-        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above) => {
-            Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Along)
+        Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Above) => {
+            Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Along)
         }
-        Value::ColorSpec(spec) => Value::ColorSpec(color_spec(spec)),
+        Value::ColourSpec(spec) => Value::ColourSpec(colour_spec(spec)),
         Value::LineStyle(style) => Value::LineStyle(LineStyle {
             width_pt: style.width_pt + 0.5,
             ..*style
@@ -876,97 +880,103 @@ pub fn perturb(value: &Value) -> Value {
         Value::OutOfRange(OutOfRange::Strict) => Value::OutOfRange(OutOfRange::Transparent),
         Value::OutOfRange(OutOfRange::Transparent) => Value::OutOfRange(OutOfRange::Clamp),
         Value::OutOfRange(OutOfRange::Clamp) => Value::OutOfRange(OutOfRange::Rgba {
-            color: Color::rgb(0.25, 0.5, 0.75),
+            colour: Colour::rgb(0.25, 0.5, 0.75),
         }),
         Value::OutOfRange(OutOfRange::Rgba { .. }) => Value::OutOfRange(OutOfRange::Strict),
-        Value::ColorScaleOutOfRange(category) => {
-            Value::ColorScaleOutOfRange(ColorScaleOutOfRange {
+        Value::ColourScaleOutOfRange(category) => {
+            Value::ColourScaleOutOfRange(ColourScaleOutOfRange {
                 show_key: !category.show_key,
                 ..category.clone()
             })
         }
         // A kind keeps its kind and changes a property that keeps a valid scale valid.
-        Value::ColorScaleKind(ColorScaleKind::Continuous(c)) => {
-            Value::ColorScaleKind(ColorScaleKind::Continuous(ContinuousColorScale {
-                above: ColorScaleOutOfRange {
+        Value::ColourScaleKind(ColourScaleKind::Continuous(c)) => {
+            Value::ColourScaleKind(ColourScaleKind::Continuous(ContinuousColourScale {
+                above: ColourScaleOutOfRange {
                     show_key: !c.above.show_key,
                     ..c.above.clone()
                 },
                 ..c.clone()
             }))
         }
-        Value::ColorScaleKind(ColorScaleKind::Discrete(d)) => {
-            Value::ColorScaleKind(ColorScaleKind::Discrete(DiscreteColorScale {
-                above: ColorScaleOutOfRange {
+        Value::ColourScaleKind(ColourScaleKind::Discrete(d)) => {
+            Value::ColourScaleKind(ColourScaleKind::Discrete(DiscreteColourScale {
+                above: ColourScaleOutOfRange {
                     show_key: !d.above.show_key,
                     ..d.above.clone()
                 },
                 ..d.clone()
             }))
         }
-        Value::ColorScaleKind(ColorScaleKind::Indexed(i)) => {
-            Value::ColorScaleKind(ColorScaleKind::Indexed(IndexedColorScale {
-                outside: ColorScaleOutOfRange {
+        Value::ColourScaleKind(ColourScaleKind::Indexed(i)) => {
+            Value::ColourScaleKind(ColourScaleKind::Indexed(IndexedColourScale {
+                outside: ColourScaleOutOfRange {
                     show_key: !i.outside.show_key,
                     ..i.outside.clone()
                 },
                 ..i.clone()
             }))
         }
-        Value::ColorScaleKind(ColorScaleKind::Categorical(k)) => {
-            Value::ColorScaleKind(ColorScaleKind::Categorical(CategoricalColorScale {
-                outside: ColorScaleOutOfRange {
+        Value::ColourScaleKind(ColourScaleKind::Categorical(k)) => {
+            Value::ColourScaleKind(ColourScaleKind::Categorical(CategoricalColourScale {
+                outside: ColourScaleOutOfRange {
                     show_key: !k.outside.show_key,
                     ..k.outside.clone()
                 },
                 ..k.clone()
             }))
         }
-        Value::ContinuousColorScale(c) => Value::ContinuousColorScale(ContinuousColorScale {
+        Value::ContinuousColourScale(c) => Value::ContinuousColourScale(ContinuousColourScale {
             tick_labels: match c.tick_labels {
                 TickLabels::Hidden => TickLabels::Auto,
                 _ => TickLabels::Hidden,
             },
             ..c.clone()
         }),
-        Value::DiscreteColorScale(d) => Value::DiscreteColorScale(DiscreteColorScale {
+        Value::DiscreteColourScale(d) => Value::DiscreteColourScale(DiscreteColourScale {
             tick_labels: match d.tick_labels {
                 TickLabels::Hidden => TickLabels::Auto,
                 _ => TickLabels::Hidden,
             },
             ..d.clone()
         }),
-        Value::IndexedColorScale(i) => Value::IndexedColorScale(IndexedColorScale {
+        Value::IndexedColourScale(i) => Value::IndexedColourScale(IndexedColourScale {
             tick_labels: match i.tick_labels {
                 TickLabels::Hidden => TickLabels::Auto,
                 _ => TickLabels::Hidden,
             },
             ..i.clone()
         }),
-        Value::CategoricalColorScale(k) => Value::CategoricalColorScale(CategoricalColorScale {
-            outside: ColorScaleOutOfRange {
+        Value::CategoricalColourScale(k) => Value::CategoricalColourScale(CategoricalColourScale {
+            outside: ColourScaleOutOfRange {
                 show_key: !k.outside.show_key,
                 ..k.outside.clone()
             },
             ..k.clone()
         }),
-        Value::Colormap(Colormap::Named { name, reverse }) => Value::Colormap(Colormap::Named {
-            name: *name,
-            reverse: !reverse,
+        Value::Colourmap(Colourmap::Named { name, reverse }) => {
+            Value::Colourmap(Colourmap::Named {
+                name: *name,
+                reverse: !reverse,
+            })
+        }
+        Value::Colourmap(Colourmap::Listed { colours }) => Value::Colourmap(Colourmap::Listed {
+            colours: colours.iter().rev().copied().collect(),
         }),
-        Value::Colormap(Colormap::Listed { colors }) => Value::Colormap(Colormap::Listed {
-            colors: colors.iter().rev().copied().collect(),
-        }),
-        Value::ColorScaleNorm(ColorScaleNorm::Linear) => Value::ColorScaleNorm(ColorScaleNorm::Log),
-        Value::ColorScaleNorm(ColorScaleNorm::Log) => Value::ColorScaleNorm(ColorScaleNorm::Linear),
-        Value::ColorScaleLevels(ColorScaleLevels::Auto { count, limits }) => {
-            Value::ColorScaleLevels(ColorScaleLevels::Auto {
+        Value::ColourScaleNorm(ColourScaleNorm::Linear) => {
+            Value::ColourScaleNorm(ColourScaleNorm::Log)
+        }
+        Value::ColourScaleNorm(ColourScaleNorm::Log) => {
+            Value::ColourScaleNorm(ColourScaleNorm::Linear)
+        }
+        Value::ColourScaleLevels(ColourScaleLevels::Auto { count, limits }) => {
+            Value::ColourScaleLevels(ColourScaleLevels::Auto {
                 count: count + 1,
                 limits: *limits,
             })
         }
-        Value::ColorScaleLevels(ColorScaleLevels::Explicit { values }) => {
-            Value::ColorScaleLevels(ColorScaleLevels::Explicit {
+        Value::ColourScaleLevels(ColourScaleLevels::Explicit { values }) => {
+            Value::ColourScaleLevels(ColourScaleLevels::Explicit {
                 values: values.iter().map(|v| v * 2.0).collect(),
             })
         }
@@ -983,10 +993,10 @@ fn next_step(step: StepAt) -> StepAt {
 }
 
 /// Returns the other orientation of a colourbar.
-fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
+fn other_orientation(orientation: ColourbarOrientation) -> ColourbarOrientation {
     match orientation {
-        ColorbarOrientation::Vertical => ColorbarOrientation::Horizontal,
-        ColorbarOrientation::Horizontal => ColorbarOrientation::Vertical,
+        ColourbarOrientation::Vertical => ColourbarOrientation::Horizontal,
+        ColourbarOrientation::Horizontal => ColourbarOrientation::Vertical,
     }
 }
 
@@ -1015,7 +1025,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::Interpreter(_) => 9,
         Value::FigureSize(_) => 10,
         Value::FontSetId(_) => 11,
-        Value::Color(_) => 12,
+        Value::Colour(_) => 12,
         Value::TileLayout(_) => 13,
         Value::Links(_) => 14,
         Value::Parameters(_) => 15,
@@ -1025,16 +1035,16 @@ pub fn value_variant(value: &Value) -> usize {
         Value::Axis(_) => 19,
         Value::Scale(_) => 20,
         Value::Limits(_) => 21,
-        Value::ColormapName(_) => 22,
+        Value::ColourmapName(_) => 22,
         Value::Legend(_) => 23,
         Value::LegendLocation(_) => 24,
-        Value::ColorSpec(_) => 25,
+        Value::ColourSpec(_) => 25,
         Value::LineStyle(_) => 26,
         Value::DashStyle(_) => 27,
         Value::MarkerStyle(_) => 28,
         Value::MarkerShape(_) => 29,
-        Value::ColorScaleNorm(_) => 30,
-        Value::ColorScaleLevels(_) => 31,
+        Value::ColourScaleNorm(_) => 30,
+        Value::ColourScaleLevels(_) => 31,
         Value::Grid(_) => 32,
         Value::Levels(_) => 33,
         Value::ContourPlacement(_) => 34,
@@ -1059,18 +1069,18 @@ pub fn value_variant(value: &Value) -> usize {
         Value::TitleAlign(_) => 53,
         Value::PanelLocation(_) => 54,
         Value::PanelLegend(_) => 55,
-        Value::ColorScaleOutOfRange(_) => 56,
-        Value::ColorScaleKind(_) => 57,
-        Value::ContinuousColorScale(_) => 58,
-        Value::DiscreteColorScale(_) => 59,
-        Value::IndexedColorScale(_) => 60,
-        Value::CategoricalColorScale(_) => 61,
-        Value::Colormap(_) => 62,
-        Value::PanelColorbar(_) => 63,
-        Value::ColorbarOrientation(_) => 64,
-        Value::InsideColorbar(_) => 65,
-        Value::InsideColorbarSide(_) => 66,
-        Value::ColorbarTitlePlacement(_) => 67,
+        Value::ColourScaleOutOfRange(_) => 56,
+        Value::ColourScaleKind(_) => 57,
+        Value::ContinuousColourScale(_) => 58,
+        Value::DiscreteColourScale(_) => 59,
+        Value::IndexedColourScale(_) => 60,
+        Value::CategoricalColourScale(_) => 61,
+        Value::Colourmap(_) => 62,
+        Value::PanelColourbar(_) => 63,
+        Value::ColourbarOrientation(_) => 64,
+        Value::InsideColourbar(_) => 65,
+        Value::InsideColourbarSide(_) => 66,
+        Value::ColourbarTitlePlacement(_) => 67,
         Value::Orientation(_) => 68,
         Value::PerBar(_) => 69,
         Value::BarWidth(_) => 70,
@@ -1098,7 +1108,7 @@ pub fn value_variant(value: &Value) -> usize {
 /// has any, and with finite numbers and colours of eight bits per component so that the
 /// values also survive JSON.
 pub fn sample_values() -> Vec<Value> {
-    let blue = Color::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
+    let blue = Colour::rgb(0.0, 114.0 / 255.0, 178.0 / 255.0);
     vec![
         Value::Unset,
         Value::Bool(false),
@@ -1138,7 +1148,7 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::FontSetId(FontSetId::StixTwo),
         Value::Embolden(Embolden::Medium),
-        Value::Color(Color::rgba(1.0, 0.0, 128.0 / 255.0, 64.0 / 255.0)),
+        Value::Colour(Colour::rgba(1.0, 0.0, 128.0 / 255.0, 64.0 / 255.0)),
         Value::TileLayout(TileLayout::new(2, 3)),
         Value::Links(vec![AxisLink {
             dimension: Dimension::Z,
@@ -1206,7 +1216,7 @@ pub fn sample_values() -> Vec<Value> {
         Value::TitleAlign(TitleAlign::Left),
         Value::Scale(Scale::Log),
         Value::Limits(manual(-1.0, 1.0)),
-        Value::ColormapName(ColormapName::Coolwarm),
+        Value::ColourmapName(ColourmapName::Coolwarm),
         Value::Legend(Legend::Inside(InsideLegend {
             location: LegendLocation::SouthWest,
             boxed: false,
@@ -1214,7 +1224,7 @@ pub fn sample_values() -> Vec<Value> {
         })),
         Value::LegendLocation(LegendLocation::Best),
         Value::InsideLegend(InsideLegend {
-            location: LegendLocation::Center,
+            location: LegendLocation::Centre,
             boxed: false,
             layout: LegendEntryLayout {
                 columns: LegendEntryColumns::Count(3),
@@ -1235,9 +1245,9 @@ pub fn sample_values() -> Vec<Value> {
         Value::LegendEntryColumns(LegendEntryColumns::Count(u32::MAX)),
         Value::LegendEntryOrder(LegendEntryOrder::RowMajor),
         Value::NodeId(NodeId((1 << 53) + 3)),
-        Value::ColorSpec(ColorSpec::Rgba { color: blue }),
+        Value::ColourSpec(ColourSpec::Rgba { colour: blue }),
         Value::LineStyle(LineStyle {
-            color: ColorSpec::Colormapped,
+            colour: ColourSpec::Colourmapped,
             width_pt: 1.25,
             dash: DashStyle::DashDot,
         }),
@@ -1245,8 +1255,8 @@ pub fn sample_values() -> Vec<Value> {
         Value::MarkerStyle(MarkerStyle {
             shape: MarkerShape::TriangleDown,
             size_pt: 6.0,
-            face: ColorSpec::None,
-            edge: ColorSpec::Rgba { color: blue },
+            face: ColourSpec::None,
+            edge: ColourSpec::Rgba { colour: blue },
         }),
         Value::MarkerShape(MarkerShape::Cross),
         Value::Coords(Coords::AxesFraction),
@@ -1273,94 +1283,94 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::ImagePlane(ImagePlane::Yz { x: Some(0.25) }),
         Value::OutOfRange(OutOfRange::Rgba {
-            color: Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
+            colour: Colour::rgba(1.0, 0.0, 0.0, 128.0 / 255.0),
         }),
-        Value::ColorScaleOutOfRange(ColorScaleOutOfRange {
+        Value::ColourScaleOutOfRange(ColourScaleOutOfRange {
             policy: OutOfRange::Strict,
             show_key: true,
             label: Some(Text::new("$> 10$")),
         }),
-        Value::ColorScaleKind(ColorScaleKind::Categorical(CategoricalColorScale {
-            categories: vec![ColorCategory {
-                color: blue,
+        Value::ColourScaleKind(ColourScaleKind::Categorical(CategoricalColourScale {
+            categories: vec![ColourCategory {
+                colour: blue,
                 label: Text::plain("water"),
             }],
-            outside: ColorScaleOutOfRange {
+            outside: ColourScaleOutOfRange {
                 policy: OutOfRange::Clamp,
                 show_key: false,
                 label: None,
             },
         })),
-        Value::ContinuousColorScale(ContinuousColorScale {
-            colormap: Colormap::Named {
-                name: ColormapName::Magma,
+        Value::ContinuousColourScale(ContinuousColourScale {
+            colourmap: Colourmap::Named {
+                name: ColourmapName::Magma,
                 reverse: true,
             },
             limits: manual(1.0, 1000.0),
-            norm: ColorScaleNorm::Log,
-            below: ColorScaleOutOfRange {
-                policy: OutOfRange::Rgba { color: blue },
+            norm: ColourScaleNorm::Log,
+            below: ColourScaleOutOfRange {
+                policy: OutOfRange::Rgba { colour: blue },
                 show_key: true,
                 label: Some(Text::plain("too low")),
             },
-            ..ContinuousColorScale::default()
+            ..ContinuousColourScale::default()
         }),
-        Value::DiscreteColorScale(DiscreteColorScale {
-            levels: ColorScaleLevels::Auto {
+        Value::DiscreteColourScale(DiscreteColourScale {
+            levels: ColourScaleLevels::Auto {
                 count: 4,
                 limits: manual(-1.0, 1.0),
             },
             ticks: Ticks::Values(vec![-1.0, 1.0]),
             tick_labels: TickLabels::Text(vec![Text::plain("low"), Text::plain("high")]),
-            ..DiscreteColorScale::default()
+            ..DiscreteColourScale::default()
         }),
-        Value::IndexedColorScale(IndexedColorScale {
-            colors: vec![blue, Color::BLACK, Color::WHITE],
+        Value::IndexedColourScale(IndexedColourScale {
+            colours: vec![blue, Colour::BLACK, Colour::WHITE],
             ticks: Ticks::Step {
                 step: 1.0,
                 origin: 0.0,
             },
-            ..IndexedColorScale::default()
+            ..IndexedColourScale::default()
         }),
-        Value::CategoricalColorScale(CategoricalColorScale {
+        Value::CategoricalColourScale(CategoricalColourScale {
             categories: vec![
-                ColorCategory {
-                    color: Color::BLACK,
+                ColourCategory {
+                    colour: Colour::BLACK,
                     label: Text::plain("land"),
                 },
-                ColorCategory {
-                    color: blue,
+                ColourCategory {
+                    colour: blue,
                     label: Text::new("$\\infty$"),
                 },
             ],
-            outside: ColorScaleOutOfRange {
+            outside: ColourScaleOutOfRange {
                 policy: OutOfRange::Transparent,
                 show_key: true,
                 label: Some(Text::plain("other")),
             },
         }),
-        Value::Colormap(Colormap::Listed {
-            colors: vec![blue, Color::rgba(1.0, 0.0, 0.0, 128.0 / 255.0)],
+        Value::Colourmap(Colourmap::Listed {
+            colours: vec![blue, Colour::rgba(1.0, 0.0, 0.0, 128.0 / 255.0)],
         }),
-        Value::ColorScaleNorm(ColorScaleNorm::Log),
-        Value::ColorScaleLevels(ColorScaleLevels::Explicit {
+        Value::ColourScaleNorm(ColourScaleNorm::Log),
+        Value::ColourScaleLevels(ColourScaleLevels::Explicit {
             values: vec![-2.0, 0.0, 2.5],
         }),
-        Value::PanelColorbar(PanelColorbar {
+        Value::PanelColourbar(PanelColourbar {
             scale: NodeId((1 << 53) + 11),
-            orientation: ColorbarOrientation::Horizontal,
+            orientation: ColourbarOrientation::Horizontal,
             length: Some(0.25),
-            title_placement: ColorbarTitlePlacement::Above,
+            title_placement: ColourbarTitlePlacement::Above,
         }),
-        Value::ColorbarOrientation(ColorbarOrientation::Horizontal),
-        Value::InsideColorbar(InsideColorbar {
+        Value::ColourbarOrientation(ColourbarOrientation::Horizontal),
+        Value::InsideColourbar(InsideColourbar {
             scale: NodeId(12),
-            side: InsideColorbarSide::West,
+            side: InsideColourbarSide::West,
             length: 0.625,
-            title_placement: ColorbarTitlePlacement::Above,
+            title_placement: ColourbarTitlePlacement::Above,
         }),
-        Value::InsideColorbarSide(InsideColorbarSide::East),
-        Value::ColorbarTitlePlacement(ColorbarTitlePlacement::Above),
+        Value::InsideColourbarSide(InsideColourbarSide::East),
+        Value::ColourbarTitlePlacement(ColourbarTitlePlacement::Above),
         Value::Orientation(Orientation::Horizontal),
         Value::PerBar(PerBar::Data(NodeId((1 << 53) + 13))),
         Value::BarWidth(BarWidth::Constant(0.375)),
@@ -1369,7 +1379,7 @@ pub fn sample_values() -> Vec<Value> {
             bins: Bins::Edges(vec![0.0, 0.5, 2.0]),
             edges: NodeId((1 << 53) + 23),
             range: Some([0.0, 2.0]),
-            normalization: HistNorm::Cdf,
+            normalisation: HistNorm::Cdf,
             total: 64.0,
             excluded_non_finite: 3,
             excluded_out_of_range: (1 << 53) + 19,
@@ -1389,7 +1399,7 @@ pub fn sample_values() -> Vec<Value> {
             y_edges: NodeId(7),
             x_range: None,
             y_range: Some([-1.0, 1.0]),
-            normalization: HistNorm::CountDensity,
+            normalisation: HistNorm::CountDensity,
             min_count: Some(2.0),
             total: 16.0,
             excluded_non_finite: 0,
@@ -1459,7 +1469,7 @@ pub fn every_kind_transaction() -> Transaction {
         Edit::Insert {
             parent: NodeId(1),
             index: Some(1),
-            node: Node::ColorScale(kitchen_sink.color_scales[0].clone()),
+            node: Node::ColourScale(kitchen_sink.colour_scales[0].clone()),
         },
         Edit::ReplaceData {
             node: NodeId(u64::MAX),

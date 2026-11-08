@@ -1256,7 +1256,7 @@ fn the_limits_of_a_colour_scale_are_view_entries_and_its_other_properties_are_no
             &mut overlay,
             continuous,
             "kind.continuous.norm",
-            Value::ColorScaleNorm(ColorScaleNorm::Log),
+            Value::ColourScaleNorm(ColourScaleNorm::Log),
         );
         record(
             &mut overlay,

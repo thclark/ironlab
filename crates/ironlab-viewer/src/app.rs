@@ -757,12 +757,12 @@ impl ViewerApp {
             .interactable(false)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    let color = if notification.is_error {
+                    let colour = if notification.is_error {
                         ui.visuals().error_fg_color
                     } else {
                         ui.visuals().text_color()
                     };
-                    ui.label(egui::RichText::new(&notification.message).color(color));
+                    ui.label(egui::RichText::new(&notification.message).color(colour));
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(duration - elapsed));

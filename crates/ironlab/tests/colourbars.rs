@@ -4,19 +4,19 @@
 //!
 //! The API these tests assume, beyond the plan's "Facade" section:
 //!
-//! - `PanelMut::colorbar(&mut self, scale: NodeId) -> PanelColorbarMut<'_>` makes the
+//! - `PanelMut::colourbar(&mut self, scale: NodeId) -> PanelColourbarMut<'_>` makes the
 //!   content of the panel a colourbar of the scale. A panel that already holds a colourbar
 //!   keeps its orientation and takes the new scale; content of another kind is replaced by a
 //!   vertical colourbar. `PanelMut::legend` likewise replaces a colourbar by a default
 //!   legend, and keeps a legend the panel already holds.
-//! - `PanelColorbarMut` offers `orientation(&mut self, ColorbarOrientation) -> &mut Self`
+//! - `PanelColourbarMut` offers `orientation(&mut self, ColourbarOrientation) -> &mut Self`
 //!   and `id(&self) -> NodeId`, which is the identifier of the panel.
-//! - `AxesMut::colorbar(&mut self, scale: NodeId, side: InsideColorbarSide) ->
-//!   InsideColorbarMut<'_>` shows the scale inside the plot area along that side. An axes
+//! - `AxesMut::colourbar(&mut self, scale: NodeId, side: InsideColourbarSide) ->
+//!   InsideColourbarMut<'_>` shows the scale inside the plot area along that side. An axes
 //!   that already shows a colourbar keeps its length and takes the new scale and side; a new
-//!   one is 0.8 of the edge long. `InsideColorbarMut` offers `length(&mut self, f64) ->
+//!   one is 0.8 of the edge long. `InsideColourbarMut` offers `length(&mut self, f64) ->
 //!   &mut Self`.
-//! - `ColorScaleMut` gains tick setters that mirror those of an axis:
+//! - `ColourScaleMut` gains tick setters that mirror those of an axis:
 //!   `ticks(&mut self, impl AsRef<[f64]>)` (explicit values), `tick_step(&mut self, f64)`
 //!   (a regular step from 0), `tick_labels(&mut self, impl IntoIterator<Item = (V, T)>)`
 //!   with `V: Into<f64>` and `T: Into<Text>`, which sets the ticks to the values and labels
@@ -24,15 +24,15 @@
 //!   and `tick_labels_hidden(&mut self)`, which keeps the ticks. They apply to the
 //!   continuous, discrete and indexed kinds, which have ticks, and leave a categorical scale
 //!   as it is.
-//! - `ColorScaleMut` gains key setters: `show_key(&mut self, ColorScaleKey) -> &mut Self`
+//! - `ColourScaleMut` gains key setters: `show_key(&mut self, ColourScaleKey) -> &mut Self`
 //!   shows the key of one out-of-range category with its default label, and
-//!   `key_label(&mut self, ColorScaleKey, impl Into<Text>) -> &mut Self` shows it with the
+//!   `key_label(&mut self, ColourScaleKey, impl Into<Text>) -> &mut Self` shows it with the
 //!   given label. Neither changes the category's policy, which `below`, `above`, `outside`
 //!   and `non_finite` set, and a key that the kind of the scale does not have (below or
 //!   above on an index-mapped scale, outside on a continuous or discrete one) leaves the
 //!   scale as it is, as the policy setters do.
-//! - The prelude exports `ColorbarOrientation`, `InsideColorbarSide` and `ColorScaleKey`,
-//!   and the crate exports `PanelColorbarMut` and `InsideColorbarMut`.
+//! - The prelude exports `ColourbarOrientation`, `InsideColourbarSide` and `ColourScaleKey`,
+//!   and the crate exports `PanelColourbarMut` and `InsideColourbarMut`.
 //!
 //! What a bar draws belongs to the scene tests and what validation refuses to the IR tests;
 //! these tests own the facade's promises.
@@ -41,14 +41,14 @@ mod common;
 
 use common::has_error_at;
 use ironlab::ir::{
-    Cell, ColorScale, ColorScaleKind, InsideColorbar, IssueKind, OutOfRange, Panel, PanelColorbar,
-    PanelContent, PanelLegend, TickLabels, Ticks,
+    Cell, ColourScale, ColourScaleKind, InsideColourbar, IssueKind, OutOfRange, Panel,
+    PanelColourbar, PanelContent, PanelLegend, TickLabels, Ticks,
 };
 use ironlab::prelude::*;
 
-const RED: Color = Color::rgb(1.0, 0.0, 0.0);
-const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const RED: Colour = Colour::rgb(1.0, 0.0, 0.0);
+const GREEN: Colour = Colour::rgb(0.0, 1.0, 0.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 /// Returns the panel with the given identifier.
 #[track_caller]
@@ -60,27 +60,27 @@ fn panel(fig: &Figure, id: NodeId) -> &Panel {
 
 /// Returns the colourbar that the panel with the given identifier holds.
 #[track_caller]
-fn panel_colorbar(fig: &Figure, id: NodeId) -> PanelColorbar {
+fn panel_colourbar(fig: &Figure, id: NodeId) -> PanelColourbar {
     match &panel(fig, id).content {
-        PanelContent::Colorbar(colorbar) => *colorbar,
+        PanelContent::Colourbar(colourbar) => *colourbar,
         other => panic!("panel {id} holds {other:?}, not a colourbar"),
     }
 }
 
 /// Returns the colourbar inside the axes with the given identifier.
 #[track_caller]
-fn inside_colorbar(fig: &Figure, id: NodeId) -> Option<InsideColorbar> {
+fn inside_colourbar(fig: &Figure, id: NodeId) -> Option<InsideColourbar> {
     fig.ir()
         .axes(id)
         .unwrap_or_else(|| panic!("{id} is not an axes"))
-        .colorbar
+        .colourbar
 }
 
 /// Returns the scale with the given identifier.
 #[track_caller]
-fn scale(fig: &Figure, id: NodeId) -> &ColorScale {
+fn scale(fig: &Figure, id: NodeId) -> &ColourScale {
     fig.ir()
-        .color_scale(id)
+        .colour_scale(id)
         .unwrap_or_else(|| panic!("{id} is not a colour scale"))
 }
 
@@ -88,10 +88,10 @@ fn scale(fig: &Figure, id: NodeId) -> &ColorScale {
 #[track_caller]
 fn ticks_of(fig: &Figure, id: NodeId) -> (Ticks, TickLabels) {
     match &scale(fig, id).kind {
-        ColorScaleKind::Continuous(s) => (s.ticks.clone(), s.tick_labels.clone()),
-        ColorScaleKind::Discrete(s) => (s.ticks.clone(), s.tick_labels.clone()),
-        ColorScaleKind::Indexed(s) => (s.ticks.clone(), s.tick_labels.clone()),
-        ColorScaleKind::Categorical(_) => panic!("a categorical scale has no ticks"),
+        ColourScaleKind::Continuous(s) => (s.ticks.clone(), s.tick_labels.clone()),
+        ColourScaleKind::Discrete(s) => (s.ticks.clone(), s.tick_labels.clone()),
+        ColourScaleKind::Indexed(s) => (s.ticks.clone(), s.tick_labels.clone()),
+        ColourScaleKind::Categorical(_) => panic!("a categorical scale has no ticks"),
     }
 }
 
@@ -111,24 +111,24 @@ fn field() -> Matrix {
 fn a_spanning_panel_shows_a_shared_scale_as_one_bar() {
     let mut fig = Figure::new().tiles(2, 3).fit_row(1);
     let shared = fig
-        .color_scale()
+        .colour_scale()
         .limits(0.0, 11.0)
         .title("Speed (m/s)")
         .id();
     for col in 0..3 {
-        fig.axes(0, col).scalar_image(field()).color_scale(shared);
+        fig.axes(0, col).scalar_image(field()).colour_scale(shared);
     }
     let bar = fig
         .panel_span(1, 0, 1, 3)
-        .colorbar(shared)
-        .orientation(ColorbarOrientation::Horizontal)
+        .colourbar(shared)
+        .orientation(ColourbarOrientation::Horizontal)
         .id();
     assert_eq!(
-        panel_colorbar(&fig, bar),
-        PanelColorbar {
+        panel_colourbar(&fig, bar),
+        PanelColourbar {
             scale: shared,
-            orientation: ColorbarOrientation::Horizontal,
-            ..PanelColorbar::default()
+            orientation: ColourbarOrientation::Horizontal,
+            ..PanelColourbar::default()
         }
     );
     assert_eq!(
@@ -149,12 +149,12 @@ fn a_spanning_panel_shows_a_shared_scale_as_one_bar() {
 #[test]
 fn a_panel_colourbar_is_vertical_by_default_and_its_id_is_the_panel_s() {
     let mut fig = Figure::new().tiles(1, 2).fit_col(1);
-    let s = fig.color_scale().id();
-    let id = fig.panel(0, 1).align(PanelLocation::West).colorbar(s).id();
+    let s = fig.colour_scale().id();
+    let id = fig.panel(0, 1).align(PanelLocation::West).colourbar(s).id();
     assert_eq!(fig.panel(0, 1).id(), id);
     assert_eq!(
-        panel_colorbar(&fig, id).orientation,
-        ColorbarOrientation::Vertical
+        panel_colourbar(&fig, id).orientation,
+        ColourbarOrientation::Vertical
     );
     assert_eq!(panel(&fig, id).align, PanelLocation::West);
 }
@@ -164,31 +164,31 @@ fn a_panel_colourbar_is_vertical_by_default_and_its_id_is_the_panel_s() {
 // colourbar panel for a colourbar again keeps how it was turned and shows the new scale, as
 // asking for a legend again keeps the legend's settings.
 #[test]
-fn colorbar_and_legend_replace_content_of_the_other_kind_and_keep_their_own() {
+fn colourbar_and_legend_replace_content_of_the_other_kind_and_keep_their_own() {
     let mut fig = Figure::new().tiles(1, 2);
-    let first = fig.color_scale().id();
-    let second = fig.color_scale().id();
+    let first = fig.colour_scale().id();
+    let second = fig.colour_scale().id();
     let id = fig.panel(0, 1).legend().boxed(false).id();
 
     fig.panel(0, 1)
-        .colorbar(first)
-        .orientation(ColorbarOrientation::Horizontal);
+        .colourbar(first)
+        .orientation(ColourbarOrientation::Horizontal);
     assert_eq!(
-        panel_colorbar(&fig, id),
-        PanelColorbar {
+        panel_colourbar(&fig, id),
+        PanelColourbar {
             scale: first,
-            orientation: ColorbarOrientation::Horizontal,
-            ..PanelColorbar::default()
+            orientation: ColourbarOrientation::Horizontal,
+            ..PanelColourbar::default()
         }
     );
 
-    fig.panel(0, 1).colorbar(second);
+    fig.panel(0, 1).colourbar(second);
     assert_eq!(
-        panel_colorbar(&fig, id),
-        PanelColorbar {
+        panel_colourbar(&fig, id),
+        PanelColourbar {
             scale: second,
-            orientation: ColorbarOrientation::Horizontal,
-            ..PanelColorbar::default()
+            orientation: ColourbarOrientation::Horizontal,
+            ..PanelColourbar::default()
         },
         "the orientation is kept"
     );
@@ -208,7 +208,7 @@ fn colorbar_and_legend_replace_content_of_the_other_kind_and_keep_their_own() {
 fn a_colourbar_of_something_that_is_not_a_scale_is_reported_by_validate() {
     let mut fig = Figure::new().tiles(1, 2);
     let ax = fig.axes(0, 0).id();
-    let id = fig.panel(0, 1).colorbar(ax).id();
+    let id = fig.panel(0, 1).colourbar(ax).id();
     assert!(has_error_at(&fig.validate(), IssueKind::WrongNodeKind, id));
 }
 
@@ -219,20 +219,20 @@ fn a_colourbar_of_something_that_is_not_a_scale_is_reported_by_validate() {
 // PROMISE: an axes shows a scale inside its plot area by naming the scale and the edge;
 // the bar is four fifths of that edge unless the author says otherwise.
 #[test]
-fn ax_colorbar_shows_a_scale_along_an_edge_of_the_plot_area() {
+fn ax_colourbar_shows_a_scale_along_an_edge_of_the_plot_area() {
     let mut fig = Figure::new();
     let mut ax = fig.axes(0, 0);
     ax.surf([0.0, 1.0, 2.0, 3.0], [0.0, 1.0, 2.0], field());
-    let s = ax.color_scale().id();
-    ax.colorbar(s, InsideColorbarSide::East);
+    let s = ax.colour_scale().id();
+    ax.colourbar(s, InsideColourbarSide::East);
     let id = ax.id();
     assert_eq!(
-        inside_colorbar(&fig, id),
-        Some(InsideColorbar {
+        inside_colourbar(&fig, id),
+        Some(InsideColourbar {
             scale: s,
-            side: InsideColorbarSide::East,
+            side: InsideColourbarSide::East,
             length: 0.8,
-            ..InsideColorbar::default()
+            ..InsideColourbar::default()
         })
     );
     assert!(fig.validate().is_valid(), "{:?}", fig.validate());
@@ -243,20 +243,20 @@ fn ax_colorbar_shows_a_scale_along_an_edge_of_the_plot_area() {
 #[test]
 fn the_length_of_an_inside_colourbar_is_set_and_kept_when_the_bar_moves() {
     let mut fig = Figure::new();
-    let first = fig.color_scale().id();
+    let first = fig.colour_scale().id();
     let second = fig.indexed_scale([RED, GREEN, BLUE]).id();
     let id = fig.axes(0, 0).id();
     fig.axes(0, 0)
-        .colorbar(first, InsideColorbarSide::South)
+        .colourbar(first, InsideColourbarSide::South)
         .length(0.5);
-    fig.axes(0, 0).colorbar(second, InsideColorbarSide::West);
+    fig.axes(0, 0).colourbar(second, InsideColourbarSide::West);
     assert_eq!(
-        inside_colorbar(&fig, id),
-        Some(InsideColorbar {
+        inside_colourbar(&fig, id),
+        Some(InsideColourbar {
             scale: second,
-            side: InsideColorbarSide::West,
+            side: InsideColourbarSide::West,
             length: 0.5,
-            ..InsideColorbar::default()
+            ..InsideColourbar::default()
         })
     );
 }
@@ -266,14 +266,14 @@ fn the_length_of_an_inside_colourbar_is_set_and_kept_when_the_bar_moves() {
 #[test]
 fn an_unusable_length_is_reported_by_validate() {
     let mut fig = Figure::new();
-    let s = fig.color_scale().id();
+    let s = fig.colour_scale().id();
     let id = fig.axes(0, 0).id();
     fig.axes(0, 0)
-        .colorbar(s, InsideColorbarSide::North)
+        .colourbar(s, InsideColourbarSide::North)
         .length(1.5);
     assert!(has_error_at(
         &fig.validate(),
-        IssueKind::InvalidColorbarLength,
+        IssueKind::InvalidColourbarLength,
         id
     ));
 }
@@ -288,16 +288,16 @@ fn the_handles_of_a_reloaded_figure_change_its_colourbars_in_place() {
     let mut fig = Figure::new()
         .tiles(1, 2)
         .col_weights([TrackSize::Weight(1.0), TrackSize::Fit]);
-    let first = fig.color_scale().limits(0.0, 1.0).id();
-    let second = fig.color_scale().limits(0.0, 2.0).id();
+    let first = fig.colour_scale().limits(0.0, 1.0).id();
+    let second = fig.colour_scale().limits(0.0, 2.0).id();
     let ax = fig.axes(0, 0).id();
     fig.axes(0, 0)
-        .colorbar(first, InsideColorbarSide::West)
+        .colourbar(first, InsideColourbarSide::West)
         .length(0.25);
     let bar = fig
         .panel(0, 1)
-        .colorbar(first)
-        .orientation(ColorbarOrientation::Horizontal)
+        .colourbar(first)
+        .orientation(ColourbarOrientation::Horizontal)
         .id();
     for (name, restored) in [
         (
@@ -313,27 +313,27 @@ fn the_handles_of_a_reloaded_figure_change_its_colourbars_in_place() {
         ),
     ] {
         let mut reloaded = Figure::from_ir(restored);
-        assert_eq!(reloaded.panel(0, 1).colorbar(second).id(), bar, "{name}");
+        assert_eq!(reloaded.panel(0, 1).colourbar(second).id(), bar, "{name}");
         reloaded
             .axes(0, 0)
-            .colorbar(second, InsideColorbarSide::North);
+            .colourbar(second, InsideColourbarSide::North);
         assert_eq!(reloaded.ir().panels.len(), 1, "{name}");
         assert_eq!(
-            panel_colorbar(&reloaded, bar),
-            PanelColorbar {
+            panel_colourbar(&reloaded, bar),
+            PanelColourbar {
                 scale: second,
-                orientation: ColorbarOrientation::Horizontal,
-                ..PanelColorbar::default()
+                orientation: ColourbarOrientation::Horizontal,
+                ..PanelColourbar::default()
             },
             "{name}"
         );
         assert_eq!(
-            inside_colorbar(&reloaded, ax),
-            Some(InsideColorbar {
+            inside_colourbar(&reloaded, ax),
+            Some(InsideColourbar {
                 scale: second,
-                side: InsideColorbarSide::North,
+                side: InsideColourbarSide::North,
                 length: 0.25,
-                ..InsideColorbar::default()
+                ..InsideColourbar::default()
             }),
             "{name}"
         );
@@ -350,14 +350,14 @@ fn the_handles_of_a_reloaded_figure_change_its_colourbars_in_place() {
 #[test]
 fn tick_setters_set_the_ticks_of_the_scale() {
     let mut fig = Figure::new();
-    let c = fig.color_scale().ticks([0.0, 0.5, 1.0]).id();
+    let c = fig.colour_scale().ticks([0.0, 0.5, 1.0]).id();
     assert_eq!(
         ticks_of(&fig, c),
         (Ticks::Values(vec![0.0, 0.5, 1.0]), TickLabels::Auto)
     );
 
     let d = fig
-        .color_scale()
+        .colour_scale()
         .discrete([0.0, 1.0, 5.0, 10.0])
         .tick_step(2.5)
         .id();
@@ -386,7 +386,7 @@ fn tick_setters_set_the_ticks_of_the_scale() {
 fn tick_labels_take_value_label_pairs_and_set_ticks_and_labels_together() {
     let mut fig = Figure::new();
     let terrain = fig
-        .indexed_scale(Colormap::Gray.sample(256))
+        .indexed_scale(Colourmap::Grey.sample(256))
         .tick_labels([(0, "water"), (128, "land"), (255, "ice")])
         .id();
     assert_eq!(
@@ -404,7 +404,7 @@ fn tick_labels_take_value_label_pairs_and_set_ticks_and_labels_together() {
 
     // Values given as floats work the same on a continuous scale.
     let c = fig
-        .color_scale()
+        .colour_scale()
         .limits(0.0, 1.0)
         .tick_labels([(0.0, "cold"), (1.0, "hot")])
         .id();
@@ -439,16 +439,16 @@ fn tick_setters_leave_a_categorical_scale_as_it_is() {
 fn key_setters_show_keys_with_default_or_given_labels_and_keep_the_policy() {
     let mut fig = Figure::new();
     let s = fig
-        .color_scale()
+        .colour_scale()
         .limits(0.0, 1.0)
         .above(RED)
-        .show_key(ColorScaleKey::Below)
-        .key_label(ColorScaleKey::Above, "too hot")
+        .show_key(ColourScaleKey::Below)
+        .key_label(ColourScaleKey::Above, "too hot")
         .non_finite(OutOfRange::Transparent)
-        .key_label(ColorScaleKey::NonFinite, "not entered")
+        .key_label(ColourScaleKey::NonFinite, "not entered")
         .id();
     let sc = scale(&fig, s);
-    let ColorScaleKind::Continuous(c) = &sc.kind else {
+    let ColourScaleKind::Continuous(c) = &sc.kind else {
         panic!("the scale is continuous");
     };
     assert!(c.below.show_key);
@@ -460,7 +460,7 @@ fn key_setters_show_keys_with_default_or_given_labels_and_keep_the_policy() {
     );
     assert!(c.above.show_key);
     assert_eq!(c.above.label, Some(Text::from("too hot")));
-    assert_eq!(c.above.policy, OutOfRange::Rgba { color: RED });
+    assert_eq!(c.above.policy, OutOfRange::Rgba { colour: RED });
     assert!(sc.non_finite.show_key);
     assert_eq!(sc.non_finite.label, Some(Text::from("not entered")));
     assert_eq!(sc.non_finite.policy, OutOfRange::Transparent);
@@ -474,18 +474,18 @@ fn a_key_the_kind_does_not_have_leaves_the_scale_as_it_is() {
     let mut fig = Figure::new();
     let s = fig
         .categorical_scale([(RED, "taken"), (GREEN, "skipped")])
-        .show_key(ColorScaleKey::Below)
-        .show_key(ColorScaleKey::Above)
-        .show_key(ColorScaleKey::Outside)
+        .show_key(ColourScaleKey::Below)
+        .show_key(ColourScaleKey::Above)
+        .show_key(ColourScaleKey::Outside)
         .id();
-    let ColorScaleKind::Categorical(k) = &scale(&fig, s).kind else {
+    let ColourScaleKind::Categorical(k) = &scale(&fig, s).kind else {
         panic!("the scale is categorical");
     };
     assert!(k.outside.show_key);
     assert_eq!(k.outside.policy, OutOfRange::Strict);
 
-    let c = fig.color_scale().show_key(ColorScaleKey::Outside).id();
-    let ColorScaleKind::Continuous(kind) = &scale(&fig, c).kind else {
+    let c = fig.colour_scale().show_key(ColourScaleKey::Outside).id();
+    let ColourScaleKind::Continuous(kind) = &scale(&fig, c).kind else {
         panic!("the scale is continuous");
     };
     assert!(!kind.below.show_key && !kind.above.show_key);

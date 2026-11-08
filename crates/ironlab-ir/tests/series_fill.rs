@@ -8,7 +8,7 @@
 //! pub struct Series {
 //!     /* the existing fields */
 //!     pub base: Option<f64>,   // the value of y down to which the area is filled
-//!     pub fill: ColorSpec,     // none (the default) draws no fill; auto takes the series colour
+//!     pub fill: ColourSpec,     // none (the default) draws no fill; auto takes the series colour
 //!     pub fill_opacity: f64,   // from 0 to 1, multiplying the alpha of the fill; default 1
 //! }
 //! ```
@@ -18,7 +18,7 @@
 //!   every unfilled series since, is unchanged. In the wire schema they are new optional
 //!   fields, `base` optional in the IR as the base of stairs is.
 //! - Validation: a fill other than none without a base is `FillWithoutBase` (the kind
-//!   stairs report, reused); a colormapped fill is `ColormapNotSupported` (the kind stairs
+//!   stairs report, reused); a colourmapped fill is `ColourmapNotSupported` (the kind stairs
 //!   report, reused), because a fill has no colour data to map even where the line does; a
 //!   fill opacity outside `[0, 1]` or not finite is `InvalidOpacity`; and a fill in any
 //!   three-dimensional projection (Cartesian, cylindrical or spherical) is the new error
@@ -35,7 +35,7 @@ use common::{continuous, named};
 use ironlab_ir::*;
 use serde_json::{Value as JsonValue, json};
 
-const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const BLUE: Colour = Colour::rgb(0.0, 0.0, 1.0);
 
 // ---------------------------------------------------------------------------------
 // Fixtures
@@ -70,7 +70,7 @@ fn series_with(edit: impl FnOnce(&mut Series)) -> (Figure, NodeId) {
 /// Gives a series an automatic fill down to a base of 0.
 fn filled(s: &mut Series) {
     s.base = Some(0.0);
-    s.fill = ColorSpec::Auto;
+    s.fill = ColourSpec::Auto;
 }
 
 /// Returns the series of a figure, found without the API under test.
@@ -144,7 +144,7 @@ fn three_d_projections() -> [(&'static str, Projection); 3] {
 fn a_default_series_has_no_base_no_fill_and_an_opaque_fill_opacity() {
     let s = Series::default();
     assert_eq!(s.base, None);
-    assert_eq!(s.fill, ColorSpec::None);
+    assert_eq!(s.fill, ColourSpec::None);
     assert_eq!(s.fill_opacity, 1.0);
 }
 
@@ -173,14 +173,14 @@ fn the_json_of_an_unfilled_series_carries_none_of_the_fill_properties() {
 fn a_fill_is_written_in_the_documented_json_form_and_each_default_is_left_out() {
     let (fig, _) = series_with(|s| {
         s.base = Some(-0.5);
-        s.fill = ColorSpec::Rgba { color: BLUE };
+        s.fill = ColourSpec::Rgba { colour: BLUE };
         s.fill_opacity = 0.25;
     });
     let artist = artist_json(&fig);
     assert_eq!(artist["base"], json!(-0.5));
     assert_eq!(
         artist["fill"],
-        json!({ "type": "rgba", "color": "#0000ff" })
+        json!({ "type": "rgba", "colour": "#0000ff" })
     );
     assert_eq!(artist["fill_opacity"], json!(0.25));
 
@@ -211,7 +211,7 @@ fn json_without_the_fill_properties_reads_as_an_unfilled_series() {
     let reread = Figure::from_json(&value.to_string()).expect("the older form reads");
     let s = series_of(&reread, id);
     assert_eq!(s.base, None);
-    assert_eq!(s.fill, ColorSpec::None);
+    assert_eq!(s.fill, ColourSpec::None);
     assert_eq!(s.fill_opacity, 1.0);
     assert_eq!(reread, fig);
 }
@@ -222,12 +222,12 @@ fn json_without_the_fill_properties_reads_as_an_unfilled_series() {
 // of fill colour. The second save must reproduce the first byte for byte.
 #[test]
 fn every_fill_survives_json_and_protobuf_round_trips() {
-    let cases: [(Option<f64>, ColorSpec, f64); 5] = [
-        (None, ColorSpec::None, 1.0),
-        (Some(0.0), ColorSpec::Auto, 1.0),
-        (Some(-2.5), ColorSpec::Rgba { color: BLUE }, 0.25),
-        (Some(1e-300), ColorSpec::Auto, 0.0),
-        (Some(7.0), ColorSpec::None, 0.5),
+    let cases: [(Option<f64>, ColourSpec, f64); 5] = [
+        (None, ColourSpec::None, 1.0),
+        (Some(0.0), ColourSpec::Auto, 1.0),
+        (Some(-2.5), ColourSpec::Rgba { colour: BLUE }, 0.25),
+        (Some(1e-300), ColourSpec::Auto, 0.0),
+        (Some(7.0), ColourSpec::None, 0.5),
     ];
     for (base, fill, fill_opacity) in cases {
         let (fig, _) = series_with(|s| {
@@ -306,7 +306,7 @@ fn a_filled_series_in_cartesian_or_polar_axes_and_a_base_alone_raise_no_issue() 
 // stairs report for the same mistake so that a client handles both alike.
 #[test]
 fn a_fill_without_a_base_is_an_error() {
-    let (fig, id) = series_with(|s| s.fill = ColorSpec::Auto);
+    let (fig, id) = series_with(|s| s.fill = ColourSpec::Auto);
     assert_only_error(
         &fig.validate(),
         IssueKind::FillWithoutBase,
@@ -316,20 +316,20 @@ fn a_fill_without_a_base_is_an_error() {
 }
 
 // Why: the colour data of a series colours its points and segments, not the area under
-// them, and a fill has no value of its own to look up; so a colormapped fill cannot be
-// drawn, even on a series whose line is colormapped. It is refused with the kind stairs
-// report for a colormapped fill.
+// them, and a fill has no value of its own to look up; so a colourmapped fill cannot be
+// drawn, even on a series whose line is colourmapped. It is refused with the kind stairs
+// report for a colourmapped fill.
 #[test]
-fn a_colormapped_fill_is_an_error_even_on_a_series_with_colour_data() {
+fn a_colourmapped_fill_is_an_error_even_on_a_series_with_colour_data() {
     let (fig, id) = series_with(|s| {
         s.base = Some(0.0);
-        s.fill = ColorSpec::Colormapped;
+        s.fill = ColourSpec::Colourmapped;
     });
     assert_only_error(
         &fig.validate(),
-        IssueKind::ColormapNotSupported,
+        IssueKind::ColourmapNotSupported,
         id,
-        "a colormapped fill",
+        "a colourmapped fill",
     );
 
     let mut b = FigureBuilder::new();
@@ -337,7 +337,7 @@ fn a_colormapped_fill_is_an_error_even_on_a_series_with_colour_data() {
     let x = b.vector(&[0.0, 1.0, 2.0]);
     let y = b.vector(&[1.0, 3.0, 2.0]);
     let colours = b.vector(&[0.0, 0.5, 1.0]);
-    let scale = b.color_scale(continuous(named(ColormapName::Viridis), Limits::Auto));
+    let scale = b.colour_scale(continuous(named(ColourmapName::Viridis), Limits::Auto));
     let id = b.node();
     b.push(
         axes,
@@ -346,21 +346,21 @@ fn a_colormapped_fill_is_an_error_even_on_a_series_with_colour_data() {
             x,
             y,
             line: LineStyle {
-                color: ColorSpec::Colormapped,
+                colour: ColourSpec::Colourmapped,
                 ..LineStyle::default()
             },
-            color_data: Some(colours),
-            color_scale: Some(scale),
+            colour_data: Some(colours),
+            colour_scale: Some(scale),
             base: Some(0.0),
-            fill: ColorSpec::Colormapped,
+            fill: ColourSpec::Colourmapped,
             ..Series::default()
         }),
     );
     assert_only_error(
         &b.build().validate(),
-        IssueKind::ColormapNotSupported,
+        IssueKind::ColourmapNotSupported,
         id,
-        "a colormapped fill on a series with colour data",
+        "a colourmapped fill on a series with colour data",
     );
 }
 
@@ -428,7 +428,7 @@ fn a_base_that_is_not_positive_on_a_logarithmic_y_axis_is_warned_of() {
             x,
             y,
             base: Some(0.0),
-            fill: ColorSpec::Auto,
+            fill: ColourSpec::Auto,
             ..Series::default()
         }),
     );
@@ -456,7 +456,7 @@ fn the_registry_lists_the_fill_properties_of_a_series() {
     let listed = properties(NodeKind::Series);
     for (at, value_type, optional) in [
         ("base", ValueType::Double, true),
-        ("fill", ValueType::ColorSpec, false),
+        ("fill", ValueType::ColourSpec, false),
         ("fill_opacity", ValueType::Double, false),
     ] {
         let property = listed
@@ -482,7 +482,7 @@ fn a_fill_is_set_and_removed_by_path_and_undone() {
             set(
                 id,
                 "fill",
-                Value::ColorSpec(ColorSpec::Rgba { color: BLUE }),
+                Value::ColourSpec(ColourSpec::Rgba { colour: BLUE }),
             ),
             set(id, "fill_opacity", Value::Double(0.25)),
         ]),
@@ -490,7 +490,7 @@ fn a_fill_is_set_and_removed_by_path_and_undone() {
     .unwrap();
     let s = series_of(&edited, id);
     assert_eq!(s.base, Some(-1.0));
-    assert_eq!(s.fill, ColorSpec::Rgba { color: BLUE });
+    assert_eq!(s.fill, ColourSpec::Rgba { colour: BLUE });
     assert_eq!(s.fill_opacity, 0.25);
     assert_eq!(edited.get(id, &path("base")).unwrap(), Value::Double(-1.0));
     let (restored, _) = applied(&edited, &inverse).unwrap();
@@ -499,7 +499,7 @@ fn a_fill_is_set_and_removed_by_path_and_undone() {
     let (removed, _) = applied(
         &edited,
         &tx([
-            set(id, "fill", Value::ColorSpec(ColorSpec::None)),
+            set(id, "fill", Value::ColourSpec(ColourSpec::None)),
             set(id, "base", Value::Unset),
             set(id, "fill_opacity", Value::Double(1.0)),
         ]),
@@ -518,7 +518,7 @@ fn an_edit_that_leaves_a_fill_without_a_base_or_an_invalid_opacity_is_refused() 
     assert!(matches!(
         applied(
             &fig,
-            &tx([set(id, "fill", Value::ColorSpec(ColorSpec::Auto))])
+            &tx([set(id, "fill", Value::ColourSpec(ColourSpec::Auto))])
         ),
         Err(EditError::Invalid(_))
     ));
@@ -534,16 +534,16 @@ fn an_edit_that_leaves_a_fill_without_a_base_or_an_invalid_opacity_is_refused() 
 }
 
 // Why: the property editor offers the colour choices of a property and greys out those
-// the IR would not act on; a colormapped fill is never drawn, so it must be offered as
-// unavailable at `fill` even on a series whose line can be colormapped, with a reason.
+// the IR would not act on; a colourmapped fill is never drawn, so it must be offered as
+// unavailable at `fill` even on a series whose line can be colourmapped, with a reason.
 #[test]
-fn a_colormapped_fill_is_offered_as_unavailable() {
+fn a_colourmapped_fill_is_offered_as_unavailable() {
     let mut b = FigureBuilder::new();
     let axes = b.axes2d(0, 0);
     let x = b.vector(&[0.0, 1.0, 2.0]);
     let y = b.vector(&[1.0, 3.0, 2.0]);
     let colours = b.vector(&[0.0, 0.5, 1.0]);
-    let scale = b.color_scale(continuous(named(ColormapName::Viridis), Limits::Auto));
+    let scale = b.colour_scale(continuous(named(ColourmapName::Viridis), Limits::Auto));
     let id = b.node();
     b.push(
         axes,
@@ -551,28 +551,28 @@ fn a_colormapped_fill_is_offered_as_unavailable() {
             id,
             x,
             y,
-            color_data: Some(colours),
-            color_scale: Some(scale),
+            colour_data: Some(colours),
+            colour_scale: Some(scale),
             base: Some(0.0),
-            fill: ColorSpec::Auto,
+            fill: ColourSpec::Auto,
             ..Series::default()
         }),
     );
     let fig = b.build();
     let offered = property_choices(&fig, id, &path("fill"));
-    let colormapped = offered
+    let colourmapped = offered
         .iter()
-        .find(|choice| choice.value == Value::ColorSpec(ColorSpec::Colormapped))
-        .expect("the fill offers a colormapped colour");
+        .find(|choice| choice.value == Value::ColourSpec(ColourSpec::Colourmapped))
+        .expect("the fill offers a colourmapped colour");
     assert!(
-        colormapped.unavailable.is_some(),
-        "a colormapped fill is unavailable: {offered:?}"
+        colourmapped.unavailable.is_some(),
+        "a colourmapped fill is unavailable: {offered:?}"
     );
-    let line = property_choices(&fig, id, &path("line.color"));
+    let line = property_choices(&fig, id, &path("line.colour"));
     assert!(
         line.iter()
-            .any(|c| c.value == Value::ColorSpec(ColorSpec::Colormapped)
+            .any(|c| c.value == Value::ColourSpec(ColourSpec::Colourmapped)
                 && c.unavailable.is_none()),
-        "the line of the same series can be colormapped: {line:?}"
+        "the line of the same series can be colourmapped: {line:?}"
     );
 }

@@ -92,13 +92,13 @@ pub fn figure() -> Figure {
     let mut ax = fig.axes(0, 0);
     // The first two colours of the colour order, which the stacked histograms on the right take automatically, so
     // that each lathe has one colour in both axes and its fitted density is drawn in that colour too.
-    let colors = [Color::rgb(0.902, 0.624, 0.0), Color::rgb(0.337, 0.706, 0.914)];
-    for ((sample, &(name, ..)), color) in samples.iter().zip(&LATHES).zip(colors) {
+    let colours = [Colour::rgb(0.902, 0.624, 0.0), Colour::rgb(0.337, 0.706, 0.914)];
+    for ((sample, &(name, ..)), colour) in samples.iter().zip(&LATHES).zip(colours) {
         ax.hist(sample)
             .bins(Bins::Edges(edges.clone()))
-            .normalize(HistNorm::Density)
+            .normalise(HistNorm::Density)
             .style(HistStyle::Step)
-            .color(color)
+            .colour(colour)
             .label(name);
         let (mean, sigma) = mean_and_deviation(sample);
         let pdf: Vec<f64> = x
@@ -110,7 +110,7 @@ pub fn figure() -> Figure {
             .collect();
         ax.plot(&x, &pdf)
             .label(format!("Normal fit, {name}"))
-            .color(color)
+            .colour(colour)
             .dash(Dash::Dashed);
     }
     ax.xlim(edges[0], edges[edges.len() - 1])

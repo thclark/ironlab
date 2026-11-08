@@ -405,7 +405,7 @@ impl ListBuilder {
         let translucent = translucent_texture
             || self.vertices[base as usize..]
                 .iter()
-                .any(|vertex| vertex.color[3] < 255);
+                .any(|vertex| vertex.colour[3] < 255);
         self.draws.push(Draw {
             kind: DrawKind::Triangles(first_index..first_index + count),
             texture,
@@ -446,7 +446,7 @@ impl ListBuilder {
         }
         let end = self.segments.len() as u32;
         let index = self.stroke_params.len() as u32;
-        let translucent = params.color[3] < 1.0;
+        let translucent = params.colour[3] < 1.0;
         self.stroke_params.push(params);
         self.draws.push(Draw {
             kind: DrawKind::Stroke {
@@ -569,7 +569,7 @@ impl LeafContext {
 
 /// Converts a straight-alpha display-list colour to premultiplied sRGB bytes, or `None` when a channel is not a
 /// number.
-pub(crate) fn premultiplied(color: Rgba) -> Option<[u8; 4]> {
+pub(crate) fn premultiplied(colour: Rgba) -> Option<[u8; 4]> {
     let channel = |c: f32| {
         if c.is_nan() {
             None
@@ -579,10 +579,10 @@ pub(crate) fn premultiplied(color: Rgba) -> Option<[u8; 4]> {
     };
     Some(
         ecolor::Color32::from_rgba_unmultiplied(
-            channel(color.r)?,
-            channel(color.g)?,
-            channel(color.b)?,
-            channel(color.a)?,
+            channel(colour.r)?,
+            channel(colour.g)?,
+            channel(colour.b)?,
+            channel(colour.a)?,
         )
         .to_array(),
     )
@@ -723,7 +723,7 @@ fn fill_triangles(
     tessellator: &mut FillTessellator,
 ) -> Option<([u8; 4], VertexBuffers<DepthVertex, u32>)> {
     let fill = item.fill.as_ref()?;
-    let color = premultiplied(fill.color)?;
+    let colour = premultiplied(fill.colour)?;
     let path = lyon_path(subpaths);
     let rule = match fill.rule {
         FillRule::NonZero => lyon::tessellation::FillRule::NonZero,
@@ -741,7 +741,7 @@ fn fill_triangles(
             }),
         )
         .ok()?;
-    Some((color, buffers))
+    Some((colour, buffers))
 }
 
 /// One vertex of a flattened subpath with its depth, before the depth is normalised.
@@ -899,7 +899,7 @@ fn stroke_params(stroke: &Stroke, transform: Transform) -> Option<StrokeParams> 
     if !(stroke.width.is_finite() && stroke.width >= 0.0) {
         return None;
     }
-    let color = premultiplied(stroke.color)?;
+    let colour = premultiplied(stroke.colour)?;
     let mut params = StrokeParams {
         linear: [
             transform.a as f32,
@@ -908,7 +908,7 @@ fn stroke_params(stroke: &Stroke, transform: Transform) -> Option<StrokeParams> 
             transform.d as f32,
         ],
         offset: [transform.e as f32, transform.f as f32, 0.0, 0.0],
-        color: color.map(|c| f32::from(c) / 255.0),
+        colour: colour.map(|c| f32::from(c) / 255.0),
         width: stroke.width as f32,
         cap: match stroke.cap {
             LineCap::Butt => 0,
@@ -983,7 +983,7 @@ fn tessellate_path(
     let Some(subpaths) = subpaths(&item.segments, depths) else {
         return;
     };
-    if let Some((color, buffers)) = fill_triangles(item, &subpaths, context, tessellator) {
+    if let Some((colour, buffers)) = fill_triangles(item, &subpaths, context, tessellator) {
         let depth_of = |v: DepthVertex| match depth {
             Some(Depth::Plane(plane)) => {
                 plane.at(Point::new(f64::from(v.pos.x), f64::from(v.pos.y)))
@@ -997,7 +997,7 @@ fn tessellate_path(
                     pos: context.apply(f64::from(v.pos.x), f64::from(v.pos.y)),
                     z: 0.0,
                     uv: [0.0, 0.0],
-                    color,
+                    colour,
                 },
                 depth_of(v),
             )
@@ -1039,7 +1039,7 @@ fn tessellate_markers(
     }
     let Some(params) = stroke_params(
         &Stroke {
-            color: Rgba::new(0.0, 0.0, 0.0, 1.0),
+            colour: Rgba::new(0.0, 0.0, 0.0, 1.0),
             width: item.edge_width,
             dash: Vec::new(),
             dash_offset: 0.0,
@@ -1138,7 +1138,7 @@ fn tessellate_markers(
         .map(|instance| {
             (
                 MarkerGpu {
-                    center: [instance.position.x as f32, instance.position.y as f32],
+                    centre: [instance.position.x as f32, instance.position.y as f32],
                     z: 0.0,
                     size: instance.size_pt as f32,
                     face: colour(instance.face),
@@ -1286,7 +1286,7 @@ fn tessellate_glyphs(
     if !(item.size_pt.is_finite() && item.size_pt > 0.0) {
         return;
     }
-    let Some(color) = premultiplied(item.color) else {
+    let Some(colour) = premultiplied(item.colour) else {
         return;
     };
     let em = item.size_pt * context.max_stretch * context.scale;
@@ -1321,7 +1321,7 @@ fn tessellate_glyphs(
                     ),
                     z: 0.0,
                     uv: [0.0, 0.0],
-                    color,
+                    colour,
                 },
                 0.0,
             ));
@@ -1430,7 +1430,7 @@ fn tessellate_image(
                         pos,
                         z: 0.0,
                         uv,
-                        color: [255, 255, 255, 255],
+                        colour: [255, 255, 255, 255],
                     },
                     plane.map_or(0.0, |plane| plane.at(pixel)),
                 )
@@ -1592,7 +1592,7 @@ fn tessellate_mesh_image(
                             pos: context.apply(drawn.x, drawn.y),
                             z: 0.0,
                             uv: [((u - u0) / (u1 - u0)) as f32, ((v - v0) / (v1 - v0)) as f32],
-                            color: [255, 255, 255, 255],
+                            colour: [255, 255, 255, 255],
                         };
                         vertices.push((vertex, depth));
                     }

@@ -3,7 +3,7 @@
 mod common;
 
 use common::{data, has_error_at, is_3d, parent, quiver};
-use ironlab::ir::{ColorSpec, IssueKind, NdArray, Quiver, QuiverScale};
+use ironlab::ir::{ColourSpec, IssueKind, NdArray, Quiver, QuiverScale};
 use ironlab::prelude::*;
 
 // WHY: quiver takes four arrays in MATLAB order (x, y, u, v); swapping positions and
@@ -34,7 +34,7 @@ fn quiver_uses_ir_defaults() {
     let defaults = Quiver::default();
     assert_eq!(q.scale, QuiverScale::Auto);
     assert_eq!(q.line, defaults.line);
-    assert_eq!(q.line.color, ColorSpec::Auto);
+    assert_eq!(q.line.colour, ColourSpec::Auto);
     assert_eq!(q.head_size, defaults.head_size);
 }
 
@@ -86,16 +86,16 @@ fn quiver_setters_map_to_ir_fields() {
     let id = fig
         .axes(0, 0)
         .quiver([0.0], [0.0], [1.0], [0.0])
-        .color(Color::BLACK)
+        .colour(Colour::BLACK)
         .line_width(0.4)
         .head_size(0.2)
         .label("$\\nabla f$")
         .id();
     let q = quiver(&fig, id);
     assert_eq!(
-        q.line.color,
-        ColorSpec::Rgba {
-            color: Color::BLACK
+        q.line.colour,
+        ColourSpec::Rgba {
+            colour: Colour::BLACK
         }
     );
     assert_eq!(q.line.width_pt, 0.4);
