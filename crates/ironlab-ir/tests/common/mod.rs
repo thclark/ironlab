@@ -1235,6 +1235,7 @@ pub fn kitchen_sink_figure() -> Figure {
             grid: true,
             visible: true,
             tick_label_angle: 30.0,
+            side: AxisSide::Low,
         };
         a.y.ticks = Ticks::Step {
             step: 0.25,
@@ -1457,6 +1458,10 @@ pub fn kitchen_sink_figure() -> Figure {
             // only valid angle here is the default.
             visible: true,
             tick_label_angle: 0.0,
+            // A three-dimensional axes honours a side on every axis, so the z axis is moved to
+            // the right-hand vertical edge to carry a side other than the default through
+            // every round trip of the kitchen sink.
+            side: AxisSide::High,
         };
         a.legend = Some(Legend::Inside(InsideLegend {
             location: LegendLocation::North,

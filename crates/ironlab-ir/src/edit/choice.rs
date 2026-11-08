@@ -27,8 +27,8 @@ use crate::artist::{
     ImagePlane, Levels, Orientation, PerBar, QuiverScale, Series, StairsData, StepAt,
 };
 use crate::axes::{
-    AngleUnits, Aspect, AspectAdjust, Axes, ColormapName, InsideColorbarSide, Limits, PolarAngle,
-    PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign, View3d,
+    AngleUnits, Aspect, AspectAdjust, Axes, AxisSide, ColormapName, InsideColorbarSide, Limits,
+    PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScaleKind, ColorScaleLevels, ColorScaleNorm,
@@ -178,6 +178,7 @@ pub fn choices(value_type: ValueType, replacing: Option<&Value>) -> Vec<Choice> 
         ValueType::Projection => projection_choices(replacing),
         ValueType::AngleUnits => angle_units_choices(replacing),
         ValueType::PolarAngle => polar_angle_choices(),
+        ValueType::AxisSide => axis_side_choices(),
         ValueType::Limits => limits_choices(replacing),
         ValueType::Ticks => ticks_choices(replacing),
         ValueType::TickLabels => tick_labels_choices(replacing),
@@ -652,6 +653,7 @@ fn label_of(value: &Value) -> Option<&'static str> {
         Value::Projection(v) => projection_label(v),
         Value::AngleUnits(v) => angle_units_label(v),
         Value::PolarAngle(v) => polar_angle_label(v),
+        Value::AxisSide(v) => axis_side_label(v),
         Value::Limits(v) => limits_label(v),
         Value::Ticks(v) => ticks_label(v),
         Value::TickLabels(v) => tick_labels_label(v),
@@ -1329,6 +1331,12 @@ plain_choices! {
     PolarAngle as PolarAngle (polar_angle_choices, polar_angle_label) {
         PolarAngle::Elevation => "Elevation";
         PolarAngle::Inclination => "Inclination";
+    }
+
+    AxisSide as AxisSide (axis_side_choices, axis_side_label) {
+        AxisSide::Low => "Low";
+        AxisSide::Centre => "Centre";
+        AxisSide::High => "High";
     }
 
     AspectAdjust as AspectAdjust (aspect_adjust_choices, aspect_adjust_label) {

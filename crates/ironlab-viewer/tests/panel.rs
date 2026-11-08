@@ -613,6 +613,7 @@ fn the_properties_of_a_node_are_grouped_by_the_first_segment_of_their_path() {
             "limits",
             "reverse",
             "scale",
+            "side",
             "tick_label_angle",
             "tick_labels",
             "ticks",

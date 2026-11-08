@@ -440,6 +440,48 @@ pub struct Axis {
     /// The property is omitted from JSON when it is 0, and is 0 when JSON omits it.
     #[serde(default, skip_serializing_if = "is_level")]
     pub tick_label_angle: f64,
+    /// The side of the plot on which the axis draws its line, tick marks, tick labels and
+    /// label. Two-dimensional and three-dimensional Cartesian axes honour it on every
+    /// axis, and cylindrical axes on z; polar axes, spherical axes and the angle and
+    /// radius of cylindrical axes ignore it.
+    ///
+    /// The property is omitted from JSON when it is [`AxisSide::Low`], and is Low when
+    /// JSON omits it.
+    #[serde(default, skip_serializing_if = "AxisSide::is_low")]
+    pub side: AxisSide,
+}
+
+/// The side of the plot on which an axis draws its line, tick marks, tick labels and label,
+/// across the direction in which the axis runs on the page.
+///
+/// The side is a side of the page, not an end of the data range: reversing an axis does not
+/// move the axes drawn along it. Tick labels and the axis label lie on the outside of the
+/// line, away from the plot; through the middle they lie on the low side of the line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AxisSide {
+    /// The left of the plot for an axis that runs up the page, and the bottom for one that
+    /// runs across it: the lowest box edge on the page for the x and y axes of a
+    /// three-dimensional axes, the leftmost vertical edge for its z axis, and the left wall
+    /// of a cylinder for the z axis of cylindrical axes.
+    #[default]
+    Low,
+    /// Through the middle of the plot: through the centre of the floor of a
+    /// three-dimensional axes, and up the axis of the cylinder of cylindrical axes.
+    Centre,
+    /// The right of the plot for an axis that runs up the page, and the top for one that
+    /// runs across it: the highest box edge on the page for the x and y axes of a
+    /// three-dimensional axes, the rightmost vertical edge for its z axis, and the right
+    /// wall of a cylinder for the z axis of cylindrical axes.
+    High,
+}
+
+impl AxisSide {
+    /// Returns whether the side is the default, in which case JSON omits it.
+    #[must_use]
+    pub fn is_low(&self) -> bool {
+        *self == AxisSide::Low
+    }
 }
 
 impl Default for Axis {
@@ -456,6 +498,7 @@ impl Default for Axis {
             grid: false,
             visible: true,
             tick_label_angle: 0.0,
+            side: AxisSide::Low,
         }
     }
 }

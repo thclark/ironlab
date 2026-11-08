@@ -649,6 +649,9 @@ pub fn perturb(value: &Value) -> Value {
         Value::AngleUnits(AngleUnits::PerTurn(_)) => Value::AngleUnits(AngleUnits::Degrees),
         Value::PolarAngle(PolarAngle::Elevation) => Value::PolarAngle(PolarAngle::Inclination),
         Value::PolarAngle(PolarAngle::Inclination) => Value::PolarAngle(PolarAngle::Elevation),
+        Value::AxisSide(AxisSide::Low) => Value::AxisSide(AxisSide::Centre),
+        Value::AxisSide(AxisSide::Centre) => Value::AxisSide(AxisSide::High),
+        Value::AxisSide(AxisSide::High) => Value::AxisSide(AxisSide::Low),
         Value::View3d(view) => Value::View3d(View3d {
             zoom: view.zoom + 0.5,
             ..*view
@@ -991,7 +994,7 @@ fn other_orientation(orientation: ColorbarOrientation) -> ColorbarOrientation {
 ///
 /// There is no `Value::DataId`: a reference to a data array is a [`Value::NodeId`] like
 /// any other reference to a node.
-pub const VALUE_VARIANTS: usize = 87;
+pub const VALUE_VARIANTS: usize = 88;
 
 /// Returns a distinct index from zero for each variant of [`Value`].
 ///
@@ -1087,6 +1090,7 @@ pub fn value_variant(value: &Value) -> usize {
         Value::SphericalView(_) => 84,
         Value::AngleUnits(_) => 85,
         Value::PolarAngle(_) => 86,
+        Value::AxisSide(_) => 87,
     }
 }
 
@@ -1172,6 +1176,7 @@ pub fn sample_values() -> Vec<Value> {
         }),
         Value::AngleUnits(AngleUnits::PerTurn(12.0)),
         Value::PolarAngle(PolarAngle::Inclination),
+        Value::AxisSide(AxisSide::Centre),
         Value::Axis(Axis {
             label: Some(Text::new("$t$")),
             scale: Scale::Log,
@@ -1186,6 +1191,7 @@ pub fn sample_values() -> Vec<Value> {
             grid: true,
             visible: false,
             tick_label_angle: -37.5,
+            side: AxisSide::High,
         }),
         Value::Ticks(Ticks::Step {
             step: 0.2,

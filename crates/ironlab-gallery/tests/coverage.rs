@@ -6,10 +6,10 @@
 //! actually built.
 
 use ironlab::ir::{
-    AngleUnits, Artist, Axes, Bar, BarOffset, ColorScale, ColorScaleKind, ColorScaleLevels,
-    ColorScaleNorm, ColorSpec, ContourPlacement, Dimension, Figure, Grid, ImagePlacement,
-    ImagePlane, Interpreter, Limits, MarkerShape, NodeId, Orientation, OutOfRange, PerBar,
-    PolarView, Projection, Scale, TickLabels,
+    AngleUnits, Artist, Axes, AxisSide, Bar, BarOffset, ColorScale, ColorScaleKind,
+    ColorScaleLevels, ColorScaleNorm, ColorSpec, ContourPlacement, Dimension, Figure, Grid,
+    ImagePlacement, ImagePlane, Interpreter, Limits, MarkerShape, NodeId, Orientation, OutOfRange,
+    PerBar, PolarView, Projection, Scale, TickLabels,
 };
 use ironlab_gallery::{all, find};
 
@@ -731,5 +731,70 @@ fn log_axes_has_one_tile_per_variant() {
             (Scale::Log, Scale::Linear),
             (Scale::Linear, Scale::Log)
         ]
+    );
+}
+
+/// WHY: every side of every axis that honours it takes its own layout branch: in 2D the line, tick marks, labels and
+/// margin move to the right, the top or the middle of the plot; in 3D the axis is placed on the highest or rightmost
+/// box edge, or on the centre of the floor; and the z axis of cylindrical axes stands on the left wall, the right wall
+/// or the axis of the cylinder. A reader comparing them, and the exported gallery that reviews the drawing, need them
+/// side by side in one figure, so the `axis_sides` entry must hold, in tiles of its own: a 2D axes with each side on
+/// x and each side on y, 3D axes with x, y and z on the high side and z through the middle, and cylindrical axes with
+/// z on each of the three sides. Every tile must draw something, so that its axes are laid out round real data.
+#[test]
+fn the_axis_sides_entry_shows_every_side_in_every_projection_that_honours_it() {
+    let figure = (find("axis_sides")
+        .expect("the gallery has an entry axis_sides")
+        .build)()
+    .into_ir();
+    for axes in &figure.axes {
+        assert!(
+            !axes.artists.is_empty(),
+            "the axes in row {} column {} draws nothing",
+            axes.cell.row,
+            axes.cell.col
+        );
+    }
+    let is_cylindrical = |axes: &Axes| matches!(axes.projection, Projection::Cylindrical { .. });
+    let sides = [AxisSide::Low, AxisSide::Centre, AxisSide::High];
+    let mut missing = Vec::new();
+    let mut require = |what: String, shown: bool| {
+        if !shown {
+            missing.push(what);
+        }
+    };
+    for side in sides {
+        require(
+            format!("2D x on the {side:?} side"),
+            figure.axes.iter().any(|a| is_2d(a) && a.x.side == side),
+        );
+        require(
+            format!("2D y on the {side:?} side"),
+            figure.axes.iter().any(|a| is_2d(a) && a.y.side == side),
+        );
+        require(
+            format!("cylindrical z on the {side:?} side"),
+            figure
+                .axes
+                .iter()
+                .any(|a| is_cylindrical(a) && a.z.side == side),
+        );
+    }
+    type Shows = fn(&Axes) -> bool;
+    let three_d: [(&str, Shows); 4] = [
+        ("3D x on the high side", |a| a.x.side == AxisSide::High),
+        ("3D y on the high side", |a| a.y.side == AxisSide::High),
+        ("3D z on the high side", |a| a.z.side == AxisSide::High),
+        ("3D z through the middle", |a| a.z.side == AxisSide::Centre),
+    ];
+    for (what, predicate) in three_d {
+        require(
+            what.to_owned(),
+            figure.axes.iter().any(|a| is_3d(a) && predicate(a)),
+        );
+    }
+    assert!(
+        missing.is_empty(),
+        "the axis_sides entry does not show: {missing:?}"
     );
 }

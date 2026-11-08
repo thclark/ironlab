@@ -11,6 +11,7 @@ mod alpha;
 mod artists;
 mod aspect;
 mod axis_display;
+mod axis_side;
 mod bars;
 mod blended;
 mod cells;

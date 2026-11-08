@@ -11,9 +11,9 @@ use crate::artist::{
     QuiverScale, StairsData, StepAt,
 };
 use crate::axes::{
-    AngleUnits, Aspect, AspectAdjust, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
-    Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
-    View3d,
+    AngleUnits, Aspect, AspectAdjust, Axis, AxisSide, ColormapName, InsideColorbar,
+    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorScaleKind, ColorScaleLevels, ColorScaleNorm, ColorScaleOutOfRange,
@@ -106,6 +106,8 @@ pub enum Value {
     AngleUnits(AngleUnits),
     /// How the polar angle of a spherical axes is measured.
     PolarAngle(PolarAngle),
+    /// The side of the plot on which an axis is drawn.
+    AxisSide(AxisSide),
     /// A coordinate axis of an axes.
     Axis(Axis),
     /// The scale of a coordinate axis.
@@ -284,6 +286,8 @@ pub enum ValueType {
     AngleUnits,
     /// See [`Value::PolarAngle`].
     PolarAngle,
+    /// See [`Value::AxisSide`].
+    AxisSide,
     /// See [`Value::Axis`].
     Axis,
     /// See [`Value::Scale`].
@@ -441,6 +445,7 @@ impl Value {
             Value::SphericalView(_) => ValueType::SphericalView,
             Value::AngleUnits(_) => ValueType::AngleUnits,
             Value::PolarAngle(_) => ValueType::PolarAngle,
+            Value::AxisSide(_) => ValueType::AxisSide,
             Value::Axis(_) => ValueType::Axis,
             Value::Scale(_) => ValueType::Scale,
             Value::Limits(_) => ValueType::Limits,

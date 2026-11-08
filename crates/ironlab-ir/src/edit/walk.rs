@@ -23,9 +23,9 @@ use crate::artist::{
     StepAt, Surface,
 };
 use crate::axes::{
-    AngleUnits, Aspect, AspectAdjust, Axes, Axis, ColormapName, InsideColorbar, InsideColorbarSide,
-    Limits, PolarAngle, PolarView, Projection, Scale, SphericalView, TickLabels, Ticks, TitleAlign,
-    View3d,
+    AngleUnits, Aspect, AspectAdjust, Axes, Axis, AxisSide, ColormapName, InsideColorbar,
+    InsideColorbarSide, Limits, PolarAngle, PolarView, Projection, Scale, SphericalView,
+    TickLabels, Ticks, TitleAlign, View3d,
 };
 use crate::color_scale::{
     CategoricalColorScale, ColorCategory, ColorScale, ColorScaleKind, ColorScaleLevels,
@@ -551,6 +551,7 @@ ir_leaf! {
     FontSetId => FontSetId;
     Embolden => Embolden;
     PolarAngle => PolarAngle;
+    AxisSide => AxisSide;
     Scale => Scale;
     ColormapName => ColormapName;
     ColorScaleNorm => ColorScaleNorm;
@@ -1000,6 +1001,8 @@ ir_value! {
             "Whether the axis is drawn; a hidden axis draws no spine, ticks, tick labels or label and reserves no space for them, while its grid lines still follow the grid setting.";
         plain "tick_label_angle" => tick_label_angle: f64 =
             "The angle of every tick label in degrees anticlockwise from horizontal, about the end of the label nearest its tick; ignored by three-dimensional axes.";
+        plain "side" => side: AxisSide =
+            "The side of the plot on which the axis draws its line, tick marks, tick labels and label: low (left or bottom), centre (through the middle) or high (right or top); honoured by Cartesian axes and by the z axis of cylindrical axes.";
     }
 
     InsideLegend as InsideLegend {

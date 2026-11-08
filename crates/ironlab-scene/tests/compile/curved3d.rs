@@ -26,8 +26,8 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use ironlab_ir::{
-    AngleUnits, Artist, Aspect, Axes, ImagePlane, Limits, NodeId, PolarAngle, PolarView,
-    Projection, QuiverScale, Scale, SphericalView, TickLabels, View3d,
+    AngleUnits, Artist, Aspect, Axes, AxisSide, ImagePlane, Limits, NodeId, PolarAngle, PolarView,
+    Projection, QuiverScale, Scale, SphericalView, TickLabels, Ticks, View3d,
 };
 use ironlab_scene::display::{Depth, ImageGeometry, ImageMesh, PathSegment, Point};
 use ironlab_scene::hit::AxesHitKind;
@@ -142,13 +142,14 @@ impl Cylinder {
         }
     }
 
-    /// Sets the three axes, and hides the angular tick labels, which are placed outside the rim and so take room from
-    /// the fit (see [`Lens`]).
+    /// Sets the three axes, and hides the angular tick labels, which are placed outside the rim, and the z tick labels,
+    /// which are placed outside the wall by default; both take room from the fit (see [`Lens`]).
     fn apply(&self, axes: &mut Axes) {
         self.theta.apply(&mut axes.x);
         self.r.apply(&mut axes.y);
         self.z.apply(&mut axes.z);
         axes.x.tick_labels = TickLabels::Hidden;
+        axes.z.tick_labels = TickLabels::Hidden;
     }
 }
 
@@ -1506,13 +1507,12 @@ fn assert_interior_line(
     );
 }
 
-// Why: the z axis of cylindrical axes is the axis of the cylinder, so it runs up the centre from the floor to the top
-// of the box, where its ticks and labels are read; a z axis on a corner of a Cartesian box would stand outside the
-// cylinder. It passes through the drawn volume, so the artists in front of it must hide it: it is drawn among them,
-// with a depth at every vertex, rather than painted over them.
+// Why: a z axis through the middle of cylindrical axes is the axis of the cylinder, so it runs up the centre from the
+// floor to the top of the box, where its ticks and labels are read. It passes through the drawn volume, so the artists
+// in front of it must hide it: it is drawn among them, with a depth at every vertex, rather than painted over them.
 #[test]
-fn the_z_axis_of_cylindrical_axes_runs_up_the_centre_from_floor_to_top() {
-    let (scene, ax, lens, _) = decorated_cylinder(|_| {});
+fn a_centre_z_axis_of_cylindrical_axes_runs_up_the_centre_from_floor_to_top() {
+    let (scene, ax, lens, _) = decorated_cylinder(|axes| axes.z.side = AxisSide::Centre);
     assert_interior_line(
         &scene,
         ax,
@@ -1632,7 +1632,10 @@ fn draws_wall_line(scene: &Scene, ax: NodeId, lens: &Lens, phi: f64) -> bool {
 // Why: with the box on, the frame of cylindrical axes is the whole outline of the cylinder: the rims of the floor and
 // the top and the two lines of the wall where it turns away from the viewer, which join the rims tangentially, so that
 // the cylinder reads as a solid, as the twelve edges of a Cartesian box do. The silhouette follows the camera. With the
-// box off, the wall lines go with the top rim, and the floor alone is left.
+// box off, the wall lines go with the top rim, except the one that carries the z axis: as in a Cartesian box, the line
+// that carries the ticks stays. A z axis on the low side stands on the wall line furthest left on the page, one on the
+// high side on the line furthest right, and one through the middle on neither; which line is which changes as the
+// camera turns, and the axis must follow.
 #[test]
 fn with_the_box_on_cylindrical_axes_draw_the_silhouette_lines_of_the_wall() {
     for view in [
@@ -1642,27 +1645,45 @@ fn with_the_box_on_cylindrical_axes_draw_the_silhouette_lines_of_the_wall() {
             elevation_deg: 15.0,
             ..View3d::default()
         },
+        View3d {
+            azimuth_deg: 200.0,
+            elevation_deg: 35.0,
+            ..View3d::default()
+        },
     ] {
-        for box_ in [true, false] {
-            let c = Cylinder::new();
-            let (mut fx, ax) = cylinder_axes(&c, view);
-            fx.surface(
-                ax,
-                &[0.0, 120.0, 240.0, 360.0],
-                &[0.0, 2.0],
-                |_, _| 0.0,
-                |_| {},
-            );
-            fx.ax(ax).box_ = box_;
-            let scene = compile_clean(fx);
-            let lens = Lens::cylinder(&scene, ax, view, [1.0; 3]);
-            for phi in silhouette_azimuths(&lens) {
-                assert_eq!(
-                    draws_wall_line(&scene, ax, &lens, phi),
-                    box_,
-                    "{view:?}, box {box_}: the wall line at {:.1}°",
-                    phi.to_degrees()
+        for side in [AxisSide::Low, AxisSide::Centre, AxisSide::High] {
+            for box_ in [true, false] {
+                let c = Cylinder::new();
+                let (mut fx, ax) = cylinder_axes(&c, view);
+                fx.surface(
+                    ax,
+                    &[0.0, 120.0, 240.0, 360.0],
+                    &[0.0, 2.0],
+                    |_, _| 0.0,
+                    |_| {},
                 );
+                fx.ax(ax).box_ = box_;
+                fx.ax(ax).z.side = side;
+                let scene = compile_clean(fx);
+                let lens = Lens::cylinder(&scene, ax, view, [1.0; 3]);
+                let page_x = |phi: f64| lens.project([0.5 * phi.cos(), 0.5 * phi.sin(), 0.0]).0.x;
+                let [a, b] = silhouette_azimuths(&lens);
+                let (left, right) = if page_x(a) < page_x(b) {
+                    (a, b)
+                } else {
+                    (b, a)
+                };
+                for (phi, carries_z) in [
+                    (left, side == AxisSide::Low),
+                    (right, side == AxisSide::High),
+                ] {
+                    assert_eq!(
+                        draws_wall_line(&scene, ax, &lens, phi),
+                        box_ || carries_z,
+                        "{view:?}, {side:?}, box {box_}: the wall line at {:.1}°",
+                        phi.to_degrees()
+                    );
+                }
             }
         }
     }
@@ -1670,7 +1691,8 @@ fn with_the_box_on_cylindrical_axes_draw_the_silhouette_lines_of_the_wall() {
 
 // Why: a partial sector is a slice of the cylinder, whose outline is the wall only where the slice has a wall: a
 // silhouette line is drawn only at an azimuth inside the sector, beside the vertical edges of the sector, which close
-// the slice. With the box off, every vertical line of the frame goes.
+// the slice. With the box off, every vertical line of the frame goes. The z axis is put through the middle, so that
+// none of these lines is kept to carry it.
 #[test]
 fn a_partial_sector_draws_only_the_silhouette_lines_within_it() {
     let view = View3d::default();
@@ -1680,6 +1702,7 @@ fn a_partial_sector_draws_only_the_silhouette_lines_within_it() {
         let (mut fx, ax) = cylinder_axes(&c, view);
         fx.surface(ax, &[0.0, 90.0, 180.0], &[0.0, 2.0], |_, _| 0.0, |_| {});
         fx.ax(ax).box_ = box_;
+        fx.ax(ax).z.side = AxisSide::Centre;
         let scene = compile_clean(fx);
         let lens = Lens::cylinder(&scene, ax, view, [1.0; 3]);
         let inside = |phi: f64| phi.rem_euclid(TAU) < PI;
@@ -1705,6 +1728,215 @@ fn a_partial_sector_draws_only_the_silhouette_lines_within_it() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The side of the z axis of cylindrical axes
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The z ticks of [`sided_cylinder`], whose labels no radial label shares.
+const Z_TICKS: [f64; 3] = [-0.75, 0.25, 0.75];
+
+/// Cylindrical axes as [`decorated_cylinder`] draws them, seen from `view`, with the z tick labels shown at [`Z_TICKS`]
+/// and the z axis on `side`; `edit` adjusts the axes further. The z labels may take room from the fit, so the geometry
+/// of these tests is read from what the axes draws rather than from a [`Lens`].
+fn sided_cylinder(view: View3d, side: AxisSide, edit: impl FnOnce(&mut Axes)) -> (Scene, NodeId) {
+    let c = Cylinder::new();
+    let (mut fx, ax) = cylinder_axes(&c, view);
+    fx.surface(
+        ax,
+        &[0.0, 120.0, 240.0, 360.0],
+        &[0.0, 2.0],
+        |_, _| 0.0,
+        |_| {},
+    );
+    let axes = fx.ax(ax);
+    axes.z.tick_labels = TickLabels::Auto;
+    axes.z.ticks = Ticks::Values(Z_TICKS.to_vec());
+    axes.z.side = side;
+    edit(axes);
+    (compile_clean(fx), ax)
+}
+
+/// The boxes of the z tick labels of [`sided_cylinder`].
+fn z_label_boxes(scene: &Scene, ax: NodeId) -> Vec<ironlab_scene::display::Rect> {
+    let boxes: Vec<_> = leaves(scene)
+        .into_iter()
+        .filter(|l| l.source == Some(ax))
+        .filter(|l| {
+            l.glyphs().is_some_and(|g| {
+                crate::probe::parse_number(&g.text)
+                    .is_some_and(|v| Z_TICKS.iter().any(|t| (t - v).abs() < 1e-9))
+            })
+        })
+        .filter_map(|l| l.bbox())
+        .collect();
+    assert_eq!(
+        boxes.len(),
+        Z_TICKS.len(),
+        "every z tick is labelled: {boxes:?}"
+    );
+    boxes
+}
+
+/// The leftmost and rightmost page x of the curved pieces of the frame (the rims of the floor and the top), sampled at
+/// their ends and middles: no further out than the true silhouette of the wall, which they approach within a chord.
+fn rim_extent(scene: &Scene, ax: NodeId) -> (f64, f64) {
+    let xs: Vec<f64> = decoration_pieces(scene, ax)
+        .iter()
+        .filter_map(|(piece, _)| {
+            let middle = piece.middle()?;
+            let (a, b) = piece.ends();
+            Some([a.x, b.x, middle.x])
+        })
+        .flatten()
+        .collect();
+    assert!(!xs.is_empty(), "the rim is drawn");
+    (
+        xs.iter().copied().fold(f64::INFINITY, f64::min),
+        xs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+    )
+}
+
+/// The default view and a view turned well round and tilted, at which the wall labels of a z axis must still lie
+/// outside the cylinder on the side asked for.
+fn wall_views() -> [View3d; 2] {
+    [
+        View3d::default(),
+        View3d {
+            azimuth_deg: 200.0,
+            elevation_deg: 35.0,
+            ..View3d::default()
+        },
+    ]
+}
+
+/// The total page height of the exactly vertical straight pieces that the axes draws, inside or outside its depth
+/// group, whose ends both lie within `tol` of the page x `at`. The z axis upright on the page is drawn as such pieces;
+/// a spoke of the floor is not exactly vertical at the default view.
+fn vertical_length_at(scene: &Scene, ax: NodeId, at: f64, tol: f64) -> f64 {
+    leaves(scene)
+        .iter()
+        .filter(|l| l.source == Some(ax) && l.path().is_some())
+        .flat_map(Leaf::line_segments)
+        .filter(|(a, b)| (a.x - b.x).abs() < 1e-6 && (a.x - at).abs() <= tol)
+        .map(|(a, b)| (a.y - b.y).abs())
+        .sum()
+}
+
+// Why: a z axis up the axis of the cylinder runs through the data and its labels sit among the artists, so the default
+// z axis of cylindrical axes stands on the low side, on the wall line furthest left on the page, as the z axis of a
+// Cartesian box stands on its leftmost edge; its labels lie to the left of the whole cylinder, clear of the data, in
+// every view.
+#[test]
+fn the_z_axis_of_cylindrical_axes_stands_on_the_left_wall_by_default() {
+    for view in wall_views() {
+        let (scene, ax) = sided_cylinder(view, AxisSide::Low, |_| {});
+        let (left, _) = rim_extent(&scene, ax);
+        for b in z_label_boxes(&scene, ax) {
+            assert!(
+                b.right() <= left + TOL,
+                "{view:?}: {b:?} lies left of the cylinder, which starts at {left}"
+            );
+        }
+    }
+}
+
+// Why: on the high side the z axis stands on the wall line furthest right on the page, for a cylinder seen with its
+// data piled on the left or placed beside a neighbour on its left; its labels lie to the right of the whole cylinder
+// in every view.
+#[test]
+fn a_high_z_axis_of_cylindrical_axes_stands_on_the_right_wall() {
+    for view in wall_views() {
+        let (scene, ax) = sided_cylinder(view, AxisSide::High, |_| {});
+        let (_, right) = rim_extent(&scene, ax);
+        for b in z_label_boxes(&scene, ax) {
+            assert!(
+                b.x >= right - TOL,
+                "{view:?}: {b:?} lies right of the cylinder, which ends at {right}"
+            );
+        }
+    }
+}
+
+// Why: Centre keeps the z axis on the axis of the cylinder, as it was drawn before the side existed, for a reader who
+// takes heights off a pole in the middle of the data; its labels sit on the low side of the pole, to its left, much
+// nearer the pole than the left wall.
+#[test]
+fn a_centre_z_axis_of_cylindrical_axes_is_labelled_beside_the_axis_of_the_cylinder() {
+    let (scene, ax) = sided_cylinder(View3d::default(), AxisSide::Centre, |_| {});
+    let (left, right) = rim_extent(&scene, ax);
+    let pole = 0.5 * (left + right);
+    let width = right - left;
+    for b in z_label_boxes(&scene, ax) {
+        assert!(
+            b.right() <= pole + 0.02 * width,
+            "{b:?} lies left of the pole at {pole}"
+        );
+        assert!(
+            pole - b.right() < b.right() - left,
+            "{b:?} lies nearer the pole at {pole} than the wall at {left}"
+        );
+    }
+}
+
+// Why: a z axis on a wall replaces the line up the middle of the cylinder rather than adding to it, so no line runs
+// up the axis of the cylinder on either side, whether or not the box is drawn. The Centre axes is the control: it does
+// draw the line up the middle, so the probe is shown to find it. Which wall lines are kept without the box is tested
+// with the silhouette lines of the wall.
+#[test]
+fn a_z_axis_on_a_wall_draws_no_line_up_the_centre() {
+    let (control, cx) = sided_cylinder(View3d::default(), AxisSide::Centre, |_| {});
+    let (left, right) = rim_extent(&control, cx);
+    let (pole, width) = (0.5 * (left + right), right - left);
+    assert!(
+        vertical_length_at(&control, cx, pole, 0.02 * width) > 0.5 * width,
+        "the control draws the line up the middle"
+    );
+    for side in [AxisSide::Low, AxisSide::High] {
+        for box_ in [true, false] {
+            let (scene, ax) = sided_cylinder(View3d::default(), side, |axes| axes.box_ = box_);
+            let (left, right) = rim_extent(&scene, ax);
+            let (pole, width) = (0.5 * (left + right), right - left);
+            assert!(
+                vertical_length_at(&scene, ax, pole, 0.02 * width) < 0.05 * width,
+                "{side:?}, box {box_}: no line runs up the middle"
+            );
+        }
+    }
+}
+
+// Why: the angle and the radius of cylindrical axes lie round the rim and along a spoke of the floor, and every axis
+// of spherical axes lies on the sphere, so none of them has a side to move to; validation warns that the side is
+// ignored, and the drawing must be exactly the drawing of the default side.
+#[test]
+fn a_side_on_the_angle_or_radius_of_curved_axes_changes_nothing_drawn() {
+    let c = Cylinder::new();
+    let cylinder = |edit: fn(&mut Axes)| {
+        let (mut fx, ax) = cylinder_axes(&c, View3d::default());
+        fx.scatter(ax, &THETA, &R, Some(&Z), |_, _| {});
+        edit(fx.ax(ax));
+        compile_figure(&fx.build()).display_list
+    };
+    let plain = cylinder(|_| {});
+    assert_eq!(cylinder(|a| a.x.side = AxisSide::High), plain, "cylinder x");
+    assert_eq!(
+        cylinder(|a| a.y.side = AxisSide::Centre),
+        plain,
+        "cylinder y"
+    );
+
+    let s = Sphere::new();
+    let sphere = |edit: fn(&mut Axes)| {
+        let (mut fx, ax) = sphere_axes(&s, View3d::default());
+        fx.scatter(ax, &AZ, &ELEVATION, Some(&RADIUS), |_, _| {});
+        edit(fx.ax(ax));
+        compile_figure(&fx.build()).display_list
+    };
+    let plain = sphere(|_| {});
+    assert_eq!(sphere(|a| a.x.side = AxisSide::High), plain, "sphere x");
+    assert_eq!(sphere(|a| a.y.side = AxisSide::Centre), plain, "sphere y");
+    assert_eq!(sphere(|a| a.z.side = AxisSide::High), plain, "sphere z");
 }
 
 // Why: the frame of spherical axes is two great circles of the outer sphere: the equator in the X–Y plane, which
@@ -1766,8 +1998,9 @@ fn every_tick_label_inside_the_plot(scene: &Scene, ax: NodeId, what: &str) {
     }
 }
 
-// Why: the tick labels of cylindrical and spherical axes lie outside the frame circles, beyond the sphere that
-// circumscribes the drawing, so the fit must leave room for them, or they would run into the title, the margins of
+// Why: the tick labels of cylindrical and spherical axes lie outside the frame circles (and, for the z axis of a
+// cylinder on its default side, beside its wall), beyond the sphere that circumscribes the drawing, so the fit must
+// leave room for them, or they would run into the title, the margins of
 // the tile and the axes beside it. The room depends on the labels and not on the view, so in every view, turned or
 // not, every tick label stays inside the plot rectangle.
 #[test]
@@ -1788,9 +2021,18 @@ fn the_fit_leaves_room_inside_the_plot_for_the_tick_labels_round_the_frame() {
         let c = Cylinder::new();
         let (mut fx, ax) = cylinder_axes(&c, view);
         fx.ax(ax).x.tick_labels = TickLabels::Auto;
+        fx.ax(ax).z.tick_labels = TickLabels::Auto;
         fx.scatter(ax, &THETA, &R, Some(&Z), |_, _| {});
         let scene = compile_figure(&fx.build());
         every_tick_label_inside_the_plot(&scene, ax, &format!("cylinder at {view:?}"));
+
+        let (mut fx, ax) = cylinder_axes(&c, view);
+        fx.ax(ax).x.tick_labels = TickLabels::Auto;
+        fx.ax(ax).z.tick_labels = TickLabels::Auto;
+        fx.ax(ax).z.side = AxisSide::High;
+        fx.scatter(ax, &THETA, &R, Some(&Z), |_, _| {});
+        let scene = compile_figure(&fx.build());
+        every_tick_label_inside_the_plot(&scene, ax, &format!("cylinder, z high, at {view:?}"));
 
         let s = Sphere::new();
         let (mut fx, ax) = sphere_axes(&s, view);

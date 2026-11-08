@@ -183,6 +183,7 @@ fn wire_axis(
         }),
         visible: Some(true),
         tick_label_angle: Some(0.0),
+        side: wire::AxisSide::Low as i32,
     })
 }
 
@@ -941,6 +942,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     reverse: Some(true),
                     visible: Some(false),
                     tick_label_angle: Some(30.0),
+                    side: wire::AxisSide::High as i32,
                     ticks: Some(wire::Ticks {
                         kind: Some(wire::TicksKind::Step(wire::TicksStep {
                             step: Some(0.25),
@@ -960,6 +962,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                 )
                 .map(|axis| wire::Axis {
                     tick_label_angle: Some(-60.0),
+                    side: wire::AxisSide::Centre as i32,
                     ticks: Some(wire::Ticks {
                         kind: Some(wire::TicksKind::Values(wire::TicksValues {
                             values: vec![3.0, 3.5],
@@ -1378,6 +1381,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
         grid: false,
         visible: true,
         tick_label_angle: 0.0,
+        side: AxisSide::Low,
     };
     let category = |policy: OutOfRange, show_key: bool, label: Option<Text>| ColorScaleOutOfRange {
         policy,
@@ -1584,6 +1588,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     grid: true,
                     visible: false,
                     tick_label_angle: 30.0,
+                    side: AxisSide::High,
                 },
                 y: Axis {
                     label: text("y label", Interpreter::Latex),
@@ -1595,6 +1600,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     grid: false,
                     visible: true,
                     tick_label_angle: -60.0,
+                    side: AxisSide::Centre,
                 },
                 z: Axis {
                     label: None,
@@ -1606,6 +1612,7 @@ fn each_wire_field_decodes_into_the_domain_field_that_it_names() {
                     grid: true,
                     visible: true,
                     tick_label_angle: 0.0,
+                    side: AxisSide::Low,
                 },
                 colorbar: None,
                 box_: false,
@@ -2175,6 +2182,10 @@ fn each_wire_enum_value_decodes_to_the_domain_variant_of_the_same_name() {
         check::<wire::Scale>(
             |w, v| w.axes[0].x.as_mut().unwrap().scale = v,
             |f| format!("{:?}", f.axes[0].x.scale),
+        ),
+        check::<wire::AxisSide>(
+            |w, v| w.axes[0].x.as_mut().unwrap().side = v,
+            |f| format!("{:?}", f.axes[0].x.side),
         ),
         check::<wire::ColormapName>(
             |w, v| {

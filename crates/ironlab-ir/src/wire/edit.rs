@@ -298,6 +298,8 @@ proto_file! {
             AngleUnits(ValueAngleUnits) angle_units_value = 93;
             /// How the polar angle of a spherical axes is measured.
             PolarAngle(ValuePolarAngle) polar_angle_value = 94;
+            /// The side of the plot on which an axis is drawn.
+            AxisSide(ValueAxisSide) axis_side_value = 95;
         }
         /// The number and name of the reference to a data array, which is now a
         /// reference to a node.
@@ -457,6 +459,12 @@ proto_file! {
     message ValuePolarAngle {
         /// The convention; it must be specified.
         enum PolarAngle value = 1;
+    }
+
+    /// An axis side value.
+    message ValueAxisSide {
+        /// The side; it must be specified.
+        enum AxisSide value = 1;
     }
 
     /// A coordinate axis value.

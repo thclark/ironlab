@@ -13,8 +13,9 @@ use ironlab_ir::*;
 ///
 /// The list is written by hand so that the tests check [`choices`] against the IR rather
 /// than against itself.
-const WITH_CHOICES: [ValueType; 47] = [
+const WITH_CHOICES: [ValueType; 48] = [
     ValueType::Projection,
+    ValueType::AxisSide,
     ValueType::AngleUnits,
     ValueType::PolarAngle,
     ValueType::Scale,
@@ -472,6 +473,12 @@ fn the_choices_of_a_tagged_value_cover_every_variant_it_has() {
             Value::PolarAngle(PolarAngle::Elevation),
             Value::PolarAngle(PolarAngle::Inclination),
         ],
+    );
+    covered(
+        ValueType::AxisSide,
+        [AxisSide::Low, AxisSide::Centre, AxisSide::High]
+            .map(Value::AxisSide)
+            .to_vec(),
     );
     covered(
         ValueType::PerBar,
