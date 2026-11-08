@@ -51,6 +51,40 @@ use crate::text::Text;
 use crate::validate::{ArtistUsage, Check, Usage, Validator};
 use crate::wire::{self as w, Decode, Encode};
 
+/// Gives the single key of each variant of an externally tagged enum the description of
+/// its variant.
+///
+/// schemars writes the doc comment of a variant on the object that holds the variant's
+/// key, not on the key itself, so the key that names the kind of a [`Node`] would
+/// otherwise be the only undescribed property of the schema.
+fn describe_variant_keys(schema: &mut schemars::Schema) {
+    let Some(branches) = schema
+        .get_mut("oneOf")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for branch in branches {
+        let Some(description) = branch.get("description").cloned() else {
+            continue;
+        };
+        let Some(properties) = branch
+            .get_mut("properties")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        if properties.len() == 1
+            && let Some(key) = properties
+                .values_mut()
+                .next()
+                .and_then(serde_json::Value::as_object_mut)
+        {
+            key.entry("description").or_insert(description);
+        }
+    }
+}
+
 /// A node of the figure tree, seen without its type.
 pub(crate) trait TreeNode {
     /// Returns the identifier of the node.
@@ -216,11 +250,32 @@ macro_rules! figure_nodes {
         /// In JSON a node is an object with one property, named after its kind in
         /// `snake_case`, that holds the node, such as `{"panel": {"id": 6, ...}}`.
         #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+        #[schemars(deny_unknown_fields, transform = describe_variant_keys)]
         #[serde(rename_all = "snake_case")]
         pub enum Node {
             $( $(#[$doc])* $kind(node_payload!($kind $($boxed)?)), )*
             /// An artist, which an axes holds.
             Artist(Artist),
+        }
+
+        /// Gives every kind of artist a definition of its own in a generated JSON Schema
+        /// document, in place of the copy that schemars writes into the definition of
+        /// [`Artist`].
+        ///
+        /// schemars copies the schema of a closed type into each variant of an
+        /// internally tagged enum that holds it, because a reference to a closed
+        /// definition would reject the tag beside it; the copy therefore holds the tag.
+        /// Each copy becomes the definition named after its type, so that the schema
+        /// names every kind of artist, and the variant refers to it.
+        pub(crate) fn name_artist_definitions(root: &mut serde_json::Value) {
+            $(
+                crate::hoist_tagged_variant::<$artist>(
+                    root,
+                    "Artist",
+                    "type",
+                    stringify!($artist_wire),
+                );
+            )*
         }
 
         /// The kind of a node, which determines the properties it has.

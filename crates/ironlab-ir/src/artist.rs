@@ -15,6 +15,7 @@ use crate::text::Text;
 /// arrays of the figure. Future plot types are added as new variants, each with a line in
 /// the declaration of the kinds of node, which generates the methods of `Artist`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Artist {
     /// Data points drawn as a line, as markers or as both, optionally sized and coloured
@@ -51,10 +52,13 @@ pub enum Artist {
 /// `none`, so a plot is a series without markers and a scatter is a series without a
 /// line.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Series {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -64,6 +68,7 @@ pub struct Series {
     pub y: NodeId,
     /// The z coordinates of the points, allowed only in 3D axes; when absent in 3D
     /// axes the points lie in the plane z = 0.
+    #[schemars(default)]
     pub z: Option<NodeId>,
     /// The style of the line through the points. Its colour is the colour of the series,
     /// which an automatic marker face or edge follows; a colormapped colour takes the
@@ -74,6 +79,7 @@ pub struct Series {
     /// The diameter of each marker in points, one value per point, or `None` for markers
     /// that all take `marker.size_pt`. The marker size remains the size of the legend
     /// key.
+    #[schemars(default)]
     pub size_data: Option<NodeId>,
     /// The values that colour the series through its colour scale, or `None` for a
     /// series of fixed colours. With one value per point, each marker takes the colour of
@@ -81,9 +87,11 @@ pub struct Series {
     /// of its two points. With one value per segment (one fewer than the points), each
     /// segment of the line takes the colour of its value and the markers take their own
     /// colours; this form is valid only when the series draws a line.
+    #[schemars(default)]
     pub color_data: Option<NodeId>,
     /// The colour scale through which the colour data is mapped. A series with colour
     /// data must name one; a series without colour data maps nothing.
+    #[schemars(default)]
     pub color_scale: Option<NodeId>,
     /// How the x values are placed: as data along the x axis, or as fractions of the
     /// plot area's width. Anything other than `data` is allowed only in 2D axes.
@@ -103,6 +111,7 @@ pub struct Series {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub base: Option<f64>,
     /// The colour of the area between the line through the points and the base, or none
     /// (the default) for no fill. A fill other than none needs a base, and is invalid in
@@ -112,12 +121,14 @@ pub struct Series {
     ///
     /// The property is omitted from JSON when it is none, and is none when JSON omits it.
     #[serde(default = "no_fill", skip_serializing_if = "is_no_fill")]
+    #[schemars(!skip_serializing_if)]
     pub fill: ColorSpec,
     /// The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the
     /// alpha of its colour.
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub fill_opacity: f64,
 }
 
@@ -199,10 +210,13 @@ pub enum Coords {
 
 /// Isolines or filled isobands of a scalar field sampled on a grid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Contour {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -214,6 +228,7 @@ pub struct Contour {
     /// `None` for the levels of the colour scale: the band edges of a discrete scale, and
     /// ten automatic levels otherwise, so that a contour and the bar of its discrete scale
     /// cannot disagree.
+    #[schemars(default)]
     pub levels: Option<Levels>,
     /// Whether the bands between levels are filled (contourf) rather than only the
     /// isolines drawn (contour).
@@ -225,18 +240,21 @@ pub struct Contour {
     pub line: LineStyle,
     /// The colour scale through which levels and bands are coloured. A contour whose
     /// bands are filled, or whose isolines are colormapped or automatic, must name one.
+    #[schemars(default)]
     pub color_scale: Option<NodeId>,
     /// The opacity of the isolines, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of their colour.
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub line_opacity: f64,
     /// The opacity of the filled bands, from 0 (transparent) to 1 (opaque), which
     /// multiplies the alpha of their colour.
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub fill_opacity: f64,
 }
 
@@ -264,6 +282,7 @@ impl Default for Contour {
 
 /// The grid on which a field of shape `[ny, nx]` is sampled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Grid {
     /// An axis-aligned grid defined by one coordinate vector per axis.
@@ -293,6 +312,7 @@ impl Default for Grid {
 
 /// The field values at which contours are drawn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Levels {
     /// Levels are chosen at nice values spanning the data range.
@@ -315,12 +335,14 @@ impl Default for Levels {
 
 /// Where contours are placed in 3D axes.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContourPlacement {
     /// All contours lie in one horizontal plane (contour, contourf).
     Plane {
         /// The height of the plane in 3D axes, or `null` for the bottom of the z
         /// axis; ignored by 2D axes.
+        #[schemars(default)]
         z: Option<f64>,
     },
     /// Each isoline is drawn at the height of its level (contour3); valid only in
@@ -339,10 +361,13 @@ impl Default for ContourPlacement {
 /// The position arrays and the component arrays hold one value per arrow and must
 /// have the same number of elements.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Quiver {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -352,6 +377,7 @@ pub struct Quiver {
     pub y: NodeId,
     /// The z coordinates of the arrow tails, allowed only in 3D axes; when absent in
     /// 3D axes the tails lie in the plane z = 0.
+    #[schemars(default)]
     pub z: Option<NodeId>,
     /// The x components of the vectors.
     pub u: NodeId,
@@ -359,6 +385,7 @@ pub struct Quiver {
     pub v: NodeId,
     /// The z components of the vectors, allowed only in 3D axes; when absent in 3D
     /// axes the vectors lie in horizontal planes.
+    #[schemars(default)]
     pub w: Option<NodeId>,
     /// How vector lengths are scaled into arrow lengths.
     pub scale: QuiverScale,
@@ -389,6 +416,7 @@ impl Default for Quiver {
 
 /// How quiver vector lengths are scaled into arrow lengths.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QuiverScale {
     /// Arrows are scaled so that the longest does not overlap its neighbours.
@@ -411,10 +439,13 @@ pub enum QuiverScale {
 /// A field of `ny` by `nx` nodes draws `(ny - 1)` by `(nx - 1)` faces, so a field with a
 /// single row or a single column draws nothing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Surface {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -425,6 +456,7 @@ pub struct Surface {
     pub z: NodeId,
     /// The colour data of every node, with the same shape as `z`; when absent the
     /// surface is coloured by `z`.
+    #[schemars(default)]
     pub c: Option<NodeId>,
     /// The colour of the faces.
     pub face: ColorSpec,
@@ -434,6 +466,7 @@ pub struct Surface {
     pub edge_width_pt: f64,
     /// The colour scale through which the colour data is mapped. A surface whose faces or
     /// edges are colormapped or automatic must name one.
+    #[schemars(default)]
     pub color_scale: Option<NodeId>,
     /// The alpha of the faces at every node, an array of 64-bit floating-point values
     /// with the same shape as `z`, or `None` for faces that are uniformly opaque before
@@ -444,6 +477,7 @@ pub struct Surface {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub face_alpha: Option<NodeId>,
     /// The alpha of the face edges at every node, an array of 64-bit floating-point
     /// values with the same shape as `z`, or `None` for edges that are uniformly opaque
@@ -454,6 +488,7 @@ pub struct Surface {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub edge_alpha: Option<NodeId>,
     /// The opacity of the faces, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of every face: the face colour's own alpha and, when present, the
@@ -461,6 +496,7 @@ pub struct Surface {
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub face_opacity: f64,
     /// The opacity of the face edges, from 0 (transparent) to 1 (opaque), which
     /// multiplies the alpha of every edge: the edge colour's own alpha and, when
@@ -468,6 +504,7 @@ pub struct Surface {
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub edge_opacity: f64,
 }
 
@@ -511,10 +548,13 @@ fn is_opaque(opacity: &f64) -> bool {
 /// planar: it lies in one of the coordinate planes of its axes, where its
 /// [`placement`](Image::placement) puts it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Image {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -534,6 +574,7 @@ pub struct Image {
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub opacity: f64,
 }
 
@@ -561,10 +602,13 @@ impl Default for Image {
 /// mesh, so it is planar: it lies in one of the coordinate planes of its axes, where its
 /// [`placement`](ScalarImage::placement) puts it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct ScalarImage {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -575,6 +619,7 @@ pub struct ScalarImage {
     pub values: NodeId,
     /// The colour scale through which the numbers are mapped. A scalar image always maps
     /// its numbers, so a figure in which it names no scale is invalid.
+    #[schemars(default)]
     pub color_scale: Option<NodeId>,
     /// Where the pixels lie in the axes.
     pub placement: ImagePlacement,
@@ -588,6 +633,7 @@ pub struct ScalarImage {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub alpha: Option<NodeId>,
     /// The opacity of the image, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of every pixel: the alpha of its colour and, when present, its value
@@ -595,6 +641,7 @@ pub struct ScalarImage {
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub opacity: f64,
 }
 
@@ -623,14 +670,17 @@ impl Default for ScalarImage {
 /// Row 0 of the array lies at the centre of the first row and column 0 at the centre of
 /// the first column, whichever way the ranges run.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct ImagePlacement {
     /// The plane in which the image lies, with its offset along the third axis.
     pub plane: ImagePlane,
     /// The centres of the first and last columns along the first axis of the plane, or
     /// `None` for centres at 0 to nx − 1.
+    #[schemars(default)]
     pub columns: Option<PixelRange>,
     /// The centres of the first and last rows along the second axis of the plane, or
     /// `None` for centres at 0 to ny − 1.
+    #[schemars(default)]
     pub rows: Option<PixelRange>,
 }
 
@@ -643,6 +693,7 @@ pub struct ImagePlacement {
 /// centres must be finite, and they may coincide only when the image has one pixel
 /// along the axis, as validation checks.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PixelRange {
     /// The coordinate of the centre of the first pixel.
     pub first: f64,
@@ -670,22 +721,26 @@ impl Default for PixelRange {
 /// and ignores its offset; the xz and yz planes are the walls of a three-dimensional
 /// axes and are valid only there.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImagePlane {
     /// The plane of the x and y axes: the floor of a three-dimensional axes.
     Xy {
         /// The height of the plane, or `None` for the bottom of the z axis; ignored by
         /// two-dimensional axes.
+        #[schemars(default)]
         z: Option<f64>,
     },
     /// The plane of the x and z axes: a wall of a three-dimensional axes.
     Xz {
         /// The y coordinate of the plane, or `None` for the low end of the y axis.
+        #[schemars(default)]
         y: Option<f64>,
     },
     /// The plane of the y and z axes: the other wall of a three-dimensional axes.
     Yz {
         /// The x coordinate of the plane, or `None` for the low end of the x axis.
+        #[schemars(default)]
         x: Option<f64>,
     },
 }
@@ -771,10 +826,13 @@ impl Orientation {
 /// and stacked bars are ordinary series whose widths, offsets and bases place them side by
 /// side or on one another, as the facade's `bars` helper writes them (ADR 0026).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Bar {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -799,9 +857,11 @@ pub struct Bar {
     pub face: ColorSpec,
     /// The values that colour the bars through their colour scale, one per bar, or `None`
     /// for bars of fixed colours.
+    #[schemars(default)]
     pub color_data: Option<NodeId>,
     /// The colour scale through which the colour data is mapped. Bars with colour data
     /// must name one; bars without colour data map nothing.
+    #[schemars(default)]
     pub color_scale: Option<NodeId>,
     /// The style of the outline of every bar. Its colour is none for no outline, a fixed
     /// colour, automatic for the colour of the series (as an automatic marker edge is), or
@@ -813,12 +873,14 @@ pub struct Bar {
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub face_opacity: f64,
     /// The opacity of the outlines, from 0 (transparent) to 1 (opaque), which multiplies
     /// the alpha of their colours.
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub edge_opacity: f64,
     /// The fraction of the span of the series along the value axis, from the lowest to the
     /// highest of its bases and ends, that the automatic limits of the value axis add
@@ -832,6 +894,7 @@ pub struct Bar {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub binning: Option<Binning>,
 }
 
@@ -889,6 +952,7 @@ fn no_edge() -> LineStyle {
 /// On a logarithmic value axis a base that is not positive has no place, so such a bar is
 /// drawn from the low edge of the plot area instead, with a warning.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum PerBar {
     /// Every bar starts at the same value.
@@ -907,6 +971,7 @@ impl Default for PerBar {
 
 /// How wide each bar of a series is along the category axis.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum BarWidth {
     /// A fraction of the pitch: the smallest distance between neighbouring distinct finite
@@ -930,6 +995,7 @@ impl Default for BarWidth {
 /// How far the centre of each bar of a series lies from its position along the category
 /// axis.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum BarOffset {
     /// A multiple of the width of each bar, which keeps the columns of a grouped chart side
@@ -952,6 +1018,7 @@ impl Default for BarOffset {
 /// draw them, and nothing is computed from the record except the count and density of a
 /// bin that a datatip reports, from the width of the bin between its resolved edges.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Binning {
     /// How the bins were specified.
     pub bins: Bins,
@@ -960,6 +1027,7 @@ pub struct Binning {
     pub edges: NodeId,
     /// The range of sample values that was binned, as `[low, high]`, or `None` when the
     /// range of the samples was used.
+    #[schemars(default)]
     pub range: Option<[f64; 2]>,
     /// How the counts of the bins were normalised into the values drawn.
     pub normalization: HistNorm,
@@ -976,6 +1044,7 @@ pub struct Binning {
 
 /// How the bins of a histogram of two dimensions were made from its samples (ADR 0029).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Binning2d {
     /// How the bins along x were specified.
     pub x_bins: Bins,
@@ -991,14 +1060,17 @@ pub struct Binning2d {
     pub y_edges: NodeId,
     /// The range of sample values along x that was binned, or `None` for the range of the
     /// samples.
+    #[schemars(default)]
     pub x_range: Option<[f64; 2]>,
     /// The range of sample values along y that was binned, or `None` for the range of the
     /// samples.
+    #[schemars(default)]
     pub y_range: Option<[f64; 2]>,
     /// How the counts of the bins were normalised into the values drawn.
     pub normalization: HistNorm,
     /// The count below which a bin was left empty, or `None` when every bin was drawn: a
     /// number of samples, finite and not negative.
+    #[schemars(default)]
     pub min_count: Option<f64>,
     /// The number of samples counted into the bins: finite and not negative.
     pub total: f64,
@@ -1010,6 +1082,7 @@ pub struct Binning2d {
 
 /// How the bins of a histogram were specified.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Bins {
     /// A number of bins of equal width across the range: at least 1.
@@ -1077,10 +1150,13 @@ pub enum HistNorm {
 /// segments along the value axis. A value that is not finite breaks the outline. With a
 /// base, the outline drops to the base at both ends and may be filled down to it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Stairs {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -1093,6 +1169,7 @@ pub struct Stairs {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub base: Option<f64>,
     /// The style of the outline, whose automatic colour is the next colour of the colour
     /// order. A colormapped colour is invalid, because stairs have no colour data and no
@@ -1106,12 +1183,14 @@ pub struct Stairs {
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub line_opacity: f64,
     /// The opacity of the fill, from 0 (transparent) to 1 (opaque), which multiplies the
     /// alpha of its colour.
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub fill_opacity: f64,
     /// How the histogram that the stairs draw was binned from its samples, or `None` for
     /// stairs that were not made from samples (ADR 0029). The record is descriptive: it is
@@ -1119,6 +1198,7 @@ pub struct Stairs {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub binning: Option<Binning>,
 }
 
@@ -1144,6 +1224,7 @@ impl Default for Stairs {
 
 /// The steps of stairs: values between edges, or values at samples.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StairsData {
     /// Each value holds between two neighbouring edges, as the counts of a histogram hold
@@ -1223,10 +1304,13 @@ pub enum StepAt {
 /// left empty, measured on the page so that cells on a logarithmic axis remain
 /// symmetric. Cells are valid only in a two-dimensional axes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Cells {
     /// The node identifier of the artist, unique within the figure.
     pub id: NodeId,
-    /// The label drawn beside the artist in a legend.
+    /// The label drawn beside the artist in a legend, or `null` for none. An automatic
+    /// legend lists only labelled artists.
+    #[schemars(default)]
     pub label: Option<Text>,
     /// Whether the artist is drawn.
     pub visible: bool,
@@ -1245,6 +1329,7 @@ pub struct Cells {
     pub edge: LineStyle,
     /// The colour scale through which the values are mapped. Cells always map their
     /// values, so a figure in which they name no scale is invalid.
+    #[schemars(default)]
     pub color_scale: Option<NodeId>,
     /// The alpha of every cell, a two-dimensional array with the same shape as `values`,
     /// or `None` for cells that are uniformly opaque before
@@ -1253,6 +1338,7 @@ pub struct Cells {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub alpha: Option<NodeId>,
     /// The opacity of the cells, from 0 (transparent) to 1 (opaque), which multiplies the
     /// alpha of every cell: the alpha of its colour and, when present, its
@@ -1260,12 +1346,14 @@ pub struct Cells {
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub face_opacity: f64,
     /// The opacity of the outlines of the cells, from 0 (transparent) to 1 (opaque), which
     /// multiplies the alpha of their colour.
     ///
     /// The property is omitted from JSON when it is 1, and is 1 when JSON omits it.
     #[serde(default = "opaque", skip_serializing_if = "is_opaque")]
+    #[schemars(!skip_serializing_if)]
     pub edge_opacity: f64,
     /// How the two-dimensional histogram that the cells draw was binned from its samples,
     /// or `None` for cells that were not made from samples (ADR 0029). The record is
@@ -1274,6 +1362,7 @@ pub struct Cells {
     ///
     /// The property is omitted from JSON when it is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(!skip_serializing_if)]
     pub binning: Option<Binning2d>,
 }
 
@@ -1301,6 +1390,7 @@ impl Default for Cells {
 
 /// The edges of the columns or rows of cells.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum CellEdges {
     /// Cell `k` spans `k − 0.5` to `k + 0.5`, so the centres lie at 0, 1, 2 and so on, as
@@ -1316,6 +1406,7 @@ pub enum CellEdges {
 /// the page and shared equally by the two sides of the cell; each is a finite number from
 /// 0 up to, but not including, 1.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct CellGap {
     /// The fraction of the width of each cell left empty.
     pub x: f64,

@@ -20,11 +20,12 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Generated documentation gallery, the browser bundle the site serves, and the site
+# Generated documentation gallery, the browser bundle and the JSON Schema the site serves, and the site
 docs/gallery/*
 !docs/gallery/.gitkeep
 docs/stylesheets/gallery.css
 docs/embed/
+docs/schema/
 site/
 
 # Figure outputs written by examples and tests

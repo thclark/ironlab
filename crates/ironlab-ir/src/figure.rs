@@ -29,12 +29,14 @@ pub const SCHEMA_VERSION: &str = "0.10.0";
 /// The figure, its data arrays, its colour scales, its axes, their artists and its panels
 /// are the nodes of the figure, and share one space of node identifiers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Figure {
     /// The version of the figure schema that the file conforms to.
     pub schema_version: String,
     /// The node identifier of the figure, unique within the figure.
     pub id: NodeId,
-    /// The title drawn above all axes (sgtitle).
+    /// The title drawn above all axes (sgtitle), or `null` for none.
+    #[schemars(default)]
     pub title: Option<Text>,
     /// The physical size of the figure.
     pub size: FigureSize,
@@ -47,6 +49,7 @@ pub struct Figure {
     ///
     /// The property is omitted from JSON when it is [`Embolden::Regular`].
     #[serde(default, skip_serializing_if = "Embolden::is_regular")]
+    #[schemars(!skip_serializing_if)]
     pub embolden: Embolden,
     /// The colour of the figure background.
     pub background: Color,
@@ -60,6 +63,7 @@ pub struct Figure {
     ///
     /// The property is omitted from JSON when there are no colour scales.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(!skip_serializing_if)]
     pub color_scales: Vec<ColorScale>,
     /// The axes of the figure, in drawing order.
     pub axes: Vec<Axes>,
@@ -68,6 +72,7 @@ pub struct Figure {
     ///
     /// The property is omitted from JSON when there are no panels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(!skip_serializing_if)]
     pub panels: Vec<Panel>,
     /// The groups of axes whose limits are linked along a dimension.
     pub links: Vec<AxisLink>,
@@ -78,6 +83,7 @@ pub struct Figure {
     ///
     /// The property is omitted from JSON when there are no parameters.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(!skip_serializing_if)]
     pub parameters: BTreeMap<String, Parameter>,
     /// Free words that describe the figure, used to filter and group collections of
     /// figures, in the order they were given. Tags are never drawn.
@@ -93,6 +99,7 @@ pub struct Figure {
     /// The property is omitted from JSON when there are no tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(inner(length(min = 1)), extend("uniqueItems" = true))]
+    #[schemars(!skip_serializing_if)]
     pub tags: Vec<String>,
     /// The state used to allocate node identifiers; not part of the figure's value.
     #[serde(skip)]
@@ -133,6 +140,7 @@ impl Default for Figure {
 /// its kind and whose `value` holds the value, such as `{"type": "number", "value":
 /// 100000.0}`, so that the kind survives JSON's single number type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Parameter {
     /// A boolean.
@@ -200,6 +208,7 @@ impl PartialEq for NodeIdAllocator {
 
 /// The physical size of a figure.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct FigureSize {
     /// The width in millimetres.
     pub width_mm: f64,
@@ -256,6 +265,7 @@ impl Embolden {
 
 /// A record of the software that produced a figure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Provenance {
     /// The version of IronLAB that wrote the figure.
     pub ironlab_version: String,

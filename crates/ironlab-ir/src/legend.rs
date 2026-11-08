@@ -16,6 +16,7 @@ use crate::text::Text;
 /// `{"type": "inside", "value": {"location": "north_east", ...}}` or
 /// `{"type": "panel", "value": 7}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Legend {
     /// The entries are listed in a legend drawn inside the plot area of the axes.
@@ -35,6 +36,7 @@ impl Default for Legend {
 
 /// A legend drawn inside the plot area of its axes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct InsideLegend {
     /// Where the legend is placed inside the plot area.
     pub location: LegendLocation,
@@ -48,6 +50,7 @@ pub struct InsideLegend {
     ///
     /// The property is omitted from JSON when the entries are automatic.
     #[serde(default, skip_serializing_if = "LegendEntries::is_auto")]
+    #[schemars(!skip_serializing_if)]
     pub entries: LegendEntries,
 }
 
@@ -69,6 +72,7 @@ impl Default for InsideLegend {
 /// Where the panel lies and where its content sits in it are properties of the
 /// [`Panel`](crate::Panel); a legend content says only what is listed and how.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PanelLegend {
     /// Whether the area of the panel is outlined by a border drawn as the box of an
     /// axes is drawn. The area of a panel is aligned with the plot areas of the axes in
@@ -84,6 +88,7 @@ pub struct PanelLegend {
     ///
     /// The property is omitted from JSON when the entries are automatic.
     #[serde(default, skip_serializing_if = "LegendEntries::is_auto")]
+    #[schemars(!skip_serializing_if)]
     pub entries: LegendEntries,
 }
 
@@ -107,6 +112,7 @@ impl Default for PanelLegend {
 /// In JSON the entries are an object whose `type` names the variant, such as
 /// `{"type": "auto"}` or `{"type": "explicit", "value": [...]}`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum LegendEntries {
     /// Every artist with a label, in the order of the legend: for a legend inside a plot
@@ -130,6 +136,7 @@ impl LegendEntries {
 
 /// One item of an explicit list of legend entries.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct LegendItem {
     /// What the item lists: an artist, a label and sample that stand for no artist, or a
     /// colour scale.
@@ -204,6 +211,7 @@ impl From<NodeId> for LegendItem {
 /// `{"type": "custom", "value": {"label": {...}, "sample": {...}}}` or
 /// `{"type": "color_scale", "value": {"scale": 4, "rows": 5}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum LegendItemContent {
     /// The artist with this node identifier, labelled by its label beside the sample
@@ -246,6 +254,7 @@ pub enum LegendItemContent {
 /// In JSON a sample is an object whose `type` names the variant, such as
 /// `{"type": "swatch", "color": "#e69f00"}`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LegendSample {
     /// A sample drawn as the sample of a series is drawn: a horizontal line with a
@@ -308,6 +317,7 @@ impl LegendSample {
 
 /// How the entries of a legend are arranged in columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct LegendEntryLayout {
     /// The number of columns.
     pub columns: LegendEntryColumns,
@@ -331,6 +341,7 @@ impl Default for LegendEntryLayout {
 /// In JSON the number is an object whose `type` names the variant, such as
 /// `{"type": "auto"}` or `{"type": "count", "value": 3}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum LegendEntryColumns {
     /// The fewest columns in which the entries fit the height available to the legend.

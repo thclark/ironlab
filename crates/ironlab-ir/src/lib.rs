@@ -129,14 +129,80 @@ use std::path::PathBuf;
 
 /// Generates the JSON Schema of the `.fig.json` format from the Rust types, as a single
 /// document whose definitions hold every type.
+///
+/// `cargo run -p ironlab-ir --bin generate-schema` writes it to
+/// `target/ironlab-schema/ironlab.schema.json`, beside the files of
+/// [`json_schema_files`].
 pub fn json_schema() -> serde_json::Value {
-    schemars::schema_for!(Figure).to_value()
+    let mut root = schemars::schema_for!(Figure).to_value();
+    nodes::name_artist_definitions(&mut root);
+    root
 }
 
 /// Generates the JSON Schema of a transaction of the edit protocol from the Rust types,
 /// as a single document whose definitions hold every type.
 pub fn transaction_json_schema() -> serde_json::Value {
-    schemars::schema_for!(Transaction).to_value()
+    let mut root = schemars::schema_for!(Transaction).to_value();
+    nodes::name_artist_definitions(&mut root);
+    root
+}
+
+/// Moves the variant of the internally tagged enum `enumeration` whose tag (the property
+/// `tag_key`) is `tag` out of the enum's definition in `root`, into a definition named
+/// after the type `T` that the variant holds, and leaves in its place a reference to
+/// that definition with the variant's description.
+///
+/// The moved schema keeps the tag, so the definition describes the object exactly as a
+/// file writes it, and stays closed to unknown keys. Its description becomes that of
+/// `T`, since the variant's description now sits beside the reference.
+///
+/// # Panics
+///
+/// Panics when the enum has no variant with the tag, or when a definition named after
+/// `T` already exists, either of which means that the declaration of the variants no
+/// longer matches the enum.
+pub(crate) fn hoist_tagged_variant<T: schemars::JsonSchema>(
+    root: &mut serde_json::Value,
+    enumeration: &str,
+    tag_key: &str,
+    tag: &str,
+) {
+    use serde_json::{Value, json};
+
+    let name = T::schema_name().into_owned();
+    let Some(definitions) = root.get_mut("$defs").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let Some(branches) = definitions
+        .get_mut(enumeration)
+        .and_then(|definition| definition.get_mut("oneOf"))
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    let branch = branches
+        .iter_mut()
+        .find(|branch| branch.pointer(&format!("/properties/{tag_key}/const")) == Some(&json!(tag)))
+        .unwrap_or_else(|| panic!("{enumeration} has no variant tagged {tag:?}"));
+    let mut definition = branch.take();
+    let variant_description = definition
+        .as_object_mut()
+        .and_then(|map| map.remove("description"));
+    let own_description = T::json_schema(&mut schemars::SchemaGenerator::default())
+        .get("description")
+        .cloned();
+    if let (Some(map), Some(description)) = (definition.as_object_mut(), own_description) {
+        map.insert("description".to_owned(), description);
+    }
+    let mut reference = json!({ "$ref": format!("#/$defs/{name}") });
+    if let Some(description) = variant_description {
+        reference["description"] = description;
+    }
+    *branch = reference;
+    assert!(
+        definitions.insert(name.clone(), definition).is_none(),
+        "the JSON Schema already defines {name}"
+    );
 }
 
 /// Generates the JSON Schema of the `.fig.json` format as one file per module of this

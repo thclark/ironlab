@@ -126,6 +126,7 @@ impl JsonSchema for Color {
 
 /// How a colour is chosen for a stroke, fill or marker.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ColorSpec {
     /// The renderer chooses the colour: for series this is the next colour of the
@@ -149,6 +150,7 @@ pub enum ColorSpec {
 
 /// The style of a stroked line.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct LineStyle {
     /// The line colour.
     pub color: ColorSpec,
@@ -191,6 +193,7 @@ pub enum DashStyle {
 
 /// The style of the markers drawn at data points.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct MarkerStyle {
     /// The marker shape.
     pub shape: MarkerShape,

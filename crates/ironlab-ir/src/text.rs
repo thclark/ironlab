@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// A piece of text, stored as its source so that renderers typeset it lazily.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Text {
     /// The source text. With the LaTeX interpreter, segments delimited by `$…$`
     /// are typeset as mathematics and the remainder as plain text.

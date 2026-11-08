@@ -15,6 +15,7 @@ use crate::text::Text;
 /// A panel is placed, fitted and checked against the layout in the same way whatever its
 /// content; the content decides only what is drawn in it and how large that is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Panel {
     /// The node identifier of the panel, unique within the figure.
     pub id: NodeId,
@@ -27,6 +28,7 @@ pub struct Panel {
     /// A heading drawn at the top of the panel's content, or `None` for no heading. In a
     /// boxed legend it lies inside the border, above the entries; above a standing colourbar
     /// that spans plots, it lies in the margin above them, as an axes title does.
+    #[schemars(default)]
     pub title: Option<Text>,
     /// How the title is aligned with the content it heads: with its left edge, its centre
     /// or its right edge.
@@ -68,6 +70,7 @@ pub enum PanelLocation {
 /// In JSON the content is an object whose `type` names the variant and whose `value`
 /// holds it, such as `{"type": "legend", "value": {"boxed": true, ...}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum PanelContent {
     /// A legend, which lists the entries of every axes whose legend names the panel.
@@ -83,6 +86,7 @@ pub enum PanelContent {
 /// The bar holds no colours, limits or ticks of its own: those belong to the scale, so that
 /// every bar of one scale agrees with every other and with the artists drawn through it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct PanelColorbar {
     /// The colour scale that the bar shows.
     pub scale: NodeId,
@@ -92,6 +96,7 @@ pub struct PanelColorbar {
     /// plot boxes beside it, or `None` for the automatic length: the whole span for a
     /// standing bar and half of it for a lying one. A fraction is a finite number greater
     /// than 0 and at most 1. The bar is placed along the span by the panel's `align`.
+    #[schemars(default)]
     pub length: Option<f64>,
     /// Where the title of the scale is drawn beside the bar.
     pub title_placement: ColorbarTitlePlacement,
