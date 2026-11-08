@@ -75,7 +75,7 @@ pub const OPTIONAL_IN_IR: [&str; 53] = [
     "ironlab.ir.v0.ImagePlaneXy.z",
     "ironlab.ir.v0.ImagePlaneXz.y",
     "ironlab.ir.v0.ImagePlaneYz.x",
-    "ironlab.ir.v0.PolarView.radial_labels_at",
+    "ironlab.ir.v0.PolarView.radial_axis_angle",
 ];
 
 /// Builds figures with explicitly numbered nodes and data arrays.

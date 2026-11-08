@@ -440,7 +440,7 @@ pub fn projections_figure() -> Figure {
                 angle_units: AngleUnits::PerTurn(12.0),
                 zero_deg: 90.0,
                 hole: 0.25,
-                radial_labels_at: Some(3.0),
+                radial_axis_angle: Some(3.0),
             },
         },
         Projection::Cylindrical {
@@ -1168,7 +1168,7 @@ pub fn sample_values() -> Vec<Value> {
             angle_units: AngleUnits::PerTurn(24.0),
             zero_deg: 90.0,
             hole: 0.25,
-            radial_labels_at: Some(7.5),
+            radial_axis_angle: Some(7.5),
         }),
         Value::SphericalView(SphericalView {
             angle_units: AngleUnits::Radians,

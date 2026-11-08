@@ -128,7 +128,7 @@ fn the_views_default_to_degrees_east_no_hole_and_elevation() {
             angle_units: AngleUnits::Degrees,
             zero_deg: 0.0,
             hole: 0.0,
-            radial_labels_at: None,
+            radial_axis_angle: None,
         }
     );
     assert_eq!(
@@ -192,7 +192,7 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
         angle_units: AngleUnits::PerTurn(12.0),
         zero_deg: 90.0,
         hole: 0.25,
-        radial_labels_at: None,
+        radial_axis_angle: None,
     }));
     assert_eq!(
         projection_json(&fig),
@@ -202,7 +202,7 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
                 "angle_units": { "type": "per_turn", "value": 12.0 },
                 "zero_deg": 90.0,
                 "hole": 0.25,
-                "radial_labels_at": null
+                "radial_axis_angle": null
             }
         })
     );
@@ -214,7 +214,7 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
         },
         polar: PolarView {
             angle_units: AngleUnits::Radians,
-            radial_labels_at: Some(0.5),
+            radial_axis_angle: Some(0.5),
             ..PolarView::default()
         },
     });
@@ -227,7 +227,7 @@ fn the_angular_projections_are_written_in_the_documented_json_form() {
                 "angle_units": { "type": "radians" },
                 "zero_deg": 0.0,
                 "hole": 0.0,
-                "radial_labels_at": 0.5
+                "radial_axis_angle": 0.5
             }
         })
     );
@@ -277,13 +277,13 @@ fn every_angular_projection() -> Vec<Projection> {
             angle_units: AngleUnits::Radians,
             zero_deg: -90.0,
             hole: 0.5,
-            radial_labels_at: Some(PI / 8.0),
+            radial_axis_angle: Some(PI / 8.0),
         }),
         polar(PolarView {
             angle_units: AngleUnits::PerTurn(5.0),
             zero_deg: 90.0,
             hole: 0.0,
-            radial_labels_at: Some(2.5),
+            radial_axis_angle: Some(2.5),
         }),
         Projection::Cylindrical {
             view3d: View3d {
@@ -297,7 +297,7 @@ fn every_angular_projection() -> Vec<Projection> {
                 angle_units: AngleUnits::PerTurn(24.0),
                 zero_deg: 45.0,
                 hole: 0.125,
-                radial_labels_at: None,
+                radial_axis_angle: None,
             },
         },
         spherical(SphericalView::default()),
@@ -924,10 +924,10 @@ fn the_fields_of_the_views_are_set_by_flattened_paths() {
             },
         ),
         (
-            "projection.polar.radial_labels_at",
+            "projection.polar.radial_axis_angle",
             Value::Double(22.5),
             PolarView {
-                radial_labels_at: Some(22.5),
+                radial_axis_angle: Some(22.5),
                 ..PolarView::default()
             },
         ),
@@ -952,12 +952,16 @@ fn the_fields_of_the_views_are_set_by_flattened_paths() {
 
     // An automatic radial label spoke is set by unsetting the optional value.
     let (mut fig, axes, _) = line_in(polar(PolarView {
-        radial_labels_at: Some(45.0),
+        radial_axis_angle: Some(45.0),
         ..PolarView::default()
     }));
     let (edited, _) = applied(
         &fig,
-        &tx([set(axes, "projection.polar.radial_labels_at", Value::Unset)]),
+        &tx([set(
+            axes,
+            "projection.polar.radial_axis_angle",
+            Value::Unset,
+        )]),
     )
     .unwrap();
     assert_eq!(edited.axes[0].projection, polar(PolarView::default()));
@@ -1122,7 +1126,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
             angle_units: AngleUnits::PerTurn(7.5),
             zero_deg: -0.0,
             hole: 0.125,
-            radial_labels_at: None,
+            radial_axis_angle: None,
         })),
         Value::Projection(Projection::Cylindrical {
             view3d: View3d {
@@ -1130,7 +1134,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
                 ..View3d::default()
             },
             polar: PolarView {
-                radial_labels_at: Some(1.0),
+                radial_axis_angle: Some(1.0),
                 ..PolarView::default()
             },
         }),
@@ -1142,7 +1146,7 @@ fn sets_of_the_new_value_types_survive_both_transaction_formats() {
             angle_units: AngleUnits::Radians,
             zero_deg: 270.0,
             hole: 0.0,
-            radial_labels_at: Some(-PI),
+            radial_axis_angle: Some(-PI),
         }),
         Value::SphericalView(SphericalView::default()),
         Value::AngleUnits(AngleUnits::Degrees),
@@ -1237,7 +1241,7 @@ fn a_projection_choice_carries_the_camera_and_the_polar_view_across() {
         angle_units: AngleUnits::Radians,
         zero_deg: 90.0,
         hole: 0.25,
-        radial_labels_at: Some(1.0),
+        radial_axis_angle: Some(1.0),
     };
 
     let three_d = Value::Projection(Projection::ThreeD { view3d: camera });

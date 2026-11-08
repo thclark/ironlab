@@ -209,8 +209,8 @@ impl AxesMut<'_> {
     /// Sets the angle, in the units of the data, of the spoke along which the radial tick
     /// labels are drawn, converting the axes to polar axes (matplotlib's
     /// `set_rlabel_position`, MATLAB's `RAxisLocation`).
-    pub fn radial_labels_at(&mut self, angle: f64) -> &mut Self {
-        self.edit_polar(|polar| polar.radial_labels_at = Some(angle))
+    pub fn radial_axis_angle(&mut self, angle: f64) -> &mut Self {
+        self.edit_polar(|polar| polar.radial_axis_angle = Some(angle))
     }
 
     /// Fixes the angular limits, which are the sector the axes shows; an alias of

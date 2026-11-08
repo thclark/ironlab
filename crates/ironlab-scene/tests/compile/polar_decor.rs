@@ -902,7 +902,7 @@ fn radial_labels_lie_along_the_chosen_spoke_or_between_the_first_two_angular_tic
     };
 
     let chosen = PolarView {
-        radial_labels_at: Some(90.0),
+        radial_axis_angle: Some(90.0),
         ..PolarView::default()
     };
     let (scene, ax) = polar_scene(chosen, ticks);

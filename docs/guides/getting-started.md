@@ -834,7 +834,7 @@ ax.polarplot(&theta, &gain).label("cardioid");
 | `rlim(min, max)` | Fixes the radial limits: the lower limit lies at the centre and the upper limit at the rim. It is `ylim`. |
 | `rscale(scale)` | Makes the radius linear or logarithmic. It is `yscale`; the angle cannot be logarithmic. |
 | `hole(fraction)` | Leaves the given fraction of the rim radius empty at the centre, and puts the lower radial limit on the edge of the hole. |
-| `radial_labels_at(angle)` | Draws the radial tick labels along the spoke at the given angle, in the units of the data, rather than halfway between the first two angular ticks. |
+| `radial_axis_angle(angle)` | Draws the radial tick labels along the spoke at the given angle, in the units of the data, rather than halfway between the first two angular ticks. |
 
 Automatic angular limits are always the full turn, whatever the data, and automatic radial limits start at the centre for a linear radius whose data holds no negative value. Angular tick labels are written in the units of the angle: `45°` for degrees, multiples of π such as `π/4` for radians, and plain numbers for other units. A polar axes is always drawn round, so it ignores [`aspect`](#equal-aspect), and [`validate`](#validating-a-figure) warns of an aspect other than automatic with `AspectIgnored`.
 
@@ -887,7 +887,7 @@ A cylindrical axes places each point by an angle about its central axis, a dista
 | `make_spherical()` | Converts the axes to spherical axes, keeping its artists, its camera when it has one and the angle units of a polar or cylindrical axes. |
 | `polar_angle(PolarAngle)` | Measures the polar angle of a spherical axes up from the X–Y plane (`PolarAngle::Elevation`, the default, as in antenna patterns and geography) or down from +Z (`PolarAngle::Inclination`, as in physics), converting the axes to spherical axes. |
 
-A polar axes becomes cylindrical, keeping its polar view, when a three-dimensional plotting function adds a plot to it or when `view` is called on it, so a polar plot given a height keeps the directions of its angles. The setters of the polar view, `theta_zero`, `clockwise`, `angle_units`, `hole` and `radial_labels_at`, apply to a cylindrical axes as to a polar one, with angle 0 measured from the +X edge of the box, and `angle_units` sets both angles of a spherical axes.
+A polar axes becomes cylindrical, keeping its polar view, when a three-dimensional plotting function adds a plot to it or when `view` is called on it, so a polar plot given a height keeps the directions of its angles. The setters of the polar view, `theta_zero`, `clockwise`, `angle_units`, `hole` and `radial_axis_angle`, apply to a cylindrical axes as to a polar one, with angle 0 measured from the +X edge of the box, and `angle_units` sets both angles of a spherical axes.
 
 ```rust
 use ironlab::prelude::*;

@@ -907,7 +907,7 @@ fn cylinder(
     }
 
     // Radial tick labels centred on their spoke on the floor.
-    let spoke = match (c.polar.radial_labels_at, xt.major.as_slice()) {
+    let spoke = match (c.polar.radial_axis_angle, xt.major.as_slice()) {
         (Some(theta), _) if theta.is_finite() => theta,
         (_, [a, b, ..]) => (a + b) / 2.0,
         _ => xr.min + (xr.max - xr.min) / 16.0,

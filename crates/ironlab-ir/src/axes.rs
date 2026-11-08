@@ -312,7 +312,7 @@ pub struct PolarView {
     pub hole: f64,
     /// The angle, in the data units of x, of the spoke along which the radial tick labels
     /// are drawn, or `null` to draw them halfway between the first two angular ticks.
-    pub radial_labels_at: Option<f64>,
+    pub radial_axis_angle: Option<f64>,
 }
 
 impl Default for PolarView {
@@ -323,7 +323,7 @@ impl Default for PolarView {
             angle_units: AngleUnits::Degrees,
             zero_deg: 0.0,
             hole: 0.0,
-            radial_labels_at: None,
+            radial_axis_angle: None,
         }
     }
 }
