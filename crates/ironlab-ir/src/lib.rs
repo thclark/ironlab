@@ -132,7 +132,7 @@ use std::path::PathBuf;
 /// document whose definitions hold every type.
 ///
 /// `cargo run -p ironlab-ir --bin generate-schema` writes it to
-/// `target/ironlab-schema/ironlab.schema.json`, beside the files of
+/// `target/ironlab-schema/ironlab-figure.schema.json`, beside the files of
 /// [`json_schema_files`].
 pub fn json_schema() -> serde_json::Value {
     let mut root = schemars::schema_for!(Figure).to_value();
@@ -142,6 +142,10 @@ pub fn json_schema() -> serde_json::Value {
 
 /// Generates the JSON Schema of a transaction of the edit protocol from the Rust types,
 /// as a single document whose definitions hold every type.
+///
+/// `cargo run -p ironlab-ir --bin generate-schema` writes it to
+/// `target/ironlab-schema/ironlab-edit.schema.json`, beside the files of
+/// [`json_schema_files`].
 pub fn transaction_json_schema() -> serde_json::Value {
     let mut root = schemars::schema_for!(Transaction).to_value();
     nodes::name_artist_definitions(&mut root);

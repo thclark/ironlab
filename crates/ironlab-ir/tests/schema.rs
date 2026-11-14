@@ -118,6 +118,36 @@ fn every_reference_resolves_to_a_definition_in_a_generated_file() {
     );
 }
 
+// Why: the single documents `ironlab-figure.schema.json` and `ironlab-edit.schema.json`
+// are what strands.octue.com versions and what tools that load one file validate
+// against. Such a tool resolves nothing outside the document, so every `$ref` must be a
+// local JSON pointer into `$defs` that names a definition the document holds. A
+// reference to a module file, or to a definition left behind in another document, would
+// make the document unusable on its own and would hide part of the schema from the
+// version comparison.
+#[test]
+fn the_single_documents_refer_only_to_their_own_definitions() {
+    for (name, root) in [
+        ("ironlab-figure.schema.json", ironlab_ir::json_schema()),
+        (
+            "ironlab-edit.schema.json",
+            ironlab_ir::transaction_json_schema(),
+        ),
+    ] {
+        let mut refs = Vec::new();
+        collect_refs(&root, &mut refs);
+        assert!(!refs.is_empty(), "{name} has no references to check");
+        let problems: Vec<String> = refs
+            .into_iter()
+            .filter(|reference| {
+                !reference.starts_with("#/$defs/") || root.pointer(&reference[1..]).is_none()
+            })
+            .map(|reference| format!("{name}: {reference} is not a local definition"))
+            .collect();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+}
+
 /// Collects every string that a schema allows under its `enum` and `const` keywords,
 /// following local references (`#/$defs/...`) within `root`, so that the check does not
 /// depend on whether the generator inlines an enumeration or refers to a definition, or

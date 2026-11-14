@@ -15,8 +15,9 @@ for file in ironlab.js ironlab_core.js ironlab_core_bg.wasm ironlab.css; do
 done
 
 # The JSON Schema of the figure format is generated from the Rust types and copied under docs/, where zensical
-# publishes it at /schema/: one file per module of ironlab-ir, and ironlab.schema.json holding the whole figure schema
-# as one document. The directory is emptied first so that the file of a removed module does not survive.
+# publishes it at /schema/: one file per module of ironlab-ir, and ironlab-figure.schema.json and
+# ironlab-edit.schema.json holding the whole figure schema and the whole transaction schema each as one document. The
+# directory is emptied first so that the file of a removed module does not survive.
 cargo run --release -p ironlab-ir --bin generate-schema
 rm -rf docs/schema
 mkdir -p docs/schema

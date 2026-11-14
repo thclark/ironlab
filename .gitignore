@@ -39,3 +39,6 @@ dist/
 
 # Claude's worktrees and temporary plans
 .claude/
+
+# Python bytecode written when the tests of scripts/ run.
+__pycache__/

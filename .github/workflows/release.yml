@@ -157,3 +157,82 @@ jobs:
     uses: ./.github/workflows/docs.yml
     with:
       ref: ${{ needs.release.outputs.version }}
+
+  strands:
+    # Each single-file JSON Schema is published to its strand on strands.octue.com, at SCHEMA_VERSION, whenever its
+    # content differs from the version last published there. The job answers the push to main rather than the tag, and
+    # depends on no other job, so that it neither waits for nor blocks the release: the strands record the schema of
+    # main, which a merge may change even when it leaves the workspace version alone. A failed publication fails this
+    # job, which marks the release run as failed without undoing the tag, and is recovered by re-running the job.
+    # Each strand is a leg of its own, so that one strand failing still lets the other publish.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The release notes of a strand version are the title of the pull request whose merge produced this commit.
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        strand: [ironlab-figure, ironlab-edit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      # This writes the single-file schemas, and VERSION, which holds SCHEMA_VERSION as the build compiled it.
+      - name: Generate the JSON Schema
+        run: cargo run -p ironlab-ir --bin generate-schema
+      - name: Compare the schema with the version last published
+        id: suggest
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ${{ matrix.strand }}
+          path: target/ironlab-schema/${{ matrix.strand }}.schema.json
+          allow_beta: true
+          suggest_only: true
+      - name: Decide whether to publish
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          STRAND: ${{ matrix.strand }}
+          CHANGE: ${{ steps.suggest.outputs.change }}
+          LATEST: ${{ steps.suggest.outputs.latest_version }}
+        # The version is SCHEMA_VERSION, which the schema job of the CI workflow held to the version the rules require.
+        # A version that does not exceed the one last published means that the check was bypassed, as it is for a pull
+        # request from a fork, so the job fails rather than ask strands to publish a version it already holds.
+        run: |
+          set -euo pipefail
+          version=$(cat target/ironlab-schema/VERSION)
+          if [ "$CHANGE" = "equal" ]; then
+            echo "The $STRAND schema equals published $LATEST, so there is nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$LATEST" ] && ! python3 -c 'import sys; sys.path.insert(0, "scripts"); from schema_version import parse; sys.exit(parse(sys.argv[1]) <= parse(sys.argv[2]))' "$version" "$LATEST"; then
+            echo "::error title=Strand not published::The $STRAND schema has a $CHANGE change, but SCHEMA_VERSION $version does not exceed published $LATEST."
+            exit 1
+          fi
+          notes=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '.[0].title // empty' || true)
+          if [ -z "$notes" ]; then
+            notes=$(git log -1 --format=%s "$SHA" | sed -E 's/ \(#[0-9]+\)$//')
+          fi
+          {
+            echo "publish=true"
+            echo "version=$version"
+            echo "notes=$notes"
+          } >> "$GITHUB_OUTPUT"
+      - name: Publish the schema to its strand
+        if: steps.decide.outputs.publish == 'true'
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ${{ matrix.strand }}
+          path: target/ironlab-schema/${{ matrix.strand }}.schema.json
+          version: ${{ steps.decide.outputs.version }}
+          notes: ${{ steps.decide.outputs.notes }}
+          allow_beta: true

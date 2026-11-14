@@ -114,6 +114,10 @@ and the trunk is later promoted to `main` in one PR that carries the bump.
   so a bump is never needed to make CI pass.
 - **PR into `main`: bump only when commits are added that would change the version**, from the highest-impact code among all commits since the last release tag.
 
+### The schema version
+
+The schema version (`SCHEMA_VERSION` in `crates/ironlab-ir/src/figure.rs`) is separate from the workspace version and is never chosen by hand. The `schema` job of `.github/workflows/ci.yml` computes it from the rules of Strands and of `buf breaking`, posts it in a comment on every pull request, and, on a PR into `main`, fails unless `SCHEMA_VERSION` equals it; its log names the exact line to set. It is bumped on the same PRs as the workspace version. A breaking change that either tool finds must be declared by a commit with a `BREAKING-CHANGE` paragraph, on any PR. The [versioning section of the figure schema reference](../reference/figure-schema.md#versioning) states the rules.
+
 ## Releasing
 
 Releases are tagged automatically. When a PR merges into `main`, the resulting push to `main` starts `.github/workflows/release.yml`, which reads the workspace version, tags the pushed commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.

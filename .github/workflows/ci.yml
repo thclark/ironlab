@@ -63,9 +63,16 @@ jobs:
         run: cargo test --workspace
 
   schema:
-    # The .proto files of the .fig format are generated from the Rust types rather than committed, so both the files of
-    # this revision and those of main are generated here before buf checks them.
+    # The schemas are generated from the Rust types rather than committed, so this job generates those of this revision,
+    # and the .proto files of main, before the rule-based tools compare them. strands.octue.com compares each single-file
+    # JSON Schema with the version last published to its strand, and buf compares the .proto files with those of main.
+    # scripts/schema_version.py takes the higher of their requirements as the schema version, and requires SCHEMA_VERSION
+    # to equal it on pull requests into main, which is where the version is bumped.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The sticky comment that summarises the schema version is written to the pull request.
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,15 +85,22 @@ jobs:
         uses: bufbuild/buf-action@v1
         with:
           setup_only: true
+      - name: Test the schema version decision
+        run: python3 -m unittest discover -s scripts
       - name: Generate the .proto files of this revision
         run: cargo run -p ironlab-ir --bin generate-proto
       - name: Lint the .proto files
         working-directory: target/ironlab-proto
         run: buf lint
+      # This writes ironlab-figure.schema.json and ironlab-edit.schema.json, which the strands compare, and VERSION,
+      # which holds SCHEMA_VERSION as the build compiled it.
+      - name: Generate the JSON Schema of this revision
+        run: cargo run -p ironlab-ir --bin generate-schema
       - name: Generate the .proto files of main
         id: main
         run: |
           git fetch --no-tags origin main
+          echo "sha=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_OUTPUT"
           git worktree add "$RUNNER_TEMP/main" FETCH_HEAD
           has_generator=0
           if [ -f "$RUNNER_TEMP/main/Cargo.toml" ]; then
@@ -102,22 +116,120 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/main-target" \
             cargo run --manifest-path "$RUNNER_TEMP/main/Cargo.toml" -p ironlab-ir --bin generate-proto
           echo "generated=true" >> "$GITHUB_OUTPUT"
-      - name: Decide whether the commits declare a breaking change
-        id: commits
-        if: steps.main.outputs.generated == 'true'
-        # A commit declares a deliberate breaking change with a BREAKING-CHANGE paragraph in its body, as the commit
-        # conventions require; any incompatible change that no commit declares is a mistake that buf reports.
-        run: |
-          if git log --format=%B FETCH_HEAD..HEAD | grep -qE '^BREAKING[ -]CHANGE:'; then
-            echo "::notice title=buf breaking skipped::A commit of this pull request declares a breaking change."
-            echo "breaking=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "breaking=false" >> "$GITHUB_OUTPUT"
-          fi
       - name: Check the .proto files for breaking changes against main
-        if: steps.main.outputs.generated == 'true' && steps.commits.outputs.breaking != 'true'
-        working-directory: target/ironlab-proto
-        run: buf breaking --against "$RUNNER_TEMP/main-target/ironlab-proto"
+        id: buf
+        # A breaking change does not fail this step: it is an input to the required schema version, and the commit
+        # declaration is checked below. buf exits with 100 when it finds a breaking change and with 1 when it cannot
+        # run at all, which does fail the step.
+        env:
+          GENERATED: ${{ steps.main.outputs.generated }}
+        run: |
+          if [ "$GENERATED" != "true" ]; then
+            echo "result=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cd target/ironlab-proto
+          status=0
+          buf breaking --against "$RUNNER_TEMP/main-target/ironlab-proto" || status=$?
+          case "$status" in
+            0) echo "result=compatible" >> "$GITHUB_OUTPUT" ;;
+            100)
+              echo "::notice title=buf breaking::The .proto files are incompatible with those of main, which requires a breaking bump of the schema version."
+              echo "result=breaking" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+      - name: Decide whether the strands can be queried
+        id: strands
+        if: github.event_name == 'pull_request'
+        # A pull request from a fork receives no secrets, so the strands cannot be queried and the schema version is
+        # left to the pull request into main that carries the fork's changes. In a pull request from this repository
+        # the token must be present, since without it the schema version would go unchecked.
+        env:
+          TOKEN: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ "$FORK" = "true" ]; then
+            echo "::notice title=Schema version not checked::A pull request from a fork has no access to PUBLISH_STRAND_TOKEN, so the strands are not queried."
+            echo "query=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$TOKEN" ]; then
+            echo "::error title=Schema version not checked::The repository secret PUBLISH_STRAND_TOKEN is missing, so the strands cannot be queried."
+            exit 1
+          else
+            echo "query=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Suggest the version of the figure strand
+        id: figure
+        if: steps.strands.outputs.query == 'true'
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ironlab-figure
+          path: target/ironlab-schema/ironlab-figure.schema.json
+          allow_beta: true
+          suggest_only: true
+      - name: Suggest the version of the edit strand
+        id: edit
+        if: steps.strands.outputs.query == 'true'
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ironlab-edit
+          path: target/ironlab-schema/ironlab-edit.schema.json
+          allow_beta: true
+          suggest_only: true
+      - name: Check SCHEMA_VERSION against the version the rules require
+        id: version
+        if: steps.strands.outputs.query == 'true'
+        # SCHEMA_VERSION is bumped only on pull requests into main, as the workspace version is, so a pull request into
+        # a trunk reports the required version without failing.
+        env:
+          ENFORCE: ${{ github.base_ref == 'main' }}
+          FIGURE_LATEST: ${{ steps.figure.outputs.latest_version }}
+          FIGURE_SUGGESTED: ${{ steps.figure.outputs.version }}
+          FIGURE_CHANGE: ${{ steps.figure.outputs.change }}
+          EDIT_LATEST: ${{ steps.edit.outputs.latest_version }}
+          EDIT_SUGGESTED: ${{ steps.edit.outputs.version }}
+          EDIT_CHANGE: ${{ steps.edit.outputs.change }}
+          BUF: ${{ steps.buf.outputs.result }}
+        run: |
+          enforce=()
+          if [ "$ENFORCE" = "true" ]; then
+            enforce=(--enforce)
+          fi
+          python3 scripts/schema_version.py \
+            --current-file target/ironlab-schema/VERSION \
+            --strand ironlab-figure "$FIGURE_LATEST" "$FIGURE_SUGGESTED" "$FIGURE_CHANGE" \
+            --strand ironlab-edit "$EDIT_LATEST" "$EDIT_SUGGESTED" "$EDIT_CHANGE" \
+            --buf "$BUF" \
+            --account octue \
+            --comment "$RUNNER_TEMP/schema-version.md" \
+            --github-output "$GITHUB_OUTPUT" \
+            "${enforce[@]}"
+      - name: Summarise the schema version on the pull request
+        if: always() && steps.version.outputs.required != ''
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: schema-version
+          path: ${{ runner.temp }}/schema-version.md
+      - name: Check that a commit declares a breaking change
+        # The commit conventions require a BREAKING-CHANGE paragraph in the body of a commit that makes a breaking
+        # change, so a breaking change that either tool requires must be declared by a commit of the pull request.
+        if: always() && github.event_name == 'pull_request' && steps.buf.outcome == 'success'
+        env:
+          BREAKING: ${{ steps.version.outputs.breaking == 'true' || steps.buf.outputs.result == 'breaking' }}
+          MAIN: ${{ steps.main.outputs.sha }}
+        run: |
+          if [ "$BREAKING" != "true" ]; then
+            exit 0
+          fi
+          if git log --format=%B "$MAIN..HEAD" | grep -qE '^BREAKING[ -]CHANGE:'; then
+            echo "A commit of this pull request declares the breaking change."
+          else
+            echo "::error title=Undeclared breaking change::The schema change is breaking, but no commit of this pull request declares it with a BREAKING-CHANGE paragraph, as the commit conventions require."
+            exit 1
+          fi
 
   latex:
     runs-on: ubuntu-latest
