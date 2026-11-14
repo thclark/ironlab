@@ -1,0 +1,149 @@
+// Generated from the Rust wire types of ironlab-ir; do not edit.
+
+syntax = "proto3";
+
+package ironlab.ir.v0;
+
+// An sRGB colour with straight (non-premultiplied) alpha, each component from 0
+// to 1.
+message Color {
+  // The red component.
+  float r = 1;
+
+  // The green component.
+  float g = 2;
+
+  // The blue component.
+  float b = 3;
+
+  // The opacity, from 0 (transparent) to 1 (opaque).
+  float a = 4;
+}
+
+// How a colour is chosen for a stroke, fill or marker.
+message ColorSpec {
+  // The kind of colour; unset means the default of the context.
+  oneof kind {
+    // The renderer chooses the colour.
+    ColorSpecAuto automatic = 1;
+
+    // A fixed colour.
+    ColorSpecRgba rgba = 2;
+
+    // Nothing is drawn.
+    ColorSpecNone none = 3;
+
+    // The colour is taken from the axes colormap.
+    ColorSpecColormapped colormapped = 4;
+  }
+}
+
+// The renderer chooses the colour: for series the next colour of the axes colour
+// order, and inside a marker of a series the colour of the series' line.
+message ColorSpecAuto {}
+
+// A fixed colour.
+message ColorSpecRgba {
+  // The colour to use.
+  Color color = 1;
+}
+
+// Nothing is drawn.
+message ColorSpecNone {}
+
+// The colour is taken from the axes colormap, indexed by the data value scaled
+// into the axes colour limits.
+message ColorSpecColormapped {}
+
+// The style of a stroked line.
+message LineStyle {
+  // The line colour.
+  ColorSpec color = 1;
+
+  // The line width in points.
+  optional double width_pt = 2;
+
+  // The dash pattern of the line.
+  DashStyle dash = 3;
+}
+
+// The dash pattern of a stroked line.
+enum DashStyle {
+  // The value is absent; it decodes to the default of its context.
+  DASH_STYLE_UNSPECIFIED = 0;
+
+  // A continuous line.
+  DASH_STYLE_SOLID = 1;
+
+  // A line of dashes.
+  DASH_STYLE_DASHED = 2;
+
+  // A line of dots.
+  DASH_STYLE_DOTTED = 3;
+
+  // A line of alternating dashes and dots.
+  DASH_STYLE_DASH_DOT = 4;
+
+  // No line is drawn.
+  DASH_STYLE_NONE = 5;
+
+  // A line of dashes, each followed by two dots.
+  DASH_STYLE_DASH_DOT_DOT = 6;
+
+  // A line of long dashes.
+  DASH_STYLE_LONG_DASH = 7;
+}
+
+// The style of the markers drawn at data points.
+message MarkerStyle {
+  // The marker shape.
+  MarkerShape shape = 1;
+
+  // The marker size in points, measured as the width of the marker.
+  optional double size_pt = 2;
+
+  // The colour of the marker interior.
+  ColorSpec face = 3;
+
+  // The colour of the marker outline.
+  ColorSpec edge = 4;
+}
+
+// The shape of a marker.
+enum MarkerShape {
+  // The value is absent; it decodes to the default of its context.
+  MARKER_SHAPE_UNSPECIFIED = 0;
+
+  // No marker is drawn.
+  MARKER_SHAPE_NONE = 1;
+
+  // A circle.
+  MARKER_SHAPE_CIRCLE = 2;
+
+  // An axis-aligned square.
+  MARKER_SHAPE_SQUARE = 3;
+
+  // A square rotated by 45 degrees.
+  MARKER_SHAPE_DIAMOND = 4;
+
+  // A triangle pointing upwards.
+  MARKER_SHAPE_TRIANGLE_UP = 5;
+
+  // A triangle pointing downwards.
+  MARKER_SHAPE_TRIANGLE_DOWN = 6;
+
+  // A plus sign.
+  MARKER_SHAPE_PLUS = 7;
+
+  // A diagonal cross.
+  MARKER_SHAPE_CROSS = 8;
+
+  // A small filled dot.
+  MARKER_SHAPE_POINT = 9;
+
+  // A vertical tick.
+  MARKER_SHAPE_V_LINE = 10;
+
+  // A horizontal tick.
+  MARKER_SHAPE_H_LINE = 11;
+}

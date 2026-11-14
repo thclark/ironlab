@@ -1,0 +1,169 @@
+// Generated from the Rust wire types of ironlab-ir; do not edit.
+
+syntax = "proto3";
+
+package ironlab.ir.v0;
+
+import "ironlab/ir/v0/axes.proto";
+import "ironlab/ir/v0/color_scale.proto";
+import "ironlab/ir/v0/data.proto";
+import "ironlab/ir/v0/layout.proto";
+import "ironlab/ir/v0/link.proto";
+import "ironlab/ir/v0/panel.proto";
+import "ironlab/ir/v0/style.proto";
+import "ironlab/ir/v0/text.proto";
+
+// A figure: the root of the retained IR, holding data arrays, colour scales, axes,
+// panels and axis links.
+message Figure {
+  // The version of the figure schema that the message conforms to, as
+  // `major.minor.patch`. This is field 1 in every version of the schema, so
+  // that a reader can check compatibility before decoding the other fields.
+  string schema_version = 1;
+
+  // The node identifier of the figure, unique within the figure.
+  optional uint64 id = 2;
+
+  // The title drawn above all axes; absent when there is no title.
+  Text title = 3;
+
+  // The physical size of the figure.
+  FigureSize size = 4;
+
+  // The font set used for all text.
+  FontSetId font_set = 5;
+
+  // The base font size in points; titles and tick labels are scaled from it.
+  optional double font_size_pt = 6;
+
+  // The colour of the figure background.
+  Color background = 7;
+
+  // The grid of cells in which axes and panels are placed.
+  TileLayout layout = 8;
+
+  // The data arrays of the figure, which artists refer to by node identifier.
+  repeated DataArray data = 9;
+
+  // The axes of the figure, in drawing order.
+  repeated Axes axes = 10;
+
+  // The groups of axes whose limits are linked along a dimension.
+  repeated AxisLink links = 11;
+
+  // A record of the software that produced the figure.
+  Provenance provenance = 12;
+
+  // Named values that describe the figure, used to sort, filter and search
+  // collections of figures, keyed by name and written in ascending order of the
+  // UTF-8 bytes of the name.
+  map<string, Parameter> parameters = 13;
+
+  // Free words that describe the figure, used to filter and group collections of
+  // figures, written in the order they were given. A tag is never empty, and no
+  // tag occurs twice in one figure.
+  repeated string tags = 14;
+
+  // The panels of the figure, which occupy cells of the tile layout and are drawn
+  // after every axes.
+  repeated Panel panels = 15;
+
+  // The colour scales of the figure, which colour-mapped artists refer to by node
+  // identifier.
+  repeated ColorScale color_scales = 16;
+
+  // How much heavier than designed the figure is drawn; unspecified means regular.
+  Embolden embolden = 17;
+}
+
+// The physical size of a figure.
+message FigureSize {
+  // The width in millimetres.
+  optional double width_mm = 1;
+
+  // The height in millimetres.
+  optional double height_mm = 2;
+}
+
+// The identifier of a bundled font set.
+enum FontSetId {
+  // The value is absent; it decodes to the default of its context.
+  FONT_SET_ID_UNSPECIFIED = 0;
+
+  // STIX Two Text for text and STIX Two Math for mathematics.
+  FONT_SET_ID_STIX_TWO = 1;
+}
+
+// How much heavier than designed a figure is drawn.
+enum Embolden {
+  // The value is absent; it decodes to the default of its context.
+  EMBOLDEN_UNSPECIFIED = 0;
+
+  // Drawn as designed.
+  EMBOLDEN_REGULAR = 1;
+
+  // Text drawn as heavy as STIX Two Text Medium, and lines and edges thickened in
+  // proportion.
+  EMBOLDEN_MEDIUM = 2;
+
+  // Text drawn as heavy as STIX Two Text SemiBold, and lines and edges thickened in
+  // proportion.
+  EMBOLDEN_SEMIBOLD = 3;
+}
+
+// A record of the software that produced a figure.
+message Provenance {
+  // The version of IronLAB that wrote the figure.
+  string ironlab_version = 1;
+
+  // The name of the mathematics typesetter.
+  string typesetter = 2;
+
+  // The names of the fonts used for text.
+  repeated string fonts = 3;
+
+  // The version of the mathematics typesetter.
+  string typesetter_version = 4;
+}
+
+// A named value that describes a figure.
+message Parameter {
+  // The kind of value; it must be set.
+  oneof kind {
+    // A boolean.
+    ParameterBool bool_value = 1;
+
+    // A signed 64-bit integer.
+    ParameterInteger integer_value = 2;
+
+    // A double-precision floating-point number.
+    ParameterNumber number_value = 3;
+
+    // A string of Unicode text.
+    ParameterString string_value = 4;
+  }
+}
+
+// A boolean parameter.
+message ParameterBool {
+  // The value; it must be present.
+  optional bool value = 1;
+}
+
+// A signed 64-bit integer parameter.
+message ParameterInteger {
+  // The value; it must be present.
+  optional int64 value = 1;
+}
+
+// A double-precision floating-point number parameter.
+message ParameterNumber {
+  // The value, which must be present and, in a valid figure, finite.
+  optional double value = 1;
+}
+
+// A string parameter.
+message ParameterString {
+  // The value, which may be empty.
+  string value = 1;
+}

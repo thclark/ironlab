@@ -9,8 +9,6 @@
 
 mod common;
 
-use std::collections::BTreeMap;
-
 use common::edits::{applied, path, set, tx};
 use common::{raw_fields, single_line_figure};
 use ironlab_ir::*;
@@ -266,20 +264,11 @@ fn every_invalid_tag_is_reported() {
 // array holds no duplicates. The property must also stay optional, because a figure
 // without tags omits it.
 #[test]
-fn the_json_schema_declares_optional_non_empty_unique_tags_in_the_figure_module() {
-    let files: BTreeMap<String, JsonValue> = json_schema_files()
-        .into_iter()
-        .map(|(path, text)| {
-            (
-                path.display().to_string(),
-                serde_json::from_str(&text).unwrap(),
-            )
-        })
-        .collect();
-    let figure = &files["figure.schema.json"];
+fn the_json_schema_declares_optional_non_empty_unique_tags() {
+    let figure = &json_schema();
     let tags = figure["properties"]
         .get("tags")
-        .expect("tags are not declared in figure.schema.json");
+        .expect("tags are not declared in the figure schema");
     assert_eq!(tags["type"], json!("array"));
     assert_eq!(tags["items"]["type"], json!("string"));
     assert_eq!(
