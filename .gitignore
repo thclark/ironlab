@@ -38,3 +38,9 @@ dist/
 
 # Claude's worktrees and temporary plans
 .claude/
+
+# The JSON Schema documents that scripts/build-docs.sh copies from schema/ for the site to publish at /schema/
+docs/schema/
+
+# Python bytecode written when the tests of scripts/ run
+__pycache__/

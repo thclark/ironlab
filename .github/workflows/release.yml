@@ -157,3 +157,100 @@ jobs:
     uses: ./.github/workflows/docs.yml
     with:
       ref: ${{ needs.release.outputs.version }}
+
+  strands:
+    # The single-file JSON Schemas in schema/ are published to their strands on strands.octue.com, in lockstep: both
+    # strands always carry SCHEMA_VERSION. When either schema differs from the version last published to its strand,
+    # both are published at SCHEMA_VERSION; when both are unchanged, nothing is. A strand with no published version is
+    # published at SCHEMA_VERSION, which is how the first publication sets the baseline. The job answers the push to
+    # main rather than the tag, and depends on no other job, so that it neither waits for nor blocks the release: the
+    # strands record the schema of main, which a merge may change even when it leaves the workspace version alone. A
+    # failed publication fails this job, which marks the release run as failed without undoing the tag, and is
+    # recovered by re-running the job, which skips a strand that already holds SCHEMA_VERSION.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The release notes of a strand version are the title of the pull request whose merge produced this commit.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Read SCHEMA_VERSION
+        id: current
+        # The constant is printed by the build, rather than parsed from the Rust source.
+        run: echo "version=$(cargo run --quiet -p ironlab-ir --bin generate-schema -- --print-version)" >> "$GITHUB_OUTPUT"
+      - name: Compare the figure schema with the version last published
+        id: figure
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ironlab-figure
+          path: schema/ironlab-figure.schema.json
+          allow_beta: true
+          suggest_only: true
+      - name: Compare the edit schema with the version last published
+        id: edit
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ironlab-edit
+          path: schema/ironlab-edit.schema.json
+          allow_beta: true
+          suggest_only: true
+      - name: Decide which strands to publish
+        id: decide
+        # The version is SCHEMA_VERSION, which the schema job of the CI workflow held to the version the rules require.
+        # A version that does not exceed one already published to a strand that would be published means that the
+        # check was bypassed, as it is for a pull request from a fork, so the script fails rather than ask strands to
+        # publish a version it already holds.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          CURRENT: ${{ steps.current.outputs.version }}
+          FIGURE_LATEST: ${{ steps.figure.outputs.latest_version }}
+          FIGURE_SUGGESTED: ${{ steps.figure.outputs.version }}
+          FIGURE_CHANGE: ${{ steps.figure.outputs.change }}
+          EDIT_LATEST: ${{ steps.edit.outputs.latest_version }}
+          EDIT_SUGGESTED: ${{ steps.edit.outputs.version }}
+          EDIT_CHANGE: ${{ steps.edit.outputs.change }}
+        run: |
+          set -euo pipefail
+          python3 scripts/schema_version.py release \
+            --current "$CURRENT" \
+            --strand ironlab-figure "$FIGURE_LATEST" "$FIGURE_SUGGESTED" "$FIGURE_CHANGE" \
+            --strand ironlab-edit "$EDIT_LATEST" "$EDIT_SUGGESTED" "$EDIT_CHANGE" \
+            --github-output "$GITHUB_OUTPUT"
+          notes=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq '.[0].title // empty' || true)
+          if [ -z "$notes" ]; then
+            notes=$(git log -1 --format=%s "$SHA" | sed -E 's/ \(#[0-9]+\)$//')
+          fi
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+      # Each strand is published by a step of its own that runs even when the other failed, so that one strand
+      # failing still lets the other publish; a re-run then publishes only the strand that remains.
+      - name: Publish the figure schema to its strand
+        if: ${{ !cancelled() && steps.decide.outputs.publish-ironlab-figure == 'true' }}
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ironlab-figure
+          path: schema/ironlab-figure.schema.json
+          version: ${{ steps.decide.outputs.version }}
+          notes: ${{ steps.decide.outputs.notes }}
+          allow_beta: true
+      - name: Publish the edit schema to its strand
+        if: ${{ !cancelled() && steps.decide.outputs.publish-ironlab-edit == 'true' }}
+        uses: octue/publish-strand-version@352218d60bfd184e0fd9143d70ca1390e677ae7a # 1.0.0
+        with:
+          token: ${{ secrets.PUBLISH_STRAND_TOKEN }}
+          account: octue
+          name: ironlab-edit
+          path: schema/ironlab-edit.schema.json
+          version: ${{ steps.decide.outputs.version }}
+          notes: ${{ steps.decide.outputs.notes }}
+          allow_beta: true

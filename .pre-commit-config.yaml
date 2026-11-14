@@ -27,7 +27,7 @@ repos:
       - id: check-json5
 
   # Rust. Local hooks so the toolchain is the one pinned by the repo (rustup), and so
-  # each mirrors the CI `lint`, `no-deviations` and `ignore-drift` jobs exactly.
+  # each mirrors the CI `lint`, `no-deviations`, `ignore-drift` and `schema` jobs exactly.
   - repo: local
     hooks:
       - id: cargo-fmt
@@ -42,6 +42,17 @@ repos:
         entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
         language: system
         types: [rust]
+        pass_filenames: false
+
+      # The schemas in schema/ are generated from the Rust types and committed. Like a formatter, this regenerates
+      # them and fails when they change, leaving the regenerated files for the developer to stage. It runs when the
+      # types, the committed files or the locked versions of the generators' dependencies change; CI runs the same
+      # script on every pull request.
+      - id: generate-schemas
+        name: Regenerate the committed schemas in schema/
+        entry: scripts/check-schemas.sh
+        language: system
+        files: ^(crates/ironlab-ir/|schema/|Cargo\.lock$)
         pass_filenames: false
 
   - repo: https://github.com/octue/conventional-commits

@@ -8,7 +8,7 @@ IronLAB is a Cargo workspace whose crates live in `crates/`.
 
 | Crate | Responsibility |
 | --- | --- |
-| `ironlab-ir` | The figure model: the Rust types of the [figure schema](figure-schema.md), which are its source of truth; their [encodings](figure-schema.md#encodings) as Protocol Buffers (`.fig`, through the `wire` module) and JSON (`.fig.json`); generation of the `.proto` files and the JSON Schema as build artefacts; validation, identifier allocation, and linking of axis limits. It has no knowledge of drawing. |
+| `ironlab-ir` | The figure model: the Rust types of the [figure schema](figure-schema.md), which are its source of truth; their [encodings](figure-schema.md#encodings) as Protocol Buffers (`.fig`, through the `wire` module) and JSON (`.fig.json`); generation of the `.proto` files and the JSON Schema that are committed in `schema/`; validation, identifier allocation, and linking of axis limits. It has no knowledge of drawing. |
 | `ironlab-text` | Text: the bundled STIX Two fonts, shaping of plain text with HarfRust, typesetting of LaTeX mathematics with latex-rust, the memo of resolved text layouts, and the cache of glyph outlines. |
 | `ironlab-scene` | The scene compiler: layout of tiles, axes, titles, labels, legends and colourbars; tick generation; automatic limits; the mapping of values through colour scales; contour extraction; quiver scaling; the placement and colouring of the pixels of images; three-dimensional projection and depth sorting. Its output is a display list and a hit map. |
 | `ironlab-pdf` | The PDF backend: draws a display list onto a single PDF page with krilla, embedding subset fonts and real text. |

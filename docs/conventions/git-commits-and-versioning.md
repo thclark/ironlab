@@ -114,6 +114,12 @@ and the trunk is later promoted to `main` in one PR that carries the bump.
   so a bump is never needed to make CI pass.
 - **PR into `main`: bump only when commits are added that would change the version**, from the highest-impact code among all commits since the last release tag.
 
+### The schema version
+
+The schema version (`SCHEMA_VERSION` in `crates/ironlab-ir/src/figure.rs`) is separate from the workspace version and is never chosen by hand. The `schema` job of `.github/workflows/ci.yml` computes it from the rules of Strands and of `buf breaking`, applied to the committed schemas in `schema/`, and posts it in a comment on every pull request. On a PR into `main` the job fails unless `SCHEMA_VERSION` equals it, and its log names the exact line to set; on a PR into a trunk it only warns. The schema version is therefore bumped on the same PRs as the workspace version. A breaking change that either tool finds must be declared by a commit with a `BREAKING-CHANGE` paragraph, on any PR. The figure and edit schemas are published to Strands together, both at `SCHEMA_VERSION`, when a merge into `main` changes either of them. The [versioning section of the figure schema reference](../reference/figure-schema.md#versioning) states the rules, and [ADR 0036](../adrs/0036-generated-schemas-are-committed-and-versioned-by-rules.md) records the decision.
+
+A commit that changes the Rust types of `ironlab-ir` must include the regenerated files in `schema/`. The `generate-schemas` pre-commit hook regenerates them and fails until they are staged, and CI fails when they are stale.
+
 ## Releasing
 
 Releases are tagged automatically. When a PR merges into `main`, the resulting push to `main` starts `.github/workflows/release.yml`, which reads the workspace version, tags the pushed commit with exactly that version — with no `v` prefix — and publishes a GitHub release on that tag. The tag name must match the version verbatim, because the check measures from the most recent tag it recognises and silently ignores one it does not. A merge that leaves the version unchanged finds its tag already present and releases nothing, so the workflow never moves or replaces a tag.

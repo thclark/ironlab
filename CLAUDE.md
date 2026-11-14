@@ -42,7 +42,7 @@ If you've been asked by the user to explain something, do it in the documentatio
 
 ## Data structure
 
-Before adding any plot type (or any new entity type), define its core data structure and options first and ask for review. The Rust types in the `ironlab-ir` crate (`crates/ironlab-ir`) are the only definition of the model, as recorded in [ADR 0001](docs/adrs/0001-retained-figure-ir-and-protobuf-wire-format.md); the Protocol Buffers definition and the JSON Schema are generated from those types and never committed. The structure to define and review is therefore the IR type, together with its entry in the [figure schema reference](docs/reference/figure-schema.md).
+Before adding any plot type (or any new entity type), define its core data structure and options first and ask for review. The Rust types in the `ironlab-ir` crate (`crates/ironlab-ir`) are the only definition of the model, as recorded in [ADR 0001](docs/adrs/0001-retained-figure-ir-and-protobuf-wire-format.md); the Protocol Buffers definition and the JSON Schema are generated from those types and committed in `schema/`, where pre-commit and CI keep them in step with the types, as recorded in [ADR 0036](docs/adrs/0036-generated-schemas-are-committed-and-versioned-by-rules.md). The schema version is never chosen by hand: it is the version that strands and `buf breaking` require. The structure to define and review is therefore the IR type, together with its entry in the [figure schema reference](docs/reference/figure-schema.md).
 
 ## Development Cycle
 

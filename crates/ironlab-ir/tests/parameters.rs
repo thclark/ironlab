@@ -403,23 +403,14 @@ fn an_absent_string_value_loads_as_the_empty_string() {
 // ---------------------------------------------------------------------------------
 
 // Why: other tools validate `.fig.json` files against the generated JSON Schema, so the
-// schema must describe parameters where a reader of the figure module looks for them,
+// schema must describe the parameters of a figure where a validator looks for them,
 // and must not require the property that a figure without parameters omits.
 #[test]
-fn the_json_schema_declares_optional_parameters_in_the_figure_module() {
-    let files: BTreeMap<String, Value> = json_schema_files()
-        .into_iter()
-        .map(|(path, text)| {
-            (
-                path.display().to_string(),
-                serde_json::from_str(&text).unwrap(),
-            )
-        })
-        .collect();
-    let figure = &files["figure.schema.json"];
+fn the_json_schema_declares_optional_parameters() {
+    let figure = &json_schema();
     assert!(
         figure["$defs"].get("Parameter").is_some(),
-        "Parameter is not defined in figure.schema.json"
+        "Parameter is not defined in the figure schema"
     );
     assert!(figure["properties"].get("parameters").is_some());
     let required = figure["required"]

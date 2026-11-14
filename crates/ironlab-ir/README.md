@@ -6,7 +6,7 @@ TL;DR: This crate defines the data structure for figure contents.
 
 A figure is a serialisable tree of nodes — the figure, its axes and their artists — in which every node carries a stable identifier and every property that affects the drawing. Numeric arrays are held in a table beside the tree and referenced by identifier, so the same data can be shared. The crate also provides validation, identifier allocation, the linking of axis limits, and the typed edit and overlay machinery through which the viewer records a user's changes without mutating the figure it was given.
 
-The Rust types in this crate are the single source of truth for the IronLAB figure format. The default file and transport format is Protocol Buffers (`.fig`); JSON (`.fig.json`) is a supported secondary format for debugging, other tools and simple web pages. Both describe the same figure, so converting between them loses nothing. The `.proto` files and the JSON Schema are generated from the Rust types as build artefacts rather than committed, which is what allows programs in other languages to read and write IronLAB figures.
+The Rust types in this crate are the single source of truth for the IronLAB figure format. The default file and transport format is Protocol Buffers (`.fig`); JSON (`.fig.json`) is a supported secondary format for debugging, other tools and simple web pages. Both describe the same figure, so converting between them loses nothing. The `.proto` files and the JSON Schema are generated from the Rust types and committed in the `schema/` directory of the repository, which is what allows programs in other languages to read and write IronLAB figures.
 
 ## Where this crate sits
 

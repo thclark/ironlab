@@ -1,0 +1,27 @@
+// Generated from the Rust wire types of ironlab-ir; do not edit.
+
+syntax = "proto3";
+
+package ironlab.ir.v0;
+
+// A piece of text, stored as its source so that renderers typeset it lazily.
+message Text {
+  // The source text. With the LaTeX interpreter, segments delimited by `$…$`
+  // are typeset as mathematics and the remainder as plain text.
+  string content = 1;
+
+  // How the source text is interpreted; unspecified means LaTeX.
+  Interpreter interpreter = 2;
+}
+
+// How the source of a text is interpreted.
+enum Interpreter {
+  // The value is absent; it decodes to the default of its context.
+  INTERPRETER_UNSPECIFIED = 0;
+
+  // Mixed plain text and `$…$` LaTeX mathematics.
+  INTERPRETER_LATEX = 1;
+
+  // Plain text, rendered literally, including any dollar signs.
+  INTERPRETER_NONE = 2;
+}

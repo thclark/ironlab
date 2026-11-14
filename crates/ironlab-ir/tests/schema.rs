@@ -1,47 +1,13 @@
 //! The generated JSON Schema of the `.fig.json` format.
 //!
-//! The schema is a build artefact generated from the Rust types, so there is no
-//! committed copy to compare against; these tests check that generation works and that
-//! the generated files form a consistent set.
+//! The schema is generated from the Rust types and committed in `schema/`, where the
+//! pre-commit hook and CI check that the committed files equal those generated; these
+//! tests check that the generated documents are usable on their own and describe what
+//! the reader accepts.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path, PathBuf};
+use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
-
-// Why: `generate-schema` writes these files for other tools, so generating them must
-// not fail, must produce at least one file, and must produce files that are JSON.
-#[test]
-fn json_schema_files_are_generated_and_each_parses_as_json() {
-    let files = ironlab_ir::json_schema_files();
-    assert!(!files.is_empty(), "no JSON Schema files were generated");
-    for (path, text) in &files {
-        assert!(
-            path.is_relative(),
-            "{} must be relative to the output directory",
-            path.display()
-        );
-        serde_json::from_str::<Value>(text)
-            .unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()));
-    }
-}
-
-/// Normalises a relative path lexically, resolving `.` and `..` without touching the
-/// file system, and returns `None` when the path leaves the output directory.
-fn normalise(path: &Path) -> Option<PathBuf> {
-    let mut parts: Vec<&std::ffi::OsStr> = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                parts.pop()?;
-            }
-            Component::Normal(part) => parts.push(part),
-            Component::RootDir | Component::Prefix(_) => return None,
-        }
-    }
-    Some(parts.iter().collect())
-}
 
 /// Collects the value of every `$ref` keyword in a schema document.
 fn collect_refs<'a>(value: &'a Value, refs: &mut Vec<&'a str>) {
@@ -59,63 +25,34 @@ fn collect_refs<'a>(value: &'a Value, refs: &mut Vec<&'a str>) {
     }
 }
 
-// Why: the schema is split into one file per module whose definitions refer to each
-// other, so a reference to a file that is not generated, or to a definition that the
-// file does not hold, makes the schema unusable by a validator that loads the files from
-// disk. Each `$ref` must be relative, must name the file that contains it or another
-// generated file (resolved against the directory of the file that contains it), and its
-// fragment, if any, must be a JSON pointer that resolves within that file. This is a
-// structural check only: it does not follow `$id` or percent-decode fragments.
+// Why: the single documents `ironlab-figure.schema.json` and `ironlab-edit.schema.json`
+// are what strands.octue.com versions and what tools that load one file validate
+// against. Such a tool resolves nothing outside the document, so every `$ref` must be a
+// local JSON pointer into `$defs` that names a definition the document holds. A
+// reference to another file, or to a definition left behind in another document, would
+// make the document unusable on its own and would hide part of the schema from the
+// version comparison.
 #[test]
-fn every_reference_resolves_to_a_definition_in_a_generated_file() {
-    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
-        .into_iter()
-        .map(|(path, text)| {
-            let normal = normalise(&path)
-                .unwrap_or_else(|| panic!("{} leaves the output directory", path.display()));
-            let value = serde_json::from_str(&text)
-                .unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()));
-            (normal, value)
-        })
-        .collect();
-
-    let mut problems = Vec::new();
-    let mut cross_file = 0;
-    for (path, document) in &files {
+fn the_single_documents_refer_only_to_their_own_definitions() {
+    for (name, root) in [
+        ("ironlab-figure.schema.json", ironlab_ir::json_schema()),
+        (
+            "ironlab-edit.schema.json",
+            ironlab_ir::transaction_json_schema(),
+        ),
+    ] {
         let mut refs = Vec::new();
-        collect_refs(document, &mut refs);
-        for reference in refs {
-            let (file_part, fragment) = reference.split_once('#').unwrap_or((reference, ""));
-            if file_part.contains(':') {
-                problems.push(format!("{}: {reference} is not relative", path.display()));
-                continue;
-            }
-            let target_path = if file_part.is_empty() {
-                Some(path.clone())
-            } else {
-                cross_file += 1;
-                normalise(&path.parent().unwrap_or(Path::new("")).join(file_part))
-            };
-            let Some(target) = target_path.as_ref().and_then(|p| files.get(p)) else {
-                problems.push(format!(
-                    "{}: {reference} names a file that is not generated",
-                    path.display()
-                ));
-                continue;
-            };
-            if !fragment.is_empty() && target.pointer(fragment).is_none() {
-                problems.push(format!(
-                    "{}: {reference} names a definition that the file does not hold",
-                    path.display()
-                ));
-            }
-        }
+        collect_refs(&root, &mut refs);
+        assert!(!refs.is_empty(), "{name} has no references to check");
+        let problems: Vec<String> = refs
+            .into_iter()
+            .filter(|reference| {
+                !reference.starts_with("#/$defs/") || root.pointer(&reference[1..]).is_none()
+            })
+            .map(|reference| format!("{name}: {reference} is not a local definition"))
+            .collect();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
-    assert!(problems.is_empty(), "{}", problems.join("\n"));
-    assert!(
-        cross_file > 0,
-        "no file refers to another, so the schema is not split by module"
-    );
 }
 
 /// Collects every string that a schema allows under its `enum` and `const` keywords,
@@ -167,9 +104,8 @@ fn allowed_strings(
 // that the reader accepts (`f64` and `u8`) and must not be required, because every file
 // written before the element type existed omits it; its `values` must still admit `null`,
 // which is how a missing float is written; and the Rust enum that holds the values must
-// not surface as a definition of its own (`Values`), because the split into one file per
-// module maps each definition to the module of the wire type of the same name and there
-// is no such wire type.
+// not surface as a definition of its own (`Values`), because it is an implementation
+// detail of the reader with no counterpart in either encoding.
 #[test]
 fn the_array_definition_keeps_its_name_and_declares_the_element_type() {
     let schema = ironlab_ir::json_schema();
@@ -208,45 +144,20 @@ fn the_array_definition_keeps_its_name_and_declares_the_element_type() {
         schema.pointer("/$defs/Values").is_none(),
         "the schema defines Values"
     );
-
-    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
-        .into_iter()
-        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
-        .collect();
-    assert!(
-        files
-            .get(Path::new("data.schema.json"))
-            .and_then(|document| document.pointer("/$defs/NdArray"))
-            .is_some(),
-        "data.schema.json does not define NdArray"
-    );
-    for (path, document) in &files {
-        assert!(
-            document.pointer("/$defs/Values").is_none(),
-            "{} defines Values",
-            path.display()
-        );
-    }
 }
 
 // Why: web clients that build transactions as JSON need a schema to validate them against,
-// generated like that of figures: `edit.schema.json` must describe a transaction document
-// at its root (inline, as `figure.schema.json` describes a figure, or by a reference to its
-// own definition), hold the definitions of edits, values and nodes, and refer to the files
-// of other modules for the IR types that values and nodes contain rather than copy them.
+// generated like that of figures: `ironlab-edit.schema.json` must describe a transaction
+// document at its root (inline, or by a reference to its own definition), and hold the
+// definitions of edits, values and nodes together with the IR types that values and nodes
+// contain, such as limits and artists, because the document is used on its own.
 #[test]
-fn the_json_schema_of_a_transaction_is_generated_in_the_edit_module() {
-    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
-        .into_iter()
-        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
-        .collect();
-    let edit = files
-        .get(Path::new("edit.schema.json"))
-        .expect("edit.schema.json is generated");
-    for name in ["Edit", "Value", "Node"] {
+fn the_json_schema_of_a_transaction_describes_a_transaction_on_its_own() {
+    let edit = ironlab_ir::transaction_json_schema();
+    for name in ["Edit", "Value", "Node", "Limits", "Artist"] {
         assert!(
             edit.pointer(&format!("/$defs/{name}")).is_some(),
-            "edit.schema.json does not define {name}"
+            "ironlab-edit.schema.json does not define {name}"
         );
     }
     let root_is_transaction = edit.pointer("/properties/edits").is_some()
@@ -256,79 +167,41 @@ fn the_json_schema_of_a_transaction_is_generated_in_the_edit_module() {
                 .is_some());
     assert!(
         root_is_transaction,
-        "the root of edit.schema.json does not describe a transaction"
-    );
-    for (module, name) in [("axes", "Limits"), ("artist", "Artist")] {
-        assert!(
-            edit.pointer(&format!("/$defs/{name}")).is_none(),
-            "edit.schema.json copies {name} instead of referring to {module}.schema.json"
-        );
-    }
-    let mut refs = Vec::new();
-    collect_refs(edit, &mut refs);
-    assert!(
-        refs.contains(&"axes.schema.json#/$defs/Limits"),
-        "edit.schema.json does not refer to the definition of limits in axes.schema.json"
+        "the root of ironlab-edit.schema.json does not describe a transaction"
     );
 }
 
-// Why: the image kinds and colour scales are new to the schema, and the tools that
-// validate `.fig.json` files find their definitions by name in the file of their module
-// (the image kinds in the artist module, and the colour scales with their out-of-range
-// policies in the colour scale module); a definition missing, or one placed in another
-// module's file (the split by module panics on a type that has no wire message of its
-// name), would leave such files unvalidatable or the generation broken. The tagged types
-// must also admit exactly the variant names of the documented form, which is what a
-// hand-written file writes, and the replaced image kinds must be gone.
+// Why: tools that validate `.fig.json` files find the definitions of the image kinds and
+// the colour scales by name in the figure schema, so a definition missing or renamed would
+// leave such files unvalidatable. The tagged types must also admit exactly the variant
+// names of the documented form, which is what a hand-written file writes, and the
+// replaced image kinds must be gone.
 #[test]
-fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
+fn the_image_and_colour_scale_types_are_defined_with_their_variant_names() {
     let schema = ironlab_ir::json_schema();
-    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
-        .into_iter()
-        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
-        .collect();
-    for (file, names) in [
-        (
-            "artist.schema.json",
-            &[
-                "Image",
-                "ScalarImage",
-                "ImagePlacement",
-                "PixelRange",
-                "ImagePlane",
-            ][..],
-        ),
-        (
-            "color_scale.schema.json",
-            &[
-                "ColorScale",
-                "ColorScaleKind",
-                "ColorScaleOutOfRange",
-                "ContinuousColorScale",
-                "DiscreteColorScale",
-                "IndexedColorScale",
-                "CategoricalColorScale",
-                "ColorCategory",
-                "Colormap",
-                "ColorScaleNorm",
-                "ColorScaleLevels",
-                "OutOfRange",
-            ][..],
-        ),
+    for name in [
+        "Image",
+        "ScalarImage",
+        "ImagePlacement",
+        "PixelRange",
+        "ImagePlane",
+        "ColorScale",
+        "ColorScaleKind",
+        "ColorScaleOutOfRange",
+        "ContinuousColorScale",
+        "DiscreteColorScale",
+        "IndexedColorScale",
+        "CategoricalColorScale",
+        "ColorCategory",
+        "Colormap",
+        "ColorScaleNorm",
+        "ColorScaleLevels",
+        "OutOfRange",
     ] {
-        let module = files
-            .get(Path::new(file))
-            .unwrap_or_else(|| panic!("{file} is generated"));
-        for name in names {
-            assert!(
-                schema.pointer(&format!("/$defs/{name}")).is_some(),
-                "the schema does not define {name}"
-            );
-            assert!(
-                module.pointer(&format!("/$defs/{name}")).is_some(),
-                "{file} does not define {name}"
-            );
-        }
+        assert!(
+            schema.pointer(&format!("/$defs/{name}")).is_some(),
+            "the schema does not define {name}"
+        );
     }
     for gone in ["IndexedImage", "MappedImage"] {
         assert!(
@@ -388,25 +261,15 @@ fn the_image_types_are_defined_in_the_artist_module_with_their_variant_names() {
 }
 
 // Why: tools that validate `.fig.json` files find the definitions of bars, stairs and cells
-// by name in the file of the artist module, and the split into one file per module places
-// each definition with the wire message of the same name, so a type defined under another
-// name or in another module would leave such files unvalidatable or break the generation.
-// The tagged types must admit exactly the variant names of the documented form, which is
-// what a hand-written file writes: the kinds of artist, the orientations, the bases, widths
-// and offsets of bars, the two forms of stairs data with the three step positions, the two
-// kinds of cell edges, and the kinds of bins, the bin rules and the normalisations of a
-// binning record. The removed types of bar groups must no longer be defined, or a tool
-// would accept a file that the reader refuses.
+// by name in the figure schema, so a type missing or defined under another name would
+// leave such files unvalidatable. The tagged types must admit exactly the variant names
+// of the documented form, which is what a hand-written file writes: the kinds of artist,
+// the orientations, the bases, widths and offsets of bars, the two forms of stairs data
+// with the three step positions, the two kinds of cell edges, and the kinds of bins, the
+// bin rules and the normalisations of a binning record.
 #[test]
-fn the_bar_stairs_and_cells_types_are_defined_in_the_artist_module_with_their_variant_names() {
+fn the_bar_stairs_and_cells_types_are_defined_with_their_variant_names() {
     let schema = ironlab_ir::json_schema();
-    let files: BTreeMap<PathBuf, Value> = ironlab_ir::json_schema_files()
-        .into_iter()
-        .map(|(path, text)| (path, serde_json::from_str(&text).expect("JSON")))
-        .collect();
-    let artist = files
-        .get(Path::new("artist.schema.json"))
-        .expect("artist.schema.json is generated");
     for name in [
         "Bar",
         "Stairs",
@@ -423,10 +286,6 @@ fn the_bar_stairs_and_cells_types_are_defined_in_the_artist_module_with_their_va
         assert!(
             schema.pointer(&format!("/$defs/{name}")).is_some(),
             "the schema does not define {name}"
-        );
-        assert!(
-            artist.pointer(&format!("/$defs/{name}")).is_some(),
-            "artist.schema.json does not define {name}"
         );
     }
 

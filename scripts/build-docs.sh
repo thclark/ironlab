@@ -14,6 +14,13 @@ for file in ironlab.js ironlab_core.js ironlab_core_bg.wasm ironlab.css; do
   cp "target/web-dist/$file" "docs/embed/$file"
 done
 
+# The committed JSON Schema documents are copied under docs/, where zensical publishes them at /schema/ so that a
+# validator or an editor can load them by URL. The directory is emptied first so that a removed document does not
+# survive.
+rm -rf docs/schema
+mkdir -p docs/schema
+cp schema/ironlab-figure.schema.json schema/ironlab-edit.schema.json docs/schema/
+
 uvx --from zensical==0.0.62 zensical build --clean --strict
 # Zensical does not fingerprint the site's own stylesheets, images and PDFs, so a browser could pair a freshly
 # deployed page with ones it cached from the last deploy (see scripts/docs-cachebust.py).

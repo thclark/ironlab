@@ -14,22 +14,19 @@
 //!
 //! # Wire compatibility in CI
 //!
-//! The `.proto` files are build artefacts, so `buf breaking` cannot compare against a
-//! committed copy or a Git reference; CI generates the files of both the base branch and
-//! the pull request and compares the two directories:
+//! The `.proto` files are generated into `schema/proto/` and committed, so CI compares
+//! the committed files of the pull request with those of `main`, checked out beside
+//! them:
 //!
 //! ```sh
-//! git worktree add "$RUNNER_TEMP/base" origin/main
-//! CARGO_TARGET_DIR="$RUNNER_TEMP/base-target" \
-//!     cargo run --manifest-path "$RUNNER_TEMP/base/Cargo.toml" -p ironlab-ir --bin generate-proto
-//! cargo run -p ironlab-ir --bin generate-proto
-//! cd target/ironlab-proto
+//! git worktree add "$RUNNER_TEMP/main" origin/main
+//! cd schema/proto
 //! buf lint
-//! buf breaking --against "$RUNNER_TEMP/base-target/ironlab-proto"
+//! buf breaking --against "$RUNNER_TEMP/main/schema/proto"
 //! ```
 //!
-//! The comparison is skipped while the base branch has no `generate-proto` binary. The
-//! tests `buf_breaking_detects_renumbering` and
+//! While `main` has no committed `.proto` files, CI generates them from `main` instead.
+//! The tests `buf_breaking_detects_renumbering` and
 //! `buf_breaking_detects_exchanged_numbers_of_fields_of_the_same_type` show that the
 //! generated `buf.yaml` makes this comparison fail for the changes it must catch.
 //!

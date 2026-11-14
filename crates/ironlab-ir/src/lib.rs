@@ -23,10 +23,13 @@
 //! floating-point values as numbers with `null` for a non-finite value and 8-bit values
 //! as integers under an `element` of `"u8"`.
 //!
-//! The schemas of both formats are generated from the Rust types as build artefacts
-//! and are not committed: [`proto_files`] returns the `.proto` files (written by
-//! `cargo run -p ironlab-ir --bin generate-proto`), and [`json_schema_files`] returns
-//! the JSON Schema files (written by `cargo run -p ironlab-ir --bin generate-schema`).
+//! The schemas of both formats are generated from the Rust types and committed in the
+//! `schema/` directory of the repository, where a pre-commit hook and CI keep them in
+//! step with the types: [`proto_files`] returns the `.proto` files (written by
+//! `cargo run -p ironlab-ir --bin generate-proto`), and [`json_schema`] and
+//! [`transaction_json_schema`] return the JSON Schema documents of a figure and of a
+//! transaction of the edit protocol (written by
+//! `cargo run -p ironlab-ir --bin generate-schema`).
 //!
 //! # Defaults
 //!
@@ -129,139 +132,20 @@ use std::path::PathBuf;
 
 /// Generates the JSON Schema of the `.fig.json` format from the Rust types, as a single
 /// document whose definitions hold every type.
+///
+/// `cargo run -p ironlab-ir --bin generate-schema` writes it to
+/// `schema/ironlab-figure.schema.json`.
 pub fn json_schema() -> serde_json::Value {
     schemars::schema_for!(Figure).to_value()
 }
 
 /// Generates the JSON Schema of a transaction of the edit protocol from the Rust types,
 /// as a single document whose definitions hold every type.
+///
+/// `cargo run -p ironlab-ir --bin generate-schema` writes it to
+/// `schema/ironlab-edit.schema.json`.
 pub fn transaction_json_schema() -> serde_json::Value {
     schemars::schema_for!(Transaction).to_value()
-}
-
-/// Generates the JSON Schema of the `.fig.json` format as one file per module of this
-/// crate, with paths relative to the output directory.
-///
-/// Each file holds the definitions of the types declared in its module and refers to
-/// the definitions of other modules by relative references. The files are written to
-/// `target/ironlab-schema/` by `cargo run -p ironlab-ir --bin generate-schema`.
-///
-/// Two files describe a document rather than only definitions: `figure.schema.json`
-/// describes a figure, and `edit.schema.json` describes a transaction of the edit
-/// protocol. Every other file is named `<module>.schema.json` and holds only
-/// definitions.
-///
-/// # Panics
-///
-/// Panics when a definition belongs to no module of this crate, which is a mistake in
-/// the mapping of types to modules.
-pub fn json_schema_files() -> Vec<(PathBuf, String)> {
-    use serde_json::{Map, Value};
-
-    /// The module of the figure document, whose file also describes a figure.
-    const FIGURE: &str = "figure";
-
-    /// The module of the edit protocol, whose file also describes a transaction.
-    const EDIT: &str = "edit";
-
-    /// Returns the module that declares the domain type of the given name.
-    fn module_of(name: &str) -> &'static str {
-        match name {
-            "NodeId" => "ids",
-            // A property path has no wire message of its own: it is a string field of
-            // the edit messages.
-            "PropertyPath" => EDIT,
-            _ => wire::schema::module_declaring(name)
-                .unwrap_or_else(|| panic!("the JSON Schema definition {name} has no module")),
-        }
-    }
-
-    /// Rewrites every local reference to a definition of another module into a
-    /// reference to that module's file.
-    fn relocate_refs(value: &mut Value, module: &str) {
-        match value {
-            Value::Object(map) => {
-                for (key, inner) in map.iter_mut() {
-                    match (key.as_str(), inner) {
-                        ("$ref", Value::String(reference)) => {
-                            if let Some(name) = reference.strip_prefix("#/$defs/") {
-                                let owner = module_of(name);
-                                if owner != module {
-                                    *reference = format!("{owner}.schema.json#/$defs/{name}");
-                                }
-                            }
-                        }
-                        (_, inner) => relocate_refs(inner, module),
-                    }
-                }
-            }
-            Value::Array(items) => items
-                .iter_mut()
-                .for_each(|item| relocate_refs(item, module)),
-            _ => {}
-        }
-    }
-
-    /// Takes the definitions out of a root document, leaving the document that
-    /// describes its own type.
-    fn split_definitions(root: &mut Value) -> Map<String, Value> {
-        let object = root
-            .as_object_mut()
-            .expect("the root of a JSON Schema is an object");
-        match object.remove("$defs") {
-            Some(Value::Object(definitions)) => definitions,
-            _ => Map::new(),
-        }
-    }
-
-    let mut roots = std::collections::BTreeMap::from([
-        (FIGURE, json_schema()),
-        (EDIT, transaction_json_schema()),
-    ]);
-    let dialect = roots[FIGURE].get("$schema").cloned();
-
-    // The two roots describe overlapping sets of types, which schemars generates
-    // identically, so the definitions of both are collected into one set.
-    let mut definitions = Map::new();
-    for root in roots.values_mut() {
-        definitions.extend(split_definitions(root));
-    }
-
-    let mut modules: std::collections::BTreeMap<&'static str, Map<String, Value>> =
-        roots.keys().map(|module| (*module, Map::new())).collect();
-    for (name, mut definition) in definitions {
-        let module = module_of(&name);
-        relocate_refs(&mut definition, module);
-        modules.entry(module).or_default().insert(name, definition);
-    }
-    for (module, root) in roots.iter_mut() {
-        relocate_refs(root, module);
-    }
-
-    modules
-        .into_iter()
-        .map(|(module, definitions)| {
-            let mut document = roots.remove(module).unwrap_or_else(|| {
-                let mut document = Map::new();
-                if let Some(dialect) = &dialect {
-                    document.insert("$schema".to_owned(), dialect.clone());
-                }
-                document.insert(
-                    "title".to_owned(),
-                    Value::String(format!("The definitions of the {module} module")),
-                );
-                Value::Object(document)
-            });
-            document
-                .as_object_mut()
-                .expect("a schema document is an object")
-                .insert("$defs".to_owned(), Value::Object(definitions));
-            let mut text =
-                serde_json::to_string_pretty(&document).expect("a JSON value always serialises");
-            text.push('\n');
-            (PathBuf::from(format!("{module}.schema.json")), text)
-        })
-        .collect()
 }
 
 /// Generates the Protocol Buffers definition of the `.fig` format as one `.proto` file
@@ -270,7 +154,7 @@ pub fn json_schema_files() -> Vec<(PathBuf, String)> {
 ///
 /// The files are rendered from the same declarations that define the [`wire`] types,
 /// so they describe exactly the bytes that [`Figure::to_protobuf`] writes. They are
-/// written, together with a `buf.yaml`, to `target/ironlab-proto/` by
+/// written, together with a `buf.yaml`, to `schema/proto/` by
 /// `cargo run -p ironlab-ir --bin generate-proto`.
 pub fn proto_files() -> Vec<(PathBuf, String)> {
     wire::schema::render_files()

@@ -4,7 +4,7 @@ This page explains the IronLAB figure model entity by entity, and the two encodi
 
 ## Source of truth
 
-The Rust types in the `ironlab-ir` crate (`crates/ironlab-ir`) are the only definition of the model. The Protocol Buffers definition and the JSON Schema that describe the model to other software are generated from those types as build artefacts; neither is committed to the repository, so neither can drift from the code. How to generate them is described in [generating the schemas](#generating-the-schemas).
+The Rust types in the `ironlab-ir` crate (`crates/ironlab-ir`) are the only definition of the model. The Protocol Buffers definition and the JSON Schema that describe the model to other software are generated from those types and committed in the `schema/` directory of the repository, so that a change to the types and its effect on the format appear together in one diff. A pre-commit hook and CI check that the committed files equal those generated, so neither can drift from the code, as [ADR 0036](../adrs/0036-generated-schemas-are-committed-and-versioned-by-rules.md) records. How they are generated is described in [generating the schemas](#generating-the-schemas).
 
 ## Encodings
 
@@ -37,7 +37,7 @@ The Protocol Buffers messages are in package `ironlab.ir.v0`, with one `.proto` 
 - **Unknown values.** A field that the build does not know is skipped, so a file written by a later patch release still loads. An enum value that the build does not define makes decoding fail with an error rather than taking a default, because new enum values require a new minor version, and a file of another minor version is rejected before it is decoded.
 - **Versioning.** Field 1 of `Figure` is `schema_version` in every version of the schema, so that a reader can check the version of a file before decoding the rest of it, as described in [versioning](#versioning).
 
-Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` checks the generated files, and `buf breaking` compares them with the files generated from the `main` branch, except when a commit of the pull request declares a breaking change, as described in [versioning](#versioning).
+Compatibility of the Protocol Buffers definition is checked in CI: `buf lint` checks the committed files, and `buf breaking` compares them with those of the `main` branch; a breaking change that it finds raises the schema version, as described in [how the version is determined](#how-the-version-is-determined).
 
 ### JSON encoding
 
@@ -55,19 +55,23 @@ A complete JSON file is shown in [a minimal JSON file](#a-minimal-json-file).
 
 ### Generating the schemas
 
-The Protocol Buffers definition is written, together with a `buf.yaml` that configures `buf lint` and `buf breaking`, to `target/ironlab-proto/` by:
+The schemas are committed in the `schema/` directory at the root of the repository:
+
+- `schema/ironlab-figure.schema.json` is the JSON Schema of a figure, and `schema/ironlab-edit.schema.json` is the JSON Schema of a transaction of the [edit protocol](#edits). Each is a single self-contained document that uses JSON Schema draft 2020-12 and holds every definition that it uses, so that all of its references are local and a tool can load it as one file. These two documents are the ones whose versions are published, as [versioning](#versioning) describes.
+- `schema/proto/` holds the Protocol Buffers definition, one `.proto` file per module of `ironlab-ir` under `ironlab/ir/v0/`, together with a `buf.yaml` that configures `buf lint` and `buf breaking` from that directory.
+
+Both are regenerated from the Rust types by:
 
 ```sh
 cargo run -p ironlab-ir --bin generate-proto
-```
-
-The JSON Schema of the JSON encoding, which uses JSON Schema draft 2020-12 and is split into one file per module of `ironlab-ir`, is written to `target/ironlab-schema/` by:
-
-```sh
 cargo run -p ironlab-ir --bin generate-schema
 ```
 
-Both commands write to the directory named by `CARGO_TARGET_DIR` when it is set, and replace any files from an earlier run. Other languages generate their own types from the `.proto` files, for example with `buf generate` or `protoc`.
+By default, `generate-proto` writes into `schema/proto/` and `generate-schema` writes into `schema/`; either writes into another directory given with `--out DIR`. Each removes the files of an earlier run that it no longer generates. `generate-schema --print-version` writes nothing and prints the schema version that the build implements.
+
+The files are never edited by hand. The `generate-schemas` pre-commit hook runs both commands whenever a commit touches `crates/ironlab-ir/`, `schema/` or `Cargo.lock`, and fails when they change `schema/`, leaving the regenerated files to be staged, as a formatter does. The `schema` job of CI runs the same check, `scripts/check-schemas.sh`, on every pull request, and fails when the committed files differ from those generated.
+
+The JSON Schema is also published with this documentation, where a validator or an editor can load it by URL: [ironlab-figure.schema.json](../schema/ironlab-figure.schema.json) and [ironlab-edit.schema.json](../schema/ironlab-edit.schema.json). Other languages generate their own types from the `.proto` files, for example with `buf generate` or `protoc`.
 
 ## Model conventions
 
@@ -1144,17 +1148,31 @@ The third y value is `null`, so it is missing: the line ends at the second point
 
 ## Versioning
 
-The schema version has the form `major.minor.patch`, and the version implemented by the current build is `0.9.0`. It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed.
+The schema version has the form `major.minor.patch`. The version implemented by a build is the constant `SCHEMA_VERSION` of `ironlab-ir`, which is the first entry of the [version history](#version-history). It is the `schema_version` property in JSON and field 1 of the `Figure` message in Protocol Buffers, and it is checked before the rest of a file is read. A file loads when its major and minor components equal those of the build; the patch component may differ. Fields that a build does not recognise are ignored, so a file written by a later patch release of the same minor version still loads. A file with a different major or minor version is rejected with an error that names both versions, rather than being reported as malformed. The version applies to both encodings, and the Protocol Buffers package name carries only the major version (`v0`).
 
-The version applies to both encodings. The Protocol Buffers package name carries only the major version (`v0`). `buf breaking` in CI reports any change to the generated `.proto` files that is incompatible with the files generated from the `main` branch, unless a commit of the pull request declares a breaking change with a `BREAKING-CHANGE` paragraph, as the [commit conventions](../conventions/git-commits-and-versioning.md) require for any breaking change. Any incompatible change that no commit declares is reported as a mistake. A declared breaking change of the schema also requires a new major version, or, while the major version is 0, a new minor version, so that readers reject files of the other version before decoding them.
+### How the version is determined
 
-Changes to the schema are versioned as follows.
+The schema version is determined by rules, never chosen by a person, as [ADR 0036](../adrs/0036-generated-schemas-are-committed-and-versioned-by-rules.md) records. Two tools apply the rules, one to each encoding:
 
-- A **patch** version is for changes that every reader of the same minor version can ignore safely, such as a new optional property whose absence preserves the previous drawing.
-- A **minor** version is for additions that older readers cannot draw correctly, such as a new artist variant, a new projection, or a new variant of any tagged entity.
-- A **major** version is for changes that alter or remove the meaning of existing properties.
+- [Strands](https://strands.octue.com) compares each committed JSON Schema document with the version last published to its strand, and suggests the next version. The figure document is published to [octue/ironlab-figure](https://strands.octue.com/octue/ironlab-figure) and the transaction document to [octue/ironlab-edit](https://strands.octue.com/octue/ironlab-edit). Strands resolves every `$ref` before it compares two documents, and classifies their difference as a patch, a minor or a major change.
+- `buf breaking` compares the committed `.proto` files with those of the `main` branch, with the `PACKAGE` rules, and reports every change that is incompatible with them.
 
-While the major version is 0, the project may make breaking changes in a minor version, and a file of a different minor version is rejected in either case.
+The two strands are published in lockstep, so both always carry the same version. The rules are therefore applied to the highest version published to either strand, which is called the baseline here:
+
+| Situation | Required version |
+|---|---|
+| A strand's document equals the version last published to it | The baseline |
+| A strand's document has changed | The baseline with the component bumped that Strands bumps for that strand; when both strands hold the baseline, this is exactly the version that Strands suggests |
+| A strand has no published version | `SCHEMA_VERSION` itself, because there is nothing to compare against; the initial version that Strands suggests is not required |
+| `buf breaking` reports a breaking change | The next major version after the baseline, or, while the major version is 0, the next minor version, as semantic versioning allows during initial development |
+
+The schema version is the highest of these requirements. A breaking change is one that `buf breaking` reports or that Strands classifies as major.
+
+The `schema` job of the CI workflow computes the required version on every pull request, with `scripts/schema_version.py`, and posts it in a comment on the pull request. On a pull request into `main`, which is where the schema version is bumped together with the workspace version, the job fails unless `SCHEMA_VERSION` equals the required version, and names the line to set when it does not; on a pull request into a trunk it reports a mismatch as a warning. On every pull request, the job fails when the required change is breaking and no commit of the pull request declares it with a `BREAKING-CHANGE` paragraph, as the [commit conventions](../conventions/git-commits-and-versioning.md) require. A pull request from a fork has no access to the token that Strands requires, so its schema version is not checked. The only exception to the rules is the step to a stable schema: a pull request that sets `SCHEMA_VERSION` to exactly `1.0.0` while the baseline is 0.x passes whatever the tools require.
+
+When a pull request is merged into `main`, the release workflow compares both documents with their strands again. When either has changed, it publishes both at `SCHEMA_VERSION`, except a strand that already holds that version, which lets a publication that failed part way be completed by re-running the job; when neither has changed, it publishes nothing. The first publication of both strands, made by release 0.18.1, set the baseline at 0.10.0.
+
+### Version history
 
 The schema has had the following versions:
 
@@ -1180,4 +1198,4 @@ The model is designed so that further MATLAB plot types are added without restru
 - **New keys are new kinds of panel content.** A key that occupies tiles of the layout is a new variant of [panel content](#panel-content) rather than a new kind of node, so it is placed, fitted and checked as every panel is. Colourbars were added in this way, as [panel content](#colourbar-panels) and as a [bar drawn inside the plot area](#inside-colourbar) of an axes, each showing a [colour scale](#colour-scales), as [ADR 0024](../adrs/0024-colour-scales-colourbars-and-colour-keys.md#a-scale-is-shown-by-a-colourbar-or-a-legend-item) records.
 - **Annotations are nodes.** Pinned data tips and other annotations become nodes with their own identifiers, anchored to the artist and data index they describe, so that they are saved with the figure and exported like any other node.
 
-Each such addition is a new variant of a tagged entity and therefore increments the minor version of the schema, as described in [versioning](#versioning). The scene compiler then learns to draw the new variant; neither backend changes, as explained in the [architecture reference](architecture.md#one-path-to-pixels).
+Each such addition is a new variant of a tagged entity, which changes the schema version by the rules described in [versioning](#versioning). The scene compiler then learns to draw the new variant; neither backend changes, as explained in the [architecture reference](architecture.md#one-path-to-pixels).
